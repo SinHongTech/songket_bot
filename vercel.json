@@ -1,13 +1,37 @@
 {
   "version": 2,
   "builds": [
-    {"src":"api/webhook.py","use":"@vercel/python","config":{"maxDuration":60}},
-    {"src":"api/webapp.py","use":"@vercel/python","config":{"maxDuration":20}}
+    {
+      "src": "api/webhook.py",
+      "use": "@vercel/python",
+      "config": {
+        "maxDuration": 60
+      }
+    },
+    {
+      "src": "api/webapp.py",
+      "use": "@vercel/python",
+      "config": {
+        "maxDuration": 20
+      }
+    },
+    {
+      "src": "public/index.html",
+      "use": "@vercel/static"
+    }
   ],
   "routes": [
-    {"src":"/api/webhook","dest":"/api/webhook.py"},
-    {"src":"/api/webapp","dest":"/api/webapp.py"},
-    {"src":"^/$","dest":"/public/index.html"}
-  ],
-  "env":{"PYTHONUNBUFFERED":"1"}
+    {
+      "src": "/api/webhook",
+      "dest": "/api/webhook.py"
+    },
+    {
+      "src": "/api/webapp",
+      "dest": "/api/webapp.py"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/public/index.html"
+    }
+  ]
 }
