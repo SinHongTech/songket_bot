@@ -1,0 +1,2 @@
+requests==2.31.0
+# Upstash Redis is accessed through its REST API; requests is sufficient for this Vercel Python project.
