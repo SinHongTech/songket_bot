@@ -1,5 +1,5 @@
 [tool.vercel]
-entrypoint = "api/webapp.py:handler"
+entrypoint = "api.webapp:handler"
 
 [project]
 name = "beyda-security-bot"
