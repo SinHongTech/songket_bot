@@ -3,6 +3,7 @@
   "installCommand": "pip install -r requirements.txt && cd frontend && npm ci",
   "buildCommand": "cd frontend && npm run build",
   "outputDirectory": "frontend/dist",
+
   "functions": {
     "api/webhook.py": {
       "maxDuration": 60
@@ -11,7 +12,12 @@
       "maxDuration": 20
     }
   },
+
   "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/$1"
+    },
     {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
