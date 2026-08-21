@@ -1,37 +1,13 @@
 {
-  "version": 2,
-  "builds": [
-    {
-      "src": "api/webhook.py",
-      "use": "@vercel/python",
-      "config": {
-        "maxDuration": 60
-      }
-    },
-    {
-      "src": "api/webapp.py",
-      "use": "@vercel/python",
-      "config": {
-        "maxDuration": 20
-      }
-    },
-    {
-      "src": "public/index.html",
-      "use": "@vercel/static"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/api/webhook",
-      "dest": "/api/webhook.py"
-    },
-    {
-      "src": "/api/webapp",
-      "dest": "/api/webapp.py"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/public/index.html"
-    }
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "cd frontend && npm install",
+  "buildCommand": "cd frontend && npm run build",
+  "outputDirectory": "frontend/dist",
+  "functions": {
+    "api/webhook.py": { "maxDuration": 60 },
+    "api/webapp.py": { "maxDuration": 20 }
+  },
+  "rewrites": [
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }
