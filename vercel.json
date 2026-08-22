@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "builds": [
+    { "src": "api/dashboard.py", "use": "@vercel/python", "config": { "maxDuration": 20 } },
+    { "src": "miniapp/**", "use": "@vercel/static" }
+  ],
+  "routes": [
+    { "src": "/api/dashboard", "dest": "/api/dashboard.py" },
+    { "src": "^/$", "dest": "/miniapp/index.html" },
+    { "src": "^/(app.js|style.css)$", "dest": "/miniapp/$1" }
+  ],
+  "env": { "PYTHONUNBUFFERED": "1" }
+}

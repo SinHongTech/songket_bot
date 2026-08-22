@@ -1,0 +1,22 @@
+# Optional: run the local Telegram Bot API server on its own, e.g. to test
+# it or point a non-Dockerized bot process at http://localhost:8081.
+#
+# Requires TELEGRAM_API_ID and TELEGRAM_API_HASH from https://my.telegram.org
+# Usage: docker compose -f telegram-bot-api/docker-compose.yml up --build
+
+services:
+  telegram-bot-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      TELEGRAM_API_ID: "${TELEGRAM_API_ID:?Set TELEGRAM_API_ID in your environment or .env}"
+      TELEGRAM_API_HASH: "${TELEGRAM_API_HASH:?Set TELEGRAM_API_HASH in your environment or .env}"
+    ports:
+      - "8081:8081"
+    volumes:
+      - telegram-bot-api-data:/var/lib/telegram-bot-api
+    restart: unless-stopped
+
+volumes:
+  telegram-bot-api-data:
