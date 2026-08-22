@@ -104,18 +104,6 @@ class TelegramAPI:
             return None
 
         try:
-            if file_path.startswith("/") and config.USE_LOCAL_BOT_API:
-                try:
-                    with open(file_path, "rb") as fh:
-                        return fh.read()
-                except OSError as exc:
-                    logger.error(
-                        "Local file path could not be opened: %s (%s)",
-                        file_path,
-                        exc,
-                    )
-                    return None
-
             r = self.session.get(
                 f"{self.file_base}/{file_path}",
                 timeout=timeout,
