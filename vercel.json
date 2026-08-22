@@ -1,3 +1,4 @@
+
 {
   "version": 2,
   "builds": [
@@ -16,7 +17,7 @@
       }
     },
     {
-      "src": "public/index.html",
+      "src": "public/**",
       "use": "@vercel/static"
     }
   ],
@@ -28,6 +29,10 @@
     {
       "src": "/api/webapp",
       "dest": "/api/webapp.py"
+    },
+    {
+      "src": "/assets/(.*)",
+      "dest": "/public/assets/$1"
     },
     {
       "src": "/(.*)",
