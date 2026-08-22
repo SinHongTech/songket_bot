@@ -94,8 +94,11 @@ class TelegramAPI:
     # ── files ────────────────────────────────────────────────────────────
     def get_file_path(self, file_id: str) -> Optional[str]:
         data = self._get("getFile", params={"file_id": file_id}, timeout=15)
+        logger.info("getFile response for %s: %s", file_id, data)
         if data.get("ok"):
-            return data["result"].get("file_path")
+            file_path = data["result"].get("file_path")
+            logger.info("Extracted file_path for %s: %s", file_id, file_path)
+            return file_path
         return None
 
     def download_file(self, file_id: str, timeout: int = 30) -> Optional[bytes]:
