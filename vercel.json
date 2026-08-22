@@ -6,7 +6,10 @@
   ],
   "routes": [
     { "src": "/api/dashboard", "dest": "/api/dashboard.py" },
+    { "src": "/api/webapp", "dest": "/api/dashboard.py" },
+    { "src": "/assets/(.*)", "dest": "/miniapp/assets/$1" },
     { "src": "^/$", "dest": "/miniapp/index.html" },
+    { "src": "^/indexs.html$", "dest": "/miniapp/indexs.html" },
     { "src": "^/(app.js|style.css)$", "dest": "/miniapp/$1" }
   ],
   "env": { "PYTHONUNBUFFERED": "1" }
