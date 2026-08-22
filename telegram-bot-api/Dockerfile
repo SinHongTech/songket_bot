@@ -28,7 +28,6 @@ COPY --from=builder /usr/local/bin/telegram-bot-api /usr/local/bin/telegram-bot-
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-VOLUME ["/var/lib/telegram-bot-api"]
 EXPOSE 8081
 
 ENTRYPOINT ["/entrypoint.sh"]
