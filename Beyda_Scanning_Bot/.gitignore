@@ -5,3 +5,6 @@ __pycache__/
 .vercel/
 .venv/
 venv/
+node_modules/
+telegram-bot-api-data/
+*.log

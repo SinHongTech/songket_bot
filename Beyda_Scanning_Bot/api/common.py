@@ -1,27 +1,39 @@
-"""Shared configuration, Telegram Mini App authentication, and persistent KV helpers."""
-import os, json, time, hmac, hashlib, logging
+"""Shared configuration and helpers for the Vercel-hosted Mini App API.
+
+This module is intentionally self-contained (no imports from `bot/`) because
+Vercel only deploys the `api/` and `miniapp/` folders — the bot itself runs
+elsewhere (see the root docker-compose.yml). Both processes talk to the same
+Upstash Redis account, which is how scan reports produced by the bot become
+visible in the dashboard served here.
+"""
+from __future__ import annotations
+
+import hashlib
+import hmac
+import json
+import logging
+import os
+import time
 from datetime import datetime
 from typing import Optional
+from urllib.parse import parse_qsl
+
 import requests
 
-logger = logging.getLogger("BeydaBot")
+logger = logging.getLogger("BeydaWebApp")
+
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
-# Upstash Redis REST credentials (preferred).
-# KV_REST_API_* is kept as a backwards-compatible fallback for older Vercel projects.
-KV_REST_API_URL = (
-    os.environ.get("UPSTASH_REDIS_REST_URL")
-    or os.environ.get("KV_REST_API_URL")
-    or ""
-).rstrip("/")
-KV_REST_API_TOKEN = (
-    os.environ.get("UPSTASH_REDIS_REST_TOKEN")
-    or os.environ.get("KV_REST_API_TOKEN")
-    or ""
-)
 
-REDIS_CONFIGURED = bool(KV_REST_API_URL and KV_REST_API_TOKEN)
+UPSTASH_REDIS_REST_URL = (
+    os.environ.get("UPSTASH_REDIS_REST_URL") or os.environ.get("KV_REST_API_URL") or ""
+).rstrip("/")
+UPSTASH_REDIS_REST_TOKEN = (
+    os.environ.get("UPSTASH_REDIS_REST_TOKEN") or os.environ.get("KV_REST_API_TOKEN") or ""
+)
+REDIS_CONFIGURED = bool(UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN)
 MAX_DASHBOARD_GROUPS = max(1, min(5, int(os.environ.get("MAX_DASHBOARD_GROUPS", "5"))))
+REPORT_TIMEZONE = os.environ.get("REPORT_TIMEZONE", "Asia/Phnom_Penh")
 
 _mem: dict[str, tuple[float, object]] = {}
 
@@ -29,7 +41,11 @@ _mem: dict[str, tuple[float, object]] = {}
 def kv_get(key: str):
     if REDIS_CONFIGURED:
         try:
-            r = requests.get(f"{KV_REST_API_URL}/get/{key}", headers={"Authorization": f"Bearer {KV_REST_API_TOKEN}"}, timeout=3)
+            r = requests.get(
+                f"{UPSTASH_REDIS_REST_URL}/get/{key}",
+                headers={"Authorization": f"Bearer {UPSTASH_REDIS_REST_TOKEN}"},
+                timeout=5,
+            )
             if r.status_code == 200:
                 return r.json().get("result")
         except Exception as exc:
@@ -38,19 +54,6 @@ def kv_get(key: str):
     if item and time.time() - item[0] < 7 * 86400:
         return item[1]
     return None
-
-
-def kv_set(key: str, value, ttl: Optional[int] = None) -> bool:
-    raw = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
-    _mem[key] = (time.time(), value)
-    if REDIS_CONFIGURED:
-        try:
-            params = {"EX": ttl} if ttl else None
-            r = requests.post(f"{KV_REST_API_URL}/set/{key}", headers={"Authorization": f"Bearer {KV_REST_API_TOKEN}"}, params=params, data=raw, timeout=3)
-            return r.status_code == 200
-        except Exception as exc:
-            logger.warning("KV SET %s failed: %s", key, exc)
-    return True
 
 
 def kv_json_get(key: str) -> Optional[dict]:
@@ -66,15 +69,10 @@ def kv_json_get(key: str) -> Optional[dict]:
         return None
 
 
-def kv_json_set(key: str, value: dict, ttl: Optional[int] = None) -> bool:
-    return kv_set(key, value, ttl)
-
-
 def verify_telegram_init_data(init_data: str, max_age_seconds: int = 86400) -> Optional[dict]:
     """Validate Telegram WebApp initData using the official HMAC scheme."""
     if not BOT_TOKEN or not init_data:
         return None
-    from urllib.parse import parse_qsl
     pairs = parse_qsl(init_data, keep_blank_values=True)
     data = dict(pairs)
     received_hash = data.pop("hash", None)
@@ -106,13 +104,15 @@ def whitelist_ids() -> set[int]:
     for item in raw.split(","):
         item = item.strip()
         if item:
-            try: result.add(int(item))
-            except ValueError: logger.warning("Invalid whitelist user id: %s", item)
+            try:
+                result.add(int(item))
+            except ValueError:
+                logger.warning("Invalid whitelist user id: %s", item)
     return result
 
 
 def explicit_group_map() -> dict[int, list[int]]:
-    """GROUP_HANDLERS_JSON example: {\"123456789\":[-1001,-1002]}."""
+    """GROUP_HANDLERS_JSON example: {"123456789":[-1001,-1002]}."""
     raw = os.environ.get("GROUP_HANDLERS_JSON", "")
     if not raw:
         return {}
@@ -163,10 +163,9 @@ def groups_for_user(user_id: int, allowed_groups: set[int]) -> list[int]:
 
 
 def local_date() -> str:
-    # Default is Cambodia time; override with REPORT_TIMEZONE if desired.
     try:
         from zoneinfo import ZoneInfo
-        tz = ZoneInfo(os.environ.get("REPORT_TIMEZONE", "Asia/Phnom_Penh"))
-        return datetime.now(tz).date().isoformat()
+
+        return datetime.now(ZoneInfo(REPORT_TIMEZONE)).date().isoformat()
     except Exception:
         return datetime.utcnow().date().isoformat()
