@@ -79,8 +79,8 @@ html, body, #root {
 .glow-pulse  { animation: glow-pulse 2.5s ease-in-out infinite; }
 .dot-pulse   { animation: dot-pulse 1.6s ease-in-out infinite; }
 .fade-up     { animation: fade-up 0.4s ease forwards; }
-.scan-sweep  { animation: scan-sweep 2.2s ease-in-out infinite; }
 .spin        { animation: spin 0.9s linear infinite; }
+.spin-animation { animation: spin 0.9s linear infinite; }
 
 .gold-shimmer {
   color: var(--gold);

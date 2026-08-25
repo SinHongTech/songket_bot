@@ -1,55 +1,237 @@
-export const threatTimeline = [
-  { day: "Mon", scans: 120, threats: 8 },
-  { day: "Tue", scans: 98, threats: 5 },
-  { day: "Wed", scans: 145, threats: 14 },
-  { day: "Thu", scans: 210, threats: 6 },
-  { day: "Fri", scans: 178, threats: 11 },
-  { day: "Sat", scans: 88, threats: 3 },
-  { day: "Sun", scans: 130, threats: 9 },
-];
+import type { DashboardData, DashboardGroup, TelegramUser } from "./types";
 
-export const monthlyReport = [
-  { month: "Mar", scans: 2800, threats: 62 },
-  { month: "Apr", scans: 3100, threats: 88 },
-  { month: "May", scans: 2600, threats: 45 },
-  { month: "Jun", scans: 3400, threats: 71 },
-  { month: "Jul", scans: 4200, threats: 94 },
-  { month: "Aug", scans: 3900, threats: 81 },
-];
+export const PIE_COLORS = ["#D4A72C", "#3b82f6", "#e04040", "#d07820"];
 
-export const threatTypes = [
-  { name: "Phishing URL", value: 38 },
-  { name: "Malware File", value: 27 },
-  { name: "Scam Text", value: 21 },
-  { name: "Spam Media", value: 14 },
-];
+export const mockUser: TelegramUser = {
+  id: 719283921,
+  first_name: "Security Admin",
+  username: "khmertech_admin",
+};
 
-export const PIE_COLORS = ["#e04040", "#d07820", "#D4A72C", "#7a6830"];
+export function mockDashboardData(days: number = 7): DashboardData {
+  const dates: string[] = [];
+  const now = new Date();
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(now);
+    d.setDate(d.getDate() - i);
+    dates.push(d.toISOString().split("T")[0]);
+  }
 
-export const groups = [
-  { id: 1, name: "KhmerDev Community", members: 3820, threats: 12, status: "alert", lastScan: "2 min ago" },
-  { id: 2, name: "Phnom Penh Startup Hub", members: 1250, threats: 2, status: "protected", lastScan: "5 min ago" },
-  { id: 3, name: "Tech Khmer Official", members: 8940, threats: 0, status: "protected", lastScan: "1 min ago" },
-  { id: 4, name: "Cambodia Freelancers", members: 560, threats: 9, status: "alert", lastScan: "8 min ago" },
-];
+  const group1Daily = dates.map((date, i) => ({
+    date,
+    scanned: [42, 38, 55, 60, 52, 28, 45][i % 7],
+    files: [8, 6, 12, 10, 9, 4, 7][i % 7],
+    urls: [34, 32, 43, 50, 43, 24, 38][i % 7],
+    malicious: [1, 0, 2, 1, 3, 0, 1][i % 7],
+    deleted: [1, 0, 2, 1, 3, 0, 1][i % 7],
+    suspicious: [2, 1, 3, 1, 2, 1, 1][i % 7],
+    errors: 0,
+    oversize: 0,
+  }));
 
-export const threats = [
-  { id: 1, type: "Phishing URL", content: "http://fake-bcelbank.cc/login?ref=telegram", group: "KhmerDev Community", date: "Today 14:02", action: "Deleted", risk: "critical" },
-  { id: 2, type: "Malware File", content: "invoice_july_2025.exe", group: "Cambodia Freelancers", date: "Today 13:31", action: "Quarantined", risk: "high" },
-  { id: 3, type: "Scam Text", content: "Win $500 gift card! Click now: t.me/scam_giveaway", group: "KhmerDev Community", date: "Today 12:18", action: "Deleted", risk: "medium" },
-  { id: 4, type: "Phishing URL", content: "http://aba-verify.xyz/account/confirm", group: "Cambodia Freelancers", date: "Today 11:45", action: "Deleted", risk: "critical" },
-  { id: 5, type: "Spam Media", content: "promo_video_final.mp4 (repeated 12x)", group: "Phnom Penh Startup Hub", date: "Today 10:02", action: "Muted sender", risk: "medium" },
-];
+  const group2Daily = dates.map((date, i) => ({
+    date,
+    scanned: [30, 25, 40, 35, 48, 20, 32][i % 7],
+    files: [5, 4, 8, 7, 10, 3, 6][i % 7],
+    urls: [25, 21, 32, 28, 38, 17, 26][i % 7],
+    malicious: [0, 1, 0, 0, 1, 0, 0][i % 7],
+    deleted: [0, 1, 0, 0, 1, 0, 0][i % 7],
+    suspicious: [1, 0, 1, 2, 0, 0, 1][i % 7],
+    errors: 0,
+    oversize: 0,
+  }));
 
-export const scanHistory = [
-  { date: "2025-07-28 14:02", content: "http://fake-bcelbank.cc/login?ref=telegram", group: "KhmerDev Community", type: "URL", result: "threat" },
-  { date: "2025-07-28 13:31", content: "invoice_july_2025.exe", group: "Cambodia Freelancers", type: "File", result: "threat" },
-  { date: "2025-07-28 13:20", content: "https://github.com/khmerdev/songket", group: "KhmerDev Community", type: "URL", result: "clean" },
-  { date: "2025-07-28 12:45", content: "project_proposal_q3.pdf", group: "KhmerDev Community", type: "File", result: "clean" },
-  { date: "2025-07-28 12:18", content: "Win $500 gift card! Click now: t.me/scam_giveaway", group: "KhmerDev Community", type: "Text", result: "threat" },
-  { date: "2025-07-28 11:45", content: "http://aba-verify.xyz/account/confirm", group: "Cambodia Freelancers", type: "URL", result: "threat" },
-  { date: "2025-07-28 11:05", content: "team_photo_july.jpg", group: "Cambodia Freelancers", type: "Media", result: "clean" },
-  { date: "2025-07-28 10:02", content: "promo_video_final.mp4", group: "Phnom Penh Startup Hub", type: "Media", result: "clean" },
-  { date: "2025-07-28 09:14", content: "https://docs.google.com/spreadsheets/d/xyz", group: "Tech Khmer Official", type: "URL", result: "clean" },
-  { date: "2025-07-27 17:33", content: "free_crypto_bot.apk", group: "KhmerDev Community", type: "File", result: "threat" },
-];
+  const groups: DashboardGroup[] = [
+    { id: -1001928374650, title: "KhmerDev Security Hub", daily: group1Daily },
+    { id: -1001837465920, title: "Phnom Penh Tech Community", daily: group2Daily },
+  ];
+
+  const totals = {
+    scanned: 0,
+    files: 0,
+    urls: 0,
+    malicious: 0,
+    deleted: 0,
+    suspicious: 0,
+    errors: 0,
+    oversize: 0,
+  };
+
+  groups.forEach(g => {
+    g.daily.forEach(d => {
+      totals.scanned += d.scanned;
+      totals.files += d.files;
+      totals.urls += d.urls;
+      totals.malicious += d.malicious;
+      totals.deleted += d.deleted;
+      totals.suspicious += d.suspicious;
+      totals.errors += d.errors;
+      totals.oversize += d.oversize;
+    });
+  });
+
+  return {
+    authorized: true,
+    user_id: mockUser.id,
+    days,
+    groups,
+    totals,
+  };
+}
+
+export function getTimelineFromDashboard(dashboard?: DashboardData | null) {
+  if (!dashboard || !dashboard.groups.length) {
+    return [];
+  }
+
+  const dateMap: Record<string, { date: string; day: string; scans: number; threats: number }> = {};
+
+  const daysOfWeek = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  dashboard.groups.forEach(group => {
+    group.daily.forEach(item => {
+      if (!dateMap[item.date]) {
+        let dayLabel = item.date;
+        try {
+          const d = new Date(item.date);
+          dayLabel = daysOfWeek[d.getDay()] || item.date;
+        } catch {
+          // fallback to date
+        }
+        dateMap[item.date] = {
+          date: item.date,
+          day: dayLabel,
+          scans: 0,
+          threats: 0,
+        };
+      }
+      dateMap[item.date].scans += item.scanned;
+      dateMap[item.date].threats += (item.malicious + item.suspicious);
+    });
+  });
+
+  return Object.values(dateMap).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+export function getThreatBreakdownFromDashboard(dashboard?: DashboardData | null) {
+  if (!dashboard) {
+    return [
+      { name: "Scanned URLs", value: 1 },
+      { name: "Scanned Files", value: 1 },
+      { name: "Malicious Blocked", value: 0 },
+      { name: "Suspicious Flagged", value: 0 },
+    ];
+  }
+
+  const t = dashboard.totals;
+  return [
+    { name: "Scanned URLs", value: t.urls || 0 },
+    { name: "Scanned Files", value: t.files || 0 },
+    { name: "Malicious Blocked", value: t.malicious || 0 },
+    { name: "Suspicious Flagged", value: t.suspicious || 0 },
+  ];
+}
+
+export function getGroupCardsFromDashboard(dashboard?: DashboardData | null) {
+  if (!dashboard || !dashboard.groups.length) return [];
+
+  return dashboard.groups.map(g => {
+    let totalScanned = 0;
+    let threats = 0;
+    let suspicious = 0;
+
+    g.daily.forEach(d => {
+      totalScanned += d.scanned;
+      threats += d.malicious;
+      suspicious += d.suspicious;
+    });
+
+    const status = threats > 0 ? "alert" : "protected";
+
+    return {
+      id: g.id,
+      name: g.title,
+      totalScanned,
+      threats,
+      suspicious,
+      status,
+      daily: g.daily,
+    };
+  });
+}
+
+export function getThreatsListFromDashboard(dashboard?: DashboardData | null) {
+  if (!dashboard || !dashboard.groups.length) return [];
+
+  const list: {
+    id: string;
+    type: string;
+    content: string;
+    group: string;
+    date: string;
+    action: string;
+    risk: "critical" | "high" | "medium";
+  }[] = [];
+
+  dashboard.groups.forEach(g => {
+    g.daily.forEach(d => {
+      if (d.malicious > 0) {
+        list.push({
+          id: `${g.id}-${d.date}-malicious`,
+          type: d.files > 0 ? "Malware / Malicious Content" : "Malicious URL",
+          content: `${d.malicious} threat(s) detected & auto-removed`,
+          group: g.title,
+          date: d.date,
+          action: `${d.deleted} message(s) deleted`,
+          risk: "critical",
+        });
+      }
+      if (d.suspicious > 0) {
+        list.push({
+          id: `${g.id}-${d.date}-suspicious`,
+          type: "Suspicious Content",
+          content: `${d.suspicious} suspicious item(s) flagged`,
+          group: g.title,
+          date: d.date,
+          action: "Warning posted",
+          risk: "medium",
+        });
+      }
+    });
+  });
+
+  return list.sort((a, b) => b.date.localeCompare(a.date));
+}
+
+export function getScanHistoryFromDashboard(dashboard?: DashboardData | null) {
+  if (!dashboard || !dashboard.groups.length) return [];
+
+  const history: {
+    date: string;
+    content: string;
+    group: string;
+    type: "URL" | "File" | "All";
+    result: "clean" | "threat";
+    scanned: number;
+    malicious: number;
+  }[] = [];
+
+  dashboard.groups.forEach(g => {
+    g.daily.forEach(d => {
+      if (d.scanned > 0) {
+        const hasThreat = d.malicious > 0;
+        history.push({
+          date: d.date,
+          content: `${d.scanned} items (${d.urls} URLs, ${d.files} Files)`,
+          group: g.title,
+          type: d.files > 0 && d.urls === 0 ? "File" : d.urls > 0 && d.files === 0 ? "URL" : "All",
+          result: hasThreat ? "threat" : "clean",
+          scanned: d.scanned,
+          malicious: d.malicious,
+        });
+      }
+    });
+  });
+
+  return history.sort((a, b) => b.date.localeCompare(a.date));
+}
