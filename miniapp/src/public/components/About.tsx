@@ -64,7 +64,7 @@ export default function About({ isKm, bodyFont }: AboutProps) {
             <p style={{ fontSize: 13, fontWeight: 700, fontFamily: bodyFont }}>{isKm ? "ទំនាក់ទំនង" : "Contact"}</p>
           </div>
           <div style={{ display: "grid", gap: 6 }}>
-            {[{ icon: <Send size={11} color="var(--muted)" />, label: "@songketbbot" }, { icon: <Mail size={11} color="var(--muted)" />, label: "team@songket.app" }].map(c => (
+            {[{ icon: <Send size={11} color="var(--muted)" />, label: "@songket_beyda_bot" }, { icon: <Mail size={11} color="var(--muted)" />, label: "team@songket.app" }].map(c => (
               <div key={c.label} style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 {c.icon}
                 <span className="mono" style={{ fontSize: 10, color: "var(--text-secondary)" }}>{c.label}</span>

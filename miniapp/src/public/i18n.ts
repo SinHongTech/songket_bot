@@ -20,7 +20,7 @@ const en = {
   ],
   how_h: "How It Works",
   steps: [
-    { num: "01", label: "Add Songket to your group", desc: "Invite @songketbbot as an admin to any Telegram group. Setup takes under 60 seconds." },
+    { num: "01", label: "Add Songket to your group", desc: "Invite @songket_beyda_bot as an admin to any Telegram group. Setup takes under 60 seconds." },
     { num: "02", label: "Songket watches every message", desc: "Every link, file, and message is analyzed in real time against our threat database." },
     { num: "03", label: "Threats are blocked automatically", desc: "Malicious content is deleted and the sender is flagged before anyone is harmed." },
     { num: "04", label: "You stay in control", desc: "View full scan history, configure sensitivity, and manage your groups from the admin dashboard." },
@@ -86,7 +86,7 @@ const km: typeof en = {
   ],
   how_h: "របៀបដំណើរការ",
   steps: [
-    { num: "០១", label: "បន្ថែម Songket ទៅក្រុមរបស់អ្នក", desc: "អញ្ជើញ @songketbbot ជាអ្នកគ្រប់គ្រង Telegram ណាមួយ។ ការដំឡើងចំណាយពេលតិចជាង ៦០ វិនាទី។" },
+    { num: "០១", label: "បន្ថែម Songket ទៅក្រុមរបស់អ្នក", desc: "អញ្ជើញ @songket_beyda_bot ជាអ្នកគ្រប់គ្រង Telegram ណាមួយ។ ការដំឡើងចំណាយពេលតិចជាង ៦០ វិនាទី។" },
     { num: "០២", label: "Songket មើលគ្រប់សារ", desc: "តំណ ឯកសារ និងសារគ្រប់ជាន់ ត្រូវបានវិភាគក្នុងពេលជាក់ស្តែងប្រឆាំងនឹងមូលដ្ឋានទិន្នន័យការគំរាមកំហែងរបស់យើង។" },
     { num: "០៣", label: "ការគំរាមកំហែងត្រូវបានទប់ស្កាត់ដោយស្វ័យប្រវត្តិ", desc: "មាតិកាព្យាបាទត្រូវបានលុប ហើយអ្នកផ្ញើត្រូវបានដាក់ទង់ មុនពេលណាមួយត្រូវបានប៉ះពាល់។" },
     { num: "០៤", label: "អ្នកនៅក្នុងការគ្រប់គ្រង", desc: "មើលប្រវត្តិស្កែនពេញលេញ កំណត់រចនាសម្ព័ន្ធ និងគ្រប់គ្រងក្រុមរបស់អ្នកពីផ្ទាំងគ្រប់គ្រង។" },
