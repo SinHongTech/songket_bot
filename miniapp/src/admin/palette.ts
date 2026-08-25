@@ -1,4 +1,4 @@
-export type Nav = "dashboard" | "groups" | "threats" | "history" | "account";
+export type Nav = "dashboard" | "groups" | "threats" | "history" | "manage" | "account";
 export type Lang = "en" | "km";
 
 export const G = {

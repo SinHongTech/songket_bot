@@ -13,6 +13,7 @@ import {
   ShieldAlert,
   Loader2,
   Copy,
+  Sliders,
 } from "lucide-react";
 import LogoMark from "@/shared/components/LogoMark";
 import { G, type Nav, type Lang } from "@/admin/palette";
@@ -24,6 +25,7 @@ import GroupsView from "@/admin/components/GroupsView";
 import ThreatsView from "@/admin/components/ThreatsView";
 import HistoryView from "@/admin/components/HistoryView";
 import AccountView from "@/admin/components/AccountView";
+import ManageView from "@/admin/components/ManageView";
 
 function UpgradeModal({ onClose, lang }: { onClose: () => void; lang: Lang }) {
   const tx = T(lang);
@@ -235,11 +237,14 @@ export default function AdminApp() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const isSuperAdmin = apiData?.is_super_admin ?? false;
+
   const NAV_ITEMS: { id: Nav; icon: React.ReactElement; label: string }[] = [
     { id: "dashboard", icon: <LayoutDashboard size={20} />, label: tx.home },
     { id: "groups", icon: <MessageSquare size={20} />, label: tx.groups },
     { id: "threats", icon: <AlertTriangle size={20} />, label: tx.threats },
     { id: "history", icon: <Clock size={20} />, label: tx.history },
+    ...(isSuperAdmin ? [{ id: "manage" as Nav, icon: <Sliders size={20} />, label: tx.manage }] : []),
     { id: "account", icon: <User size={20} />, label: tx.account },
   ];
 
@@ -253,6 +258,7 @@ export default function AdminApp() {
     groups: <GroupsView dashboard={dashboard} lang={lang} />,
     threats: <ThreatsView dashboard={dashboard} lang={lang} days={days} onDaysChange={handleDaysChange} />,
     history: <HistoryView dashboard={dashboard} lang={lang} days={days} onDaysChange={handleDaysChange} />,
+    manage: <ManageView config={apiData?.config} lang={lang} onRefresh={() => loadData(true, days)} />,
     account: <AccountView user={user} dashboard={dashboard} dark={dark} setDark={setDark} lang={lang} setLang={setLang} />,
   };
 
@@ -269,6 +275,21 @@ export default function AdminApp() {
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ fontWeight: 800, fontSize: 13, color: G.gold }}>SongKet</span>
+              {isSuperAdmin && (
+                <span
+                  style={{
+                    fontSize: 9,
+                    fontWeight: 800,
+                    padding: "1px 6px",
+                    borderRadius: 4,
+                    background: "rgba(212,167,44,0.25)",
+                    color: G.gold,
+                    border: `1px solid ${G.goldBorder}`,
+                  }}
+                >
+                  {tx.superAdmin.toUpperCase()}
+                </span>
+              )}
               <span
                 style={{
                   fontSize: 9,
