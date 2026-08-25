@@ -12,7 +12,7 @@ export default function Footer({ isKm, bodyFont }: FooterProps) {
       <div style={{ borderRadius: "20px 20px 0 0", padding: "28px 24px", background: "rgb(220,180,82)" }}>
         <p className="mono" style={{ fontSize: 9, letterSpacing: "0.18em", color: "rgba(26,18,0,0.6)", marginBottom: 8 }}>{isKm ? "ចាប់ផ្តើមថ្ងៃនេះ" : "GET PROTECTED TODAY"}</p>
         <h3 style={{ fontSize: 20, fontWeight: 800, color: "#1a1200", lineHeight: 1.25, marginBottom: 14, fontFamily: bodyFont }}>{isKm ? "ការពារក្រុម Telegram របស់អ្នក\nឥឡូវនេះ" : "Your group deserves\nbetter protection."}</h3>
-        <a href="https://t.me/songketbbot" target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "11px 20px", borderRadius: 10, background: "#1a1200", color: "rgb(220,180,82)", fontSize: 13, fontWeight: 700, textDecoration: "none", fontFamily: bodyFont, transition: "opacity 0.15s" }} onMouseEnter={e => (e.currentTarget.style.opacity = "0.82")} onMouseLeave={e => (e.currentTarget.style.opacity = "1")}>
+        <a href="https://t.me/songket_beyda_bot" target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "11px 20px", borderRadius: 10, background: "#1a1200", color: "rgb(220,180,82)", fontSize: 13, fontWeight: 700, textDecoration: "none", fontFamily: bodyFont, transition: "opacity 0.15s" }} onMouseEnter={e => (e.currentTarget.style.opacity = "0.82")} onMouseLeave={e => (e.currentTarget.style.opacity = "1")}>
           <Send size={14} /> {isKm ? "បើក Songket Bot" : "Open Songket Bot"}
         </a>
       </div>
@@ -28,7 +28,7 @@ export default function Footer({ isKm, bodyFont }: FooterProps) {
         </div>
         <p style={{ fontSize: 13, color: "#666", lineHeight: 1.7, marginBottom: 20, fontFamily: bodyFont }}>{isKm ? "ជួយខ្មែរ និងអាជីវកម្មធ្វើការសម្រេចចិត្តប្រកបដោយសុវត្ថិភាព ទាក់ទងនឹងសារឌីជីថលគួរឱ្យសង្ស័យ។" : "Helping Cambodians and businesses make safer decisions around suspicious digital messages."}</p>
         <div style={{ display: "flex", gap: 8, marginBottom: 28 }}>
-          {[{ label: "Facebook", icon: "𝐟", href: "#" }, { label: "Telegram", icon: <Send size={14} />, href: "https://t.me/songketbbot" }, { label: "TikTok", icon: "♪", href: "#" }, { label: "Email", icon: <Mail size={14} />, href: "mailto:team@songket.app" }].map(s => (
+          {[{ label: "Facebook", icon: "𝐟", href: "#" }, { label: "Telegram", icon: <Send size={14} />, href: "https://t.me/songket_beyda_bot" }, { label: "TikTok", icon: "♪", href: "#" }, { label: "Email", icon: <Mail size={14} />, href: "mailto:team@songket.app" }].map(s => (
             <a key={s.label} href={s.href} target="_blank" rel="noreferrer" aria-label={s.label} style={{ width: 40, height: 40, borderRadius: 10, background: "#1c1a14", border: "1px solid #2a2620", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, textDecoration: "none", transition: "all 0.18s" }} onMouseEnter={e => { e.currentTarget.style.background = "rgba(220,180,82,0.12)"; e.currentTarget.style.borderColor = "rgba(220,180,82,0.4)"; }} onMouseLeave={e => { e.currentTarget.style.background = "#1c1a14"; e.currentTarget.style.borderColor = "#2a2620"; }}>
               {s.icon}
             </a>
