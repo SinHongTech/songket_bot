@@ -1,25 +1,33 @@
 import { useState } from "react";
-import { Check } from "lucide-react";
+import { Check, Shield } from "lucide-react";
 import { G, type Lang } from "../palette";
 import { t as T, kh } from "../i18n";
-import { threats } from "../data";
+import type { DashboardData } from "../types";
+import { getThreatsListFromDashboard } from "../data";
 import { SectionHeader, RiskBadge } from "./Badges";
 
 type RiskFilter = "all" | "critical" | "high" | "medium";
-type DateFilter = 0 | 1 | 2 | 3; // Today | 7 Days | 30 Days | All
+
+interface ThreatsViewProps {
+  dashboard: DashboardData | null;
+  lang: Lang;
+  days: number;
+  onDaysChange: (d: number) => void;
+}
 
 const RISK_FILTERS: RiskFilter[] = ["all", "critical", "high", "medium"];
+const DAY_OPTIONS = [1, 7, 14, 30];
 
-export default function ThreatsView({ lang }: { lang: Lang }) {
+export default function ThreatsView({ dashboard, lang, days, onDaysChange }: ThreatsViewProps) {
   const tx = T(lang);
   const [riskFilter, setRiskFilter] = useState<RiskFilter>("all");
-  const [dateFilter, setDateFilter] = useState<DateFilter>(3);
 
   const riskLabel = (f: RiskFilter): string => {
     if (f === "all") return tx.filterAll;
     return { critical: lang === "km" ? "ធ្ងន់ធ្ងរ" : "Critical", high: lang === "km" ? "ខ្ពស់" : "High", medium: lang === "km" ? "មធ្យម" : "Medium" }[f];
   };
 
+  const threats = getThreatsListFromDashboard(dashboard);
   const filtered = threats.filter(t => riskFilter === "all" || t.risk === riskFilter);
 
   return (
@@ -28,44 +36,84 @@ export default function ThreatsView({ lang }: { lang: Lang }) {
 
       {/* Date filter */}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        {tx.dateFilters.map((label, i) => (
-          <button key={i} onClick={() => setDateFilter(i as DateFilter)} style={{ padding: "5px 12px", borderRadius: 20, border: `1.5px solid ${dateFilter === i ? G.gold : G.border}`, background: dateFilter === i ? G.goldSurface : "transparent", color: dateFilter === i ? G.gold : G.muted, cursor: "pointer", fontSize: 11, fontWeight: 700, transition: "all 0.15s" }}>
-            <span className={kh(lang)}>{label}</span>
-          </button>
-        ))}
+        {tx.dateFilters.map((label, i) => {
+          const dVal = DAY_OPTIONS[i] || 7;
+          const active = days === dVal;
+          return (
+            <button
+              key={i}
+              onClick={() => onDaysChange(dVal)}
+              style={{
+                padding: "5px 12px",
+                borderRadius: 20,
+                border: `1.5px solid ${active ? G.gold : G.border}`,
+                background: active ? G.goldSurface : "transparent",
+                color: active ? G.gold : G.muted,
+                cursor: "pointer",
+                fontSize: 11,
+                fontWeight: 700,
+                transition: "all 0.15s",
+              }}
+            >
+              <span className={kh(lang)}>{label}</span>
+            </button>
+          );
+        })}
       </div>
 
       {/* Risk filter */}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
         {RISK_FILTERS.map(f => (
-          <button key={f} onClick={() => setRiskFilter(f)} style={{ padding: "5px 14px", borderRadius: 20, border: `1.5px solid ${riskFilter === f ? G.gold : G.border}`, background: riskFilter === f ? G.goldSurface : "transparent", color: riskFilter === f ? G.gold : G.muted, cursor: "pointer", fontSize: 11, fontWeight: 700, transition: "all 0.15s" }}>
+          <button
+            key={f}
+            onClick={() => setRiskFilter(f)}
+            style={{
+              padding: "5px 14px",
+              borderRadius: 20,
+              border: `1.5px solid ${riskFilter === f ? G.gold : G.border}`,
+              background: riskFilter === f ? G.goldSurface : "transparent",
+              color: riskFilter === f ? G.gold : G.muted,
+              cursor: "pointer",
+              fontSize: 11,
+              fontWeight: 700,
+              transition: "all 0.15s",
+            }}
+          >
             <span className={kh(lang)}>{riskLabel(f)}</span>
           </button>
         ))}
       </div>
 
-      {filtered.length === 0 && (
-        <div style={{ textAlign: "center", padding: "32px 0", color: G.muted, fontSize: 13 }}>
-          <span className={kh(lang)}>{tx.noThreatFilter(riskFilter)}</span>
+      {filtered.length === 0 ? (
+        <div style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 14, padding: "32px 20px", textAlign: "center" }}>
+          <Shield size={32} color={G.safe} style={{ marginBottom: 12 }} />
+          <div style={{ fontSize: 14, fontWeight: 600, color: G.text, marginBottom: 4 }}>
+            <span className={kh(lang)}>{tx.noThreatFilter(riskFilter)}</span>
+          </div>
+          <div style={{ fontSize: 12, color: G.muted }}>
+            <span className={kh(lang)}>{tx.noThreats}</span>
+          </div>
         </div>
+      ) : (
+        filtered.map(t => (
+          <div key={t.id} style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 13, padding: "14px 16px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 600, color: G.textSec }}>{t.type}</span>
+              <RiskBadge risk={t.risk} />
+            </div>
+            <div style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: t.risk === "critical" ? G.danger : G.warn, marginBottom: 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {t.content}
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: G.muted, marginBottom: 8 }}>
+              <span>{t.group}</span>
+              <span>{t.date}</span>
+            </div>
+            <div style={{ fontSize: 11, color: G.safe, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
+              <Check size={11} /> {t.action}
+            </div>
+          </div>
+        ))
       )}
-
-      {filtered.map(t => (
-        <div key={t.id} style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 13, padding: "14px 16px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: G.textSec }}>{t.type}</span>
-            <RiskBadge risk={t.risk} />
-          </div>
-          <div style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, color: G.danger, marginBottom: 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.content}</div>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: G.muted, marginBottom: 8 }}>
-            <span>{t.group}</span>
-            <span>{t.date}</span>
-          </div>
-          <div style={{ fontSize: 11, color: G.safe, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
-            <Check size={11} /> {t.action}
-          </div>
-        </div>
-      ))}
     </div>
   );
 }
