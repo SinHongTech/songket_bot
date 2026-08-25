@@ -87,3 +87,30 @@ export async function fetchDashboardData(days: number = 7): Promise<DashboardApi
   const data: DashboardApiResponse = await response.json();
   return data;
 }
+
+export async function saveSystemConfig(config: {
+  whitelist: number[];
+  allowed_groups: number[];
+  group_handlers: Record<string, number[]>;
+}): Promise<{ ok: boolean; config: any }> {
+  const tg = getTelegramWebApp();
+  const initData = tg?.initData || "";
+
+  const response = await fetch("/api/dashboard", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      initData,
+      action: "save_config",
+      ...config,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to save system configuration (HTTP ${response.status})`);
+  }
+
+  return await response.json();
+}

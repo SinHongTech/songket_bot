@@ -43,10 +43,19 @@ export interface TelegramUser {
   language_code?: string;
 }
 
+export interface SystemConfig {
+  whitelist_user_ids: number[];
+  allowed_groups: number[];
+  group_handlers: Record<string, number[]>;
+  super_admin_ids: number[];
+}
+
 export interface DashboardApiResponse {
   authorized: boolean;
+  is_super_admin?: boolean;
   user?: TelegramUser;
   dashboard?: DashboardData;
+  config?: SystemConfig;
   error?: string;
   isMock?: boolean;
 }

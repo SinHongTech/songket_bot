@@ -56,6 +56,25 @@ def kv_get(key: str):
     return None
 
 
+def kv_set(key: str, value: str, ttl: Optional[int] = None) -> bool:
+    if REDIS_CONFIGURED:
+        try:
+            url = f"{UPSTASH_REDIS_REST_URL}/set/{key}"
+            if ttl:
+                url += f"?EX={ttl}"
+            r = requests.post(
+                url,
+                headers={"Authorization": f"Bearer {UPSTASH_REDIS_REST_TOKEN}"},
+                data=value,
+                timeout=5,
+            )
+            return r.status_code == 200
+        except Exception as exc:
+            logger.warning("KV SET %s failed: %s", key, exc)
+    _mem[key] = (time.time(), value)
+    return True
+
+
 def kv_json_get(key: str) -> Optional[dict]:
     value = kv_get(key)
     if value is None:
@@ -67,6 +86,52 @@ def kv_json_get(key: str) -> Optional[dict]:
         return obj if isinstance(obj, dict) else None
     except Exception:
         return None
+
+
+def super_admin_ids() -> set[int]:
+    result = set()
+    raw = os.environ.get("ADMIN_CHAT_ID", "")
+    for item in raw.split(","):
+        item = item.strip()
+        if item:
+            try:
+                result.add(int(item))
+            except ValueError:
+                pass
+    try:
+        redis_super = kv_get("config:super_admin_ids")
+        if redis_super:
+            for item in str(redis_super).split(","):
+                item = item.strip()
+                if item:
+                    try:
+                        result.add(int(item))
+                    except ValueError:
+                        pass
+    except Exception:
+        pass
+    return result
+
+
+def is_super_admin(user_id: int) -> bool:
+    return user_id in super_admin_ids()
+
+
+def get_system_config() -> dict:
+    return {
+        "whitelist_user_ids": sorted(list(whitelist_ids())),
+        "allowed_groups": sorted(list(get_allowed_groups())),
+        "group_handlers": explicit_group_map(),
+        "super_admin_ids": sorted(list(super_admin_ids())),
+    }
+
+
+def save_system_config(whitelist: list[int], allowed_groups: list[int], group_handlers: dict) -> bool:
+    ok1 = kv_set("config:whitelist_user_ids", ",".join(str(x) for x in whitelist))
+    ok2 = kv_set("config:allowed_groups", ",".join(str(x) for x in allowed_groups))
+    clean_handlers = {str(k): [int(g) for g in v] for k, v in group_handlers.items()}
+    ok3 = kv_set("config:group_handlers", json.dumps(clean_handlers))
+    return bool(ok1 and ok2 and ok3)
 
 
 def verify_telegram_init_data(init_data: str, max_age_seconds: int = 86400) -> Optional[dict]:
@@ -99,8 +164,9 @@ def verify_telegram_init_data(init_data: str, max_age_seconds: int = 86400) -> O
 
 
 def whitelist_ids() -> set[int]:
-    raw = os.environ.get("WHITELIST_USER_IDS", "")
     result = set()
+    # 1. Environment variable
+    raw = os.environ.get("WHITELIST_USER_IDS", "")
     for item in raw.split(","):
         item = item.strip()
         if item:
@@ -108,19 +174,81 @@ def whitelist_ids() -> set[int]:
                 result.add(int(item))
             except ValueError:
                 logger.warning("Invalid whitelist user id: %s", item)
+    # 2. Dynamic Redis config
+    try:
+        redis_extra = kv_get("config:whitelist_user_ids") or kv_get("whitelist:users")
+        if redis_extra:
+            if isinstance(redis_extra, (list, set)):
+                for uid in redis_extra:
+                    result.add(int(uid))
+            elif isinstance(redis_extra, str):
+                for uid in redis_extra.split(","):
+                    uid = uid.strip()
+                    if uid:
+                        try:
+                            result.add(int(uid))
+                        except ValueError:
+                            pass
+    except Exception as exc:
+        logger.warning("Error reading Redis whitelist: %s", exc)
     return result
+
+
+def get_allowed_groups() -> set[int]:
+    groups = set()
+    # 1. Dynamic Redis config
+    try:
+        redis_groups = kv_get("config:allowed_groups")
+        if redis_groups:
+            if isinstance(redis_groups, (list, set)):
+                for g in redis_groups:
+                    groups.add(int(g))
+            elif isinstance(redis_groups, str):
+                for g in redis_groups.split(","):
+                    g = g.strip()
+                    if g:
+                        try:
+                            groups.add(int(g))
+                        except ValueError:
+                            pass
+    except Exception as exc:
+        logger.warning("Error reading Redis allowed groups: %s", exc)
+
+    # 2. Environment variable fallback
+    if not groups:
+        for _x in os.environ.get("ALLOWED_GROUP_IDS", "").split(","):
+            if _x.strip():
+                try:
+                    groups.add(int(_x.strip()))
+                except ValueError:
+                    pass
+    return groups
 
 
 def explicit_group_map() -> dict[int, list[int]]:
     """GROUP_HANDLERS_JSON example: {"123456789":[-1001,-1002]}."""
-    raw = os.environ.get("GROUP_HANDLERS_JSON", "")
+    # 1. Dynamic Redis config
+    try:
+        redis_handlers = kv_json_get("config:group_handlers")
+        if redis_handlers and isinstance(redis_handlers, dict):
+            out = {}
+            for uid, grps in redis_handlers.items():
+                out[int(uid)] = [int(g) for g in grps][:MAX_DASHBOARD_GROUPS]
+            return out
+    except Exception as exc:
+        logger.warning("Error reading Redis group handlers: %s", exc)
+
+    # 2. Environment variable
+    raw = os.environ.get("GROUP_HANDLERS_JSON", "").strip()
     if not raw:
         return {}
     try:
-        obj = json.loads(raw)
+        import re
+        cleaned = re.sub(r',\s*([\]}])', r'\1', raw)
+        obj = json.loads(cleaned)
         out = {}
-        for uid, groups in obj.items():
-            out[int(uid)] = [int(g) for g in groups][:MAX_DASHBOARD_GROUPS]
+        for uid, grps in obj.items():
+            out[int(uid)] = [int(g) for g in grps][:MAX_DASHBOARD_GROUPS]
         return out
     except Exception as exc:
         logger.error("GROUP_HANDLERS_JSON is invalid: %s", exc)
@@ -159,6 +287,9 @@ def groups_for_user(user_id: int, allowed_groups: set[int]) -> list[int]:
             groups.append(gid)
             if len(groups) >= MAX_DASHBOARD_GROUPS:
                 break
+    # Fallback: if is_group_admin check fails but user is whitelisted and allowed_groups exist, return allowed_groups
+    if not groups and allowed_groups:
+        return list(sorted(allowed_groups))[:MAX_DASHBOARD_GROUPS]
     return groups
 
 

@@ -7,27 +7,42 @@ from datetime import date, timedelta
 from http.server import BaseHTTPRequestHandler
 
 try:
-    from api.common import get_chat, groups_for_user, kv_json_get, local_date, verify_telegram_init_data, whitelist_ids
+    from api.common import (
+        get_allowed_groups,
+        get_chat,
+        get_system_config,
+        groups_for_user,
+        is_super_admin,
+        kv_json_get,
+        local_date,
+        save_system_config,
+        verify_telegram_init_data,
+        whitelist_ids,
+    )
 except ImportError:
-    from common import get_chat, groups_for_user, kv_json_get, local_date, verify_telegram_init_data, whitelist_ids
+    from common import (
+        get_allowed_groups,
+        get_chat,
+        get_system_config,
+        groups_for_user,
+        is_super_admin,
+        kv_json_get,
+        local_date,
+        save_system_config,
+        verify_telegram_init_data,
+        whitelist_ids,
+    )
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("BeydaWebApp")
-
-ALLOWED_GROUPS = set()
-for _x in os.environ.get("ALLOWED_GROUP_IDS", "").split(","):
-    if _x.strip():
-        try:
-            ALLOWED_GROUPS.add(int(_x.strip()))
-        except ValueError:
-            pass
 
 METRICS = ("scanned", "files", "urls", "malicious", "deleted", "suspicious", "errors", "oversize")
 
 
 def build_dashboard(user_id: int, days: int = 7) -> dict:
     days = max(1, min(31, days))
-    group_ids = groups_for_user(user_id, ALLOWED_GROUPS)
+    allowed_groups = get_allowed_groups()
+    group_ids = groups_for_user(user_id, allowed_groups)
     groups = []
     totals = {m: 0 for m in METRICS}
     today = date.fromisoformat(local_date())
@@ -71,11 +86,24 @@ class handler(BaseHTTPRequestHandler):
                 return self._json(401, {"authorized": False, "error": "Invalid or expired Telegram session"})
 
             uid = int(user["id"])
-            if uid not in whitelist_ids():
+            super_admin = is_super_admin(uid)
+
+            # Action: Save System Configuration (Super Admin only)
+            if body.get("action") == "save_config":
+                if not super_admin:
+                    return self._json(403, {"ok": False, "error": "Unauthorized. Super Admin access required."})
+                whitelist = [int(x) for x in body.get("whitelist", []) if str(x).strip()]
+                allowed_groups = [int(x) for x in body.get("allowed_groups", []) if str(x).strip()]
+                group_handlers = body.get("group_handlers", {})
+                ok = save_system_config(whitelist, allowed_groups, group_handlers)
+                return self._json(200, {"ok": ok, "config": get_system_config()})
+
+            if not super_admin and uid not in whitelist_ids():
                 return self._json(
                     200,
                     {
                         "authorized": False,
+                        "is_super_admin": False,
                         "user": {"id": uid, "first_name": user.get("first_name", ""), "username": user.get("username", "")},
                     },
                 )
@@ -84,8 +112,10 @@ class handler(BaseHTTPRequestHandler):
                 200,
                 {
                     "authorized": True,
+                    "is_super_admin": super_admin,
                     "user": {"id": uid, "first_name": user.get("first_name", ""), "username": user.get("username", "")},
                     "dashboard": build_dashboard(uid, int(body.get("days", 7))),
+                    "config": get_system_config() if super_admin else None,
                 },
             )
         except Exception:
