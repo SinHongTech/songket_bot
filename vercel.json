@@ -27,8 +27,11 @@
       "dest": "/api/dashboard.py"
     },
     {
+      "handle": "filesystem"
+    },
+    {
       "src": "/(.*)",
-      "dest": "/miniapp/dist/index.html"
+      "dest": "/index.html"
     }
   ],
   "env": {
