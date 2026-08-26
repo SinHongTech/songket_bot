@@ -120,7 +120,8 @@ class TelegramAPI:
             "show_alert": show_alert,
         }
         if text:
-            payload["text"] = text
+            # Telegram Bot API enforces a strict 200-character limit on answerCallbackQuery
+            payload["text"] = text[:197] + "..." if len(text) > 200 else text
         data = self._post("answerCallbackQuery", payload)
         return data.get("ok", False)
 
