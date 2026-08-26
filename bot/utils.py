@@ -285,18 +285,18 @@ def get_managed_groups_for_user(api, user_id: int) -> list[dict]:
     allowed = get_allowed_groups()
     group_ids: list[int] = []
 
-    if is_super_admin(user_id):
+    # 1. Prefer explicit group mapping if defined for this user
+    explicit = explicit_group_map().get(user_id)
+    if explicit is not None:
+        group_ids = [g for g in explicit if not allowed or g in allowed]
+    elif is_super_admin(user_id):
         group_ids = sorted(list(allowed))
     else:
-        explicit = explicit_group_map().get(user_id)
-        if explicit is not None:
-            group_ids = [g for g in explicit if not allowed or g in allowed]
-        else:
-            for gid in sorted(allowed):
-                if api.is_group_admin(user_id, gid):
-                    group_ids.append(gid)
-                    if len(group_ids) >= config.MAX_DASHBOARD_GROUPS:
-                        break
+        for gid in sorted(allowed):
+            if api.is_group_admin(user_id, gid):
+                group_ids.append(gid)
+                if len(group_ids) >= config.MAX_DASHBOARD_GROUPS:
+                    break
 
     groups: list[dict] = []
     for gid in group_ids:
