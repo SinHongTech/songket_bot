@@ -402,12 +402,28 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
 
     # 1. Non-technical explanation modal
     if data in {"explain_threat", "explain_suspicious"}:
-        explain_text = (
-            "🛡️ ការណែនាំសុវត្ថិភាព | Security Guide:\n"
-            "1. ហាមចុច link ឬបើក file គួរឱ្យសង្ស័យ\n"
-            "2. Telegram មិនដែលសួរ OTP ឡើយ\n"
-            "3. បើបានចុច: Settings > Privacy > Active Sessions ហើយលុប Session ចោល!"
-        )
+        lang = get_group_lang(chat_id)
+        if lang == "kh":
+            explain_text = (
+                "🛡️ ការណែនាំសុវត្ថិភាព៖\n"
+                "1. ហាមចុច link ឬបើកឯកសារនេះ\n"
+                "2. Telegram មិនដែលសួរលេខកូដ OTP ឡើយ\n"
+                "3. បើបានចុច៖ ចូល Settings > Privacy > Active Sessions ហើយលុប Session ផ្សេងៗភ្លាម!"
+            )
+        elif lang == "en":
+            explain_text = (
+                "🛡️ Security Guide:\n"
+                "1. Do NOT click the link or open the file\n"
+                "2. Telegram never asks for your OTP code\n"
+                "3. If clicked: Settings > Privacy > Active Sessions and Terminate other sessions!"
+            )
+        else:
+            explain_text = (
+                "🛡️ ការណែនាំសុវត្ថិភាព | Security Guide:\n"
+                "1. ហាមចុច link/file (Do not click)\n"
+                "2. ហាមផ្ដល់ OTP (Never share OTP)\n"
+                "3. បើបានចុច: Settings > Privacy > Active Sessions > Terminate other sessions!"
+            )
         api.answer_callback_query(query_id, text=explain_text, show_alert=True)
         return
 
