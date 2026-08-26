@@ -1,58 +1,191 @@
 """
 Core update-processing logic — bilingual (Khmer + English) security bot.
 
-- Silent on clean content
-- Suspicious URLs: warning sent, wait, then deleted
-- Malicious: delete message + permanent threat alert
-- URL shorteners / suspicious TLDs / raw IPs are always scanned
-- Bots are ignored
+- Scanning feedback & 10-second safe message auto-cleanup
+- Friendly, non-technical threat & suspicious explanations
+- Admin private chat configuration (language & safe message timer)
+- In-group language commands (/lang, /kh, /en) and inline buttons
+- Suspicious URLs & files: warning sent, wait, then deleted
+- Malicious: delete message + clear non-technical threat alert
 - Optional private admin alert
 """
 from __future__ import annotations
 
 import logging
 import time
+from typing import Optional
 
 from bot import config
 from bot.file_handler import fetch_and_validate
+from bot.redis_client import (
+    get_group_lang,
+    get_group_settings,
+    set_group_lang,
+    set_group_settings,
+)
 from bot.reports import record_report
 from bot.scanner import vt_scan_file, vt_scan_url
 from bot.telegram_api import TelegramAPI
-from bot.utils import extract_domain, extract_urls, get_user_display, is_whitelisted, mask_domain
+from bot.utils import (
+    extract_domain,
+    extract_urls,
+    get_allowed_groups,
+    get_managed_groups_for_user,
+    get_user_display,
+    is_super_admin,
+    is_whitelisted,
+    mask_domain,
+)
 
 logger = logging.getLogger("BeydaBot.handlers")
 
-# ── Messages — bilingual Khmer / English ────────────────────────────────────
-MSG_SCANNING = "🔍 <i>កំពុងស្កែនមាតិកា សូមរង់ចាំ...</i>\n"
 
-MSG_THREAT = (
-    "🚨 <b>រកឃើញមាតិកាគ្រោះថ្នាក់ | Threat Detection</b>\n\n"
-    "🔹 <b>អ្នកផ្ញើរ :</b> {user}\n"
-    "🔹 <b>សារ​ :</b> {flag}\n"
-    "🔹 <b>ករណីរកឃើញ : </b>{count} security engines មាតិកានេះមានគ្រោះថ្នាក់\n"
-    "🔹 <b>សកម្មភាព : </b>{action_kh}\n"
-)
+# ── Multilingual & Non-Technical Message Templates ──────────────────────────
 
-MSG_SUSPICIOUS = (
-    "⚠️ <b>រកឃើញតំណភ្ជាប់គួរឱ្យសង្ស័យ | Suspicious Link Detected</b>\n\n"
-    "🔹 <b>អ្នកផ្ញើរ :</b> {user}\n"
-    "🔹 <b>សារ :</b> {domain}\n"
-    "🔹 <b>ករណីរកឃើញ : </b>{count} engine(s) បានរកឃើញថាគួរឱ្យសង្ស័យ\n"
-    "⏳ <i>សារនេះនឹងលុបដោយស្វ័យប្រវត្តិក្នុង 15 វិនាទី</i>\n"
-)
+def get_msg_scanning(lang: str = "both") -> str:
+    if lang == "kh":
+        return "🔍 <i>កំពុងស្កែនមាតិកា សូមរង់ចាំ...</i>"
+    if lang == "en":
+        return "🔍 <i>Scanning content, please wait...</i>"
+    return "🔍 <i>កំពុងស្កែនមាតិកា សូមរង់ចាំ... | Scanning content...</i>"
 
-MSG_SUSPICIOUS_FILE = (
-    "⚠️ <b>Suspicious File Detected | ឯកសារគួរឱ្យសង្ស័យ</b>\n\n"
-    "🔹 <b>អ្នកផ្ញើរ :</b> {user}\n"
-    "🔹 <b>ឯកសារ :</b> {filename}\n"
-    "🔹 <b>Suspicious engines :</b> {count}\n"
-    "⚠️ <i>សូមកុំបើក ឬដំណើរការឯកសារនេះ មុនពេលពិនិត្យបន្ថែម។</i>"
-)
+
+def get_msg_safe(lang: str, user: str, target: str, timeout: int) -> str:
+    if lang == "kh":
+        return (
+            "✅ <b>មាតិកាមានសុវត្ថិភាព</b>\n\n"
+            f"🔹 <b>អ្នកផ្ញើរ :</b> {user}\n"
+            f"🔹 <b>មាតិកា :</b> <code>{target}</code>\n"
+            "🛡️ <b>លទ្ធផល :</b> មិនមានមេរោគ ឬតំណភ្ជាប់ក្លែងបន្លំឡើយ\n"
+            f"⏳ <i>សារនេះនឹងបាត់ដោយស្វ័យប្រវត្តិក្នុ​ង {timeout} វិនាទី</i>"
+        )
+    if lang == "en":
+        return (
+            "✅ <b>Content Verified Safe</b>\n\n"
+            f"🔹 <b>Sender :</b> {user}\n"
+            f"🔹 <b>Target :</b> <code>{target}</code>\n"
+            "🛡️ <b>Result :</b> Clean & verified (No threats detected)\n"
+            f"⏳ <i>This message will auto-remove in {timeout}s</i>"
+        )
+    return (
+        "✅ <b>មាតិកាមានសុវត្ថិភាព | Content Verified Safe</b>\n\n"
+        f"🔹 <b>អ្នកផ្ញើរ (Sender) :</b> {user}\n"
+        f"🔹 <b>មាតិកា (Target) :</b> <code>{target}</code>\n"
+        "🛡️ <b>លទ្ធផល (Result) :</b> មិនមានមេរោគ ឬតំណភ្ជាប់ក្លែងបន្លំឡើយ (No threats detected)\n"
+        f"⏳ <i>សារនេះនឹងបាត់ក្នុង {timeout} វិនាទី (Auto-removes in {timeout}s)</i>"
+    )
+
+
+def get_msg_threat(lang: str, user: str, flag: str, action_kh: str, action_en: str) -> str:
+    if lang == "kh":
+        return (
+            "🚨 <b>រកឃើញមាតិកាគ្រោះថ្នាក់ (Dangerous Threat)</b>\n\n"
+            f"🔹 <b>អ្នកផ្ញើរ :</b> {user}\n"
+            f"🔹 <b>គោលដៅ :</b> <code>{flag}</code>\n"
+            f"🔹 <b>សកម្មភាព :</b> {action_kh}\n\n"
+            "🤔 <b>តើនេះជាអ្វី?</b>\n"
+            "• នេះជាតំណភ្ជាប់បោកប្រាស់ (Phishing) ឬឯកសារផ្ទុកមេរោគ ដែលប៉ុនប៉ងលួចគណនី Telegram ឬទិន្នន័យផ្ទាល់ខ្លួនរបស់អ្នក។\n\n"
+            "🛑 <b>អ្វីដែលអ្នកត្រូវធ្វើ៖</b>\n"
+            "❌ <b>ហាមចុចលើតំណភ្ជាប់ ឬបើកឯកសារនេះដាច់ខាត</b>\n"
+            "❌ ហាមផ្ដល់លេខសម្ងាត់ ឬលេខកូដ OTP ទៅកាន់អ្នកដទៃ\n\n"
+            "💡 <b>ប្រសិនបើអ្នកបានចុច ឬបើកវាហើយ៖</b>\n"
+            "1️⃣ ចូល <b>Settings > Privacy & Security > Active Sessions</b> ហើយចុច <b>Terminate all other sessions</b>\n"
+            "2️⃣ បើក ឬប្តូរពាក្យសម្ងាត់ <b>Two-Step Verification (ពាក្យសម្ងាត់ ២ ជាន់)</b> ភ្លាមៗ"
+        )
+    if lang == "en":
+        return (
+            "🚨 <b>Dangerous Threat Detected!</b>\n\n"
+            f"🔹 <b>Sender :</b> {user}\n"
+            f"🔹 <b>Target :</b> <code>{flag}</code>\n"
+            f"🔹 <b>Action :</b> {action_en}\n\n"
+            "🤔 <b>What is this?</b>\n"
+            "• This is a phishing scam or malware attempting to steal your Telegram account, passwords, or harm your device.\n\n"
+            "🛑 <b>What you should do:</b>\n"
+            "❌ <b>Do NOT click the link or open the file</b>\n"
+            "❌ Never share your Telegram verification code or OTP with anyone\n\n"
+            "💡 <b>If you already clicked or opened it:</b>\n"
+            "1️⃣ Go to <b>Settings > Privacy & Security > Active Sessions</b> and tap <b>Terminate all other sessions</b>\n"
+            "2️⃣ Change your <b>Two-Step Verification password</b> immediately"
+        )
+    return (
+        "🚨 <b>រកឃើញមាតិកាគ្រោះថ្នាក់ | Threat Detection</b>\n\n"
+        f"🔹 <b>អ្នកផ្ញើរ (Sender) :</b> {user}\n"
+        f"🔹 <b>គោលដៅ (Target) :</b> <code>{flag}</code>\n"
+        f"🔹 <b>សកម្មភាព (Action) :</b> {action_kh} ({action_en})\n\n"
+        "🤔 <b>តើនេះជាអ្វី? | What is this?</b>\n"
+        "• នេះជាតំណភ្ជាប់បោកប្រាស់ ឬមេរោគ ដែលប៉ុនប៉ងលួចគណនី ឬទិន្នន័យ (Phishing scam or malware attempting to steal account/passwords).\n\n"
+        "🛑 <b>អ្វីដែលត្រូវធ្វើ | What to do:</b>\n"
+        "❌ <b>ហាមចុច ឬបើកឯកសារ (Do NOT click or open)</b>\n"
+        "❌ ហាមផ្ដល់លេខកូដ OTP (Never share OTP codes)\n\n"
+        "💡 <b>បើបានចុចរួចហើយ | If already clicked:</b>\n"
+        "1️⃣ ចូល <b>Settings > Privacy & Security > Active Sessions</b> រួចចុច <b>Terminate other sessions</b>\n"
+        "2️⃣ ប្តូរពាក្យសម្ងាត់ <b>Two-Step Verification</b> ជាបន្ទាន់"
+    )
+
+
+def get_msg_suspicious_url(lang: str, user: str, domain: str, timeout: int = 15) -> str:
+    if lang == "kh":
+        return (
+            "⚠️ <b>រកឃើញតំណភ្ជាប់គួរឱ្យសង្ស័យ</b>\n\n"
+            f"🔹 <b>អ្នកផ្ញើរ :</b> {user}\n"
+            f"🔹 <b>តំណភ្ជាប់ :</b> <code>{domain}</code>\n\n"
+            "⚠️ <b>ការណែនាំសុវត្ថិភាព៖</b>\n"
+            "• តំណភ្ជាប់នេះមិនទាន់មានទំនុកចិត្តច្បាស់លាស់ ឬអាចជាគេហទំព័រក្លែងបន្លំ។\n"
+            "• សូមកុំបំពេញព័ត៌មានផ្ទាល់ខ្លួន ឬទាញយកឯកសារអ្វីពីតំណនេះឡើយ។\n"
+            f"⏳ <i>សារព្រមាននេះនឹងលុបដោយស្វ័យប្រវត្តិក្នុ​ង {timeout} វិនាទី</i>"
+        )
+    if lang == "en":
+        return (
+            "⚠️ <b>Suspicious Link Detected</b>\n\n"
+            f"🔹 <b>Sender :</b> {user}\n"
+            f"🔹 <b>Link :</b> <code>{domain}</code>\n\n"
+            "⚠️ <b>Safety Notice:</b>\n"
+            "• This link is unverified or potentially risky.\n"
+            "• Do not enter personal details, passwords, or download unknown apps.\n"
+            f"⏳ <i>This warning will auto-delete in {timeout}s</i>"
+        )
+    return (
+        "⚠️ <b>រកឃើញតំណភ្ជាប់គួរឱ្យសង្ស័យ | Suspicious Link Detected</b>\n\n"
+        f"🔹 <b>អ្នកផ្ញើរ (Sender) :</b> {user}\n"
+        f"🔹 <b>តំណភ្ជាប់ (Link) :</b> <code>{domain}</code>\n\n"
+        "⚠️ <b>ការណែនាំ | Safety Notice:</b>\n"
+        "• តំណភ្ជាប់នេះគួរឱ្យសង្ស័យ សូមកុំបំពេញលេខសម្ងាត់ ឬទាញយកអ្វីទាំងអស់ (Unverified link, do not enter credentials).\n"
+        f"⏳ <i>សារនេះនឹងលុបដោយស្វ័យប្រវត្តិក្នុង {timeout} វិនាទី (Auto-removes in {timeout}s)</i>"
+    )
+
+
+def get_msg_suspicious_file(lang: str, user: str, filename: str) -> str:
+    if lang == "kh":
+        return (
+            "⚠️ <b>ឯកសារគួរឱ្យសង្ស័យ (Suspicious File)</b>\n\n"
+            f"🔹 <b>អ្នកផ្ញើរ :</b> {user}\n"
+            f"🔹 <b>ឯកសារ :</b> <code>{filename}</code>\n\n"
+            "⚠️ <b>ការណែនាំសុវត្ថិភាព៖</b>\n"
+            "• ឯកសារនេះអាចផ្ទុកកម្មវិធីបង្កគ្រោះថ្នាក់ ឬមេរោគ។\n"
+            "• ❌ <b>សូមកុំបើក ឬពន្លា (Extract/Run) ឯកសារនេះឡើយ!</b>"
+        )
+    if lang == "en":
+        return (
+            "⚠️ <b>Suspicious File Detected</b>\n\n"
+            f"🔹 <b>Sender :</b> {user}\n"
+            f"🔹 <b>File :</b> <code>{filename}</code>\n\n"
+            "⚠️ <b>Safety Notice:</b>\n"
+            "• This file may contain malware, scripts, or unwanted software.\n"
+            "• ❌ <b>Do NOT open, extract, or run this file!</b>"
+        )
+    return (
+        "⚠️ <b>ឯកសារគួរឱ្យសង្ស័យ | Suspicious File Detected</b>\n\n"
+        f"🔹 <b>អ្នកផ្ញើរ (Sender) :</b> {user}\n"
+        f"🔹 <b>ឯកសារ (File) :</b> <code>{filename}</code>\n\n"
+        "⚠️ <b>ការណែនាំ | Safety Notice:</b>\n"
+        "• ឯកសារនេះអាចមានមេរោគ សូមកុំបើក ឬ Run ដាច់ខាត (May contain malware, do not open or run)."
+    )
+
 
 MSG_TOO_LARGE = (
     "🚨 <b>ព្រមាន! ឯកសារអាចមានគ្រោះថ្នាក់ | SECURITY ALERT</b>\n\n"
     "🫣 <b>អ្នកផ្ញើរ :</b> {user}\n"
-    "👾 <b>ឯកសារ :</b> {filename}\n"
+    "👾 <b>ឯកសារ :</b> <code>{filename}</code>\n"
     "📦 <b>ទំហំ :</b> {size_mb} MB\n\n"
     "⚠️ <b>សូមប្រុងប្រយ័ត្ន!</b>\n"
     " - ឯកសារដែលមានឈ្មោះមិនប្រក្រតី គួរឱ្យសង្ស័យ អាចផ្ទុកមេរោគ ឬកម្មវិធីបង្កគ្រោះថ្នាក់\n"
@@ -69,35 +202,305 @@ MSG_TOO_LARGE = (
 )
 
 
-def _send_threat_alert(api: TelegramAPI, chat_id: int, user_display: str, flag: str, malicious: int, deleted: bool) -> None:
-    action_kh = "សារត្រូវបានលុប" if deleted else "មិនអាចលុបសារ, ពិនិត្យសិទ្ធិ Admin របស់ Bot"
-    text = MSG_THREAT.format(user=user_display, flag=flag, count=malicious, action_kh=action_kh)
-    api.send_message(chat_id, text)
+def _send_threat_alert(
+    api: TelegramAPI,
+    chat_id: int,
+    user_display: str,
+    flag: str,
+    deleted: bool,
+    lang: str = "both",
+) -> None:
+    action_kh = "សារត្រូវបានលុបចោលភ្លាមៗ" if deleted else "មិនអាចលុបសារ, ពិនិត្យសិទ្ធិ Admin របស់ Bot"
+    action_en = "Message deleted immediately" if deleted else "Could not delete message, check Bot admin rights"
+    text = get_msg_threat(lang, user_display, flag, action_kh, action_en)
+
+    reply_markup = {
+        "inline_keyboard": [
+            [{"text": "💡 ការពន្យល់សុវត្ថិភាព | Security Guide", "callback_data": "explain_threat"}]
+        ]
+    }
+    api.send_message(chat_id, text, reply_markup=reply_markup)
+
     if config.ADMIN_CHAT_ID:
         try:
-            api.send_message(int(config.ADMIN_CHAT_ID), text)
+            for admin_id_str in config.ADMIN_CHAT_ID.split(","):
+                admin_id_str = admin_id_str.strip()
+                if admin_id_str:
+                    api.send_message(int(admin_id_str), text)
         except Exception as exc:
             logger.error("Admin alert failed: %s", exc)
 
 
+# ── Admin Private Chat Control Panel ────────────────────────────────────────
+
+def _build_admin_menu_keyboard(managed_groups: list[dict]) -> dict:
+    keyboard = []
+    for grp in managed_groups:
+        keyboard.append([{"text": f"👥 {grp['title']}", "callback_data": f"adm_grp:{grp['id']}"}])
+
+    if config.WEB_APP_URL:
+        keyboard.append([{"text": "🛡️ Open Security Mini App", "web_app": {"url": config.WEB_APP_URL}}])
+
+    return {"inline_keyboard": keyboard}
+
+
+def _build_group_settings_view(api: TelegramAPI, group_id: int) -> tuple[str, dict]:
+    chat = api.get_chat(group_id)
+    title = (chat or {}).get("title") or f"Group {group_id}"
+
+    settings = get_group_settings(group_id)
+    lang = settings.get("lang", config.DEFAULT_LANGUAGE)
+    timer = settings.get("safe_timeout", config.DEFAULT_SAFE_TIMEOUT)
+    show_safe = settings.get("show_safe", config.ENABLE_SAFE_MESSAGES) and timer > 0
+
+    lang_labels = {
+        "both": "🌐 ទាំងពីរ (Bilingual KH + EN)",
+        "kh": "🇰🇭 ភាសាខ្មែរ (Khmer Only)",
+        "en": "🇬🇧 English (English Only)",
+    }
+    lang_display = lang_labels.get(lang, "🌐 ទាំងពីរ (Bilingual)")
+    timer_display = f"{timer} វិនាទី (seconds)" if show_safe else "❌ បិទ (Disabled)"
+
+    text = (
+        f"⚙️ <b>ការកំណត់សុវត្ថិភាពសម្រាប់ក្រុម / Group Settings:</b>\n"
+        f"📌 <b>{title}</b>\n\n"
+        f"🔹 <b>ភាសា (Language):</b> {lang_display}\n"
+        f"🔹 <b>សារសុវត្ថិភាព (Safe Message):</b> {timer_display}\n\n"
+        f"<i>ចុចប៊ូតុងខាងក្រោមដើម្បីកែប្រែការកំណត់ភ្លាមៗ៖</i>"
+    )
+
+    keyboard = [
+        [
+            {"text": f"{'✅ ' if lang == 'both' else ''}🌐 ទាំងពីរ (Both)", "callback_data": f"adm_lang:{group_id}:both"},
+            {"text": f"{'✅ ' if lang == 'kh' else ''}🇰🇭 ខ្មែរ", "callback_data": f"adm_lang:{group_id}:kh"},
+            {"text": f"{'✅ ' if lang == 'en' else ''}🇬🇧 English", "callback_data": f"adm_lang:{group_id}:en"},
+        ],
+        [
+            {"text": f"{'✅ ' if show_safe and timer == 10 else ''}⏱️ 10s", "callback_data": f"adm_timer:{group_id}:10"},
+            {"text": f"{'✅ ' if show_safe and timer == 5 else ''}⏱️ 5s", "callback_data": f"adm_timer:{group_id}:5"},
+            {"text": f"{'✅ ' if show_safe and timer == 15 else ''}⏱️ 15s", "callback_data": f"adm_timer:{group_id}:15"},
+            {"text": f"{'✅ ' if not show_safe or timer == 0 else ''}❌ Off", "callback_data": f"adm_timer:{group_id}:0"},
+        ],
+        [
+            {"text": "🔙 ត្រឡប់ទៅបញ្ជីក្រុម (Back to Groups)", "callback_data": "adm_list_groups"}
+        ],
+    ]
+
+    return text, {"inline_keyboard": keyboard}
+
+
 def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
-    """In private chats we only offer the Mini App entry point."""
     text = (message.get("text") or "").strip()
     command = text.split()[0].split("@", 1)[0] if text else ""
-    if command not in {"/start", "/app"}:
+    user_id = (message.get("from") or {}).get("id", 0)
+
+    if command not in {"/start", "/settings", "/config", "/app", "/help"}:
         return
-    if config.WEB_APP_URL:
+
+    managed_groups = get_managed_groups_for_user(api, user_id)
+
+    # 1. Non-admin / Regular users -> only show Welcome & Mini App preview
+    if not managed_groups:
+        welcome_text = (
+            "🛡️ <b>ប្រព័ន្ធសុវត្ថិភាព Telegram | Telegram Security Bot</b>\n\n"
+            "ប្រព័ន្ធស្កែន និងការពារសុវត្ថិភាពដោយស្វ័យប្រវត្តិសម្រាប់ក្រុម Telegram "
+            "(Automated security bot protecting groups against malicious links, phishing scams, and infected files).\n\n"
+            "ចុចប៊ូតុងខាងក្រោមដើម្បីបើកផ្ទាំងព័ត៌មានគម្រោង (Mini App)៖"
+        )
+        markup = None
+        if config.WEB_APP_URL:
+            markup = {
+                "inline_keyboard": [
+                    [{"text": "🛡️ Open Security Mini App", "web_app": {"url": config.WEB_APP_URL}}]
+                ]
+            }
+        api.send_message(chat_id, welcome_text, reply_markup=markup)
+        return
+
+    # 2. Authorized Group Handlers / Admins -> show Group Management Panel
+    admin_text = (
+        "⚙️ <b>ផ្ទាំងគ្រប់គ្រងរចនាសម្ព័ន្ធសុវត្ថិភាព | Admin Control Panel</b>\n\n"
+        "សូមជ្រើសរើសក្រុមដែលអ្នកគ្រប់គ្រងដើម្បីកំណត់ <b>ភាសា (Language)</b> និង <b>សារសុវត្ថិភាព (Safe Message Timer)</b>៖\n"
+        "<i>(Select a managed group below to configure):</i>"
+    )
+    markup = _build_admin_menu_keyboard(managed_groups)
+    api.send_message(chat_id, admin_text, reply_markup=markup)
+
+
+# ── In-Group Command Handling ───────────────────────────────────────────────
+
+def _handle_group_commands(api: TelegramAPI, chat_id: int, message: dict, sender_id: int) -> bool:
+    text = (message.get("text") or "").strip()
+    if not text.startswith("/"):
+        return False
+
+    command_part = text.split()[0].lower().split("@", 1)[0]
+    args = text.split()[1:] if len(text.split()) > 1 else []
+
+    if command_part in {"/lang", "/language"}:
+        if not (is_super_admin(sender_id) or api.is_group_admin(sender_id, chat_id)):
+            return True
+
+        if args:
+            sub = args[0].lower()
+            if sub in {"kh", "khmer", "ខ្មែរ"}:
+                set_group_lang(chat_id, "kh")
+                api.send_message(chat_id, "🇰🇭 ភាសាសម្រាប់ក្រុមនេះត្រូវបានប្តូរទៅ <b>ភាសាខ្មែរ</b>។")
+                return True
+            if sub in {"en", "english"}:
+                set_group_lang(chat_id, "en")
+                api.send_message(chat_id, "🇬🇧 Group language has been set to <b>English</b>.")
+                return True
+            if sub in {"both", "all", " bilingual"}:
+                set_group_lang(chat_id, "both")
+                api.send_message(chat_id, "🌐 ភាសាត្រូវបានប្តូរទៅ <b>Bilingual (ភាសាខ្មែរ + English)</b>។")
+                return True
+
+        current_lang = get_group_lang(chat_id)
+        keyboard = {
+            "inline_keyboard": [
+                [
+                    {"text": f"{'✅ ' if current_lang == 'both' else ''}🌐 ទាំងពីរ (Both)", "callback_data": f"grp_lang:{chat_id}:both"},
+                    {"text": f"{'✅ ' if current_lang == 'kh' else ''}🇰🇭 ខ្មែរ", "callback_data": f"grp_lang:{chat_id}:kh"},
+                    {"text": f"{'✅ ' if current_lang == 'en' else ''}🇬🇧 English", "callback_data": f"grp_lang:{chat_id}:en"},
+                ]
+            ]
+        }
         api.send_message(
             chat_id,
-            "🛡️ <b>Telegram Security Bot</b>\n\n"
-            "Open the project information and, if you are authorized, your security dashboard.",
-            reply_markup={"inline_keyboard": [[{"text": "🛡️ Open Security Mini App", "web_app": {"url": config.WEB_APP_URL}}]]},
+            "🌐 <b>ជ្រើសរើសភាសាសម្រាប់ក្រុមនេះ | Select Group Language:</b>",
+            reply_markup=keyboard,
         )
-    else:
-        api.send_message(chat_id, "WEB_APP_URL is not configured yet.")
+        return True
 
+    if command_part == "/kh":
+        if is_super_admin(sender_id) or api.is_group_admin(sender_id, chat_id):
+            set_group_lang(chat_id, "kh")
+            api.send_message(chat_id, "🇰🇭 ភាសាសម្រាប់ក្រុមនេះត្រូវបានប្តូរទៅ <b>ភាសាខ្មែរ</b>។")
+        return True
+
+    if command_part == "/en":
+        if is_super_admin(sender_id) or api.is_group_admin(sender_id, chat_id):
+            set_group_lang(chat_id, "en")
+            api.send_message(chat_id, "🇬🇧 Group language has been set to <b>English</b>.")
+        return True
+
+    return False
+
+
+# ── Callback Query Handling (Interactive Buttons) ───────────────────────────
+
+def process_callback_query(api: TelegramAPI, query: dict) -> None:
+    query_id = query.get("id", "")
+    from_user = query.get("from", {})
+    user_id = from_user.get("id", 0)
+    data = query.get("data", "")
+    msg = query.get("message", {})
+    chat = msg.get("chat", {})
+    chat_id = chat.get("id", 0)
+    msg_id = msg.get("message_id", 0)
+
+    # 1. Non-technical explanation modal
+    if data in {"explain_threat", "explain_suspicious"}:
+        explain_text = (
+            "🛡️ ការណែនាំសុវត្ថិភាព | Security Guide:\n\n"
+            "1. ហាមចុចលើតំណភ្ជាប់ ឬបើកឯកសារដែលមិនស្គាល់ប្រភព\n"
+            "2. Telegram មិនដែលទាមទារឱ្យផ្ញើលេខកូដ OTP ឡើយ\n"
+            "3. បើបានចុច សូមចូល Settings > Privacy & Security > Active Sessions ហើយលុប Session ផ្សេងៗជាបន្ទាន់។"
+        )
+        api.answer_callback_query(query_id, text=explain_text, show_alert=True)
+        return
+
+    # 2. In-group language switch button
+    if data.startswith("grp_lang:"):
+        parts = data.split(":")
+        if len(parts) == 3:
+            target_gid = int(parts[1])
+            new_lang = parts[2]
+            if not (is_super_admin(user_id) or api.is_group_admin(user_id, target_gid)):
+                api.answer_callback_query(query_id, text="❌ អ្នកមិនមានសិទ្ធិកែប្រែការកំណត់ក្រុមនេះទេ (Admin only)", show_alert=True)
+                return
+            set_group_lang(target_gid, new_lang)
+            api.answer_callback_query(query_id, text=f"✅ Language set to {new_lang.upper()}")
+            new_keyboard = {
+                "inline_keyboard": [
+                    [
+                        {"text": f"{'✅ ' if new_lang == 'both' else ''}🌐 ទាំងពីរ (Both)", "callback_data": f"grp_lang:{target_gid}:both"},
+                        {"text": f"{'✅ ' if new_lang == 'kh' else ''}🇰🇭 ខ្មែរ", "callback_data": f"grp_lang:{target_gid}:kh"},
+                        {"text": f"{'✅ ' if new_lang == 'en' else ''}🇬🇧 English", "callback_data": f"grp_lang:{target_gid}:en"},
+                    ]
+                ]
+            }
+            api.edit_message_reply_markup(chat_id, msg_id, reply_markup=new_keyboard)
+            return
+
+    # 3. Admin Private Chat: Open Group Settings
+    if data.startswith("adm_grp:"):
+        target_gid = int(data.split(":")[1])
+        managed_groups = get_managed_groups_for_user(api, user_id)
+        if not any(g["id"] == target_gid for g in managed_groups):
+            api.answer_callback_query(query_id, text="❌ Unauthorized", show_alert=True)
+            return
+        text, markup = _build_group_settings_view(api, target_gid)
+        api.edit_message_text(chat_id, msg_id, text, reply_markup=markup)
+        api.answer_callback_query(query_id)
+        return
+
+    # 4. Admin Private Chat: Set Language
+    if data.startswith("adm_lang:"):
+        parts = data.split(":")
+        target_gid = int(parts[1])
+        new_lang = parts[2]
+        managed_groups = get_managed_groups_for_user(api, user_id)
+        if not any(g["id"] == target_gid for g in managed_groups):
+            api.answer_callback_query(query_id, text="❌ Unauthorized", show_alert=True)
+            return
+        set_group_lang(target_gid, new_lang)
+        api.answer_callback_query(query_id, text=f"✅ ភាសាត្រូវបានប្តូរទៅ {new_lang.upper()}")
+        text, markup = _build_group_settings_view(api, target_gid)
+        api.edit_message_text(chat_id, msg_id, text, reply_markup=markup)
+        return
+
+    # 5. Admin Private Chat: Set Safe Message Timer
+    if data.startswith("adm_timer:"):
+        parts = data.split(":")
+        target_gid = int(parts[1])
+        new_timer = int(parts[2])
+        managed_groups = get_managed_groups_for_user(api, user_id)
+        if not any(g["id"] == target_gid for g in managed_groups):
+            api.answer_callback_query(query_id, text="❌ Unauthorized", show_alert=True)
+            return
+        set_group_settings(target_gid, {"safe_timeout": new_timer, "show_safe": new_timer > 0})
+        toast = f"✅ សារសុវត្ថិភាព: {new_timer}s" if new_timer > 0 else "✅ បានបិទសារសុវត្ថិភាព (Off)"
+        api.answer_callback_query(query_id, text=toast)
+        text, markup = _build_group_settings_view(api, target_gid)
+        api.edit_message_text(chat_id, msg_id, text, reply_markup=markup)
+        return
+
+    # 6. Admin Private Chat: Back to Group List
+    if data == "adm_list_groups":
+        managed_groups = get_managed_groups_for_user(api, user_id)
+        admin_text = (
+            "⚙️ <b>ផ្ទាំងគ្រប់គ្រងរចនាសម្ព័ន្ធសុវត្ថិភាព | Admin Control Panel</b>\n\n"
+            "សូមជ្រើសរើសក្រុមដែលអ្នកគ្រប់គ្រងដើម្បីកំណត់ <b>ភាសា (Language)</b> និង <b>សារសុវត្ថិភាព (Safe Message Timer)</b>៖\n"
+            "<i>(Select a managed group below to configure):</i>"
+        )
+        markup = _build_admin_menu_keyboard(managed_groups)
+        api.edit_message_text(chat_id, msg_id, admin_text, reply_markup=markup)
+        api.answer_callback_query(query_id)
+        return
+
+    api.answer_callback_query(query_id)
+
+
+# ── Main Update Router ──────────────────────────────────────────────────────
 
 def process_update(api: TelegramAPI, update: dict) -> None:
+    # 1. Handle Callback Queries (Button clicks)
+    if "callback_query" in update:
+        process_callback_query(api, update["callback_query"])
+        return
+
     message = update.get("message") or update.get("edited_message")
     if not message:
         return
@@ -110,15 +513,24 @@ def process_update(api: TelegramAPI, update: dict) -> None:
     chat_id = chat.get("id", 0)
     chat_type = chat.get("type", "")
     msg_id = message.get("message_id", 0)
+    sender_id = sender.get("id", 0)
 
+    # 2. Handle Private Chats (Mini App & Admin settings)
     if chat_type == "private":
         _handle_private_chat(api, chat_id, message)
         return
 
-    if config.ALLOWED_GROUP_IDS and chat_id not in config.ALLOWED_GROUP_IDS:
+    # 3. Check Group Authorization
+    allowed_groups = get_allowed_groups()
+    if allowed_groups and chat_id not in allowed_groups:
         logger.info("Unauthorized group %d — ignored", chat_id)
         return
 
+    # 4. Handle In-Group Admin Commands (/lang, /kh, /en)
+    if _handle_group_commands(api, chat_id, message, sender_id):
+        return
+
+    # 5. Extract Content
     user_display = get_user_display(sender)
     chat_title = chat.get("title", str(chat_id))
 
@@ -136,13 +548,29 @@ def process_update(api: TelegramAPI, update: dict) -> None:
     if not has_scannable_url and not has_file:
         return
 
-    notice_id = api.send_message(chat_id, MSG_SCANNING)
+    # Group Settings
+    group_settings = get_group_settings(chat_id)
+    lang = group_settings.get("lang", config.DEFAULT_LANGUAGE)
+    safe_timeout = group_settings.get("safe_timeout", config.DEFAULT_SAFE_TIMEOUT)
+    show_safe = group_settings.get("show_safe", config.ENABLE_SAFE_MESSAGES) and safe_timeout > 0
+
+    notice_id = api.send_message(chat_id, get_msg_scanning(lang))
 
     def delete_notice() -> None:
         if notice_id:
             api.delete_message(chat_id, notice_id)
 
+    def display_safe_feedback(target_name: str) -> None:
+        if show_safe and notice_id:
+            safe_text = get_msg_safe(lang, user_display, target_name, safe_timeout)
+            api.edit_message_text(chat_id, notice_id, safe_text)
+            time.sleep(safe_timeout)
+            api.delete_message(chat_id, notice_id)
+        else:
+            delete_notice()
+
     # ── URL scanning ─────────────────────────────────────────────────────
+    scanned_clean_targets = []
     for url in urls:
         domain = extract_domain(url)
 
@@ -169,12 +597,14 @@ def process_update(api: TelegramAPI, update: dict) -> None:
 
         if malicious == 0 and suspicious == 0:
             logger.info("URL clean | domain=%s", domain)
+            scanned_clean_targets.append(domain)
             continue
 
         if malicious == 0 and suspicious > 0:
             delete_notice()
             warn_id = api.send_message(
-                chat_id, MSG_SUSPICIOUS.format(user=user_display, domain=mask_domain(domain), count=suspicious)
+                chat_id,
+                get_msg_suspicious_url(lang, user_display, mask_domain(domain), timeout=15),
             )
             logger.info("Suspicious URL | domain=%s | suspicious=%d", domain, suspicious)
             if warn_id:
@@ -186,13 +616,16 @@ def process_update(api: TelegramAPI, update: dict) -> None:
         deleted = api.delete_message(chat_id, msg_id)
         if deleted:
             record_report(chat_id, chat_title, "deleted")
-        _send_threat_alert(api, chat_id, user_display, mask_domain(domain), malicious, deleted)
+        _send_threat_alert(api, chat_id, user_display, mask_domain(domain), deleted, lang=lang)
         logger.warning("URL THREAT | domain=%s | malicious=%d | deleted=%s", domain, malicious, deleted)
         return
 
     # ── File scanning ────────────────────────────────────────────────────
     if not has_file:
-        delete_notice()
+        if scanned_clean_targets:
+            display_safe_feedback(", ".join(scanned_clean_targets))
+        else:
+            delete_notice()
         return
 
     logger.info("Scanning file | %s | user=%s", filename, user_display)
@@ -205,7 +638,10 @@ def process_update(api: TelegramAPI, update: dict) -> None:
         return
 
     if not decision.ok:
-        delete_notice()
+        if scanned_clean_targets:
+            display_safe_feedback(", ".join(scanned_clean_targets))
+        else:
+            delete_notice()
         return
 
     result = vt_scan_file(decision.file_bytes, filename)
@@ -229,17 +665,16 @@ def process_update(api: TelegramAPI, update: dict) -> None:
         deleted = api.delete_message(chat_id, msg_id)
         if deleted:
             record_report(chat_id, chat_title, "deleted")
-        _send_threat_alert(api, chat_id, user_display, filename, malicious, deleted)
+        _send_threat_alert(api, chat_id, user_display, filename, deleted, lang=lang)
         logger.warning("FILE THREAT | %s | malicious=%d | suspicious=%d | deleted=%s", filename, malicious, suspicious, deleted)
         return
 
     if suspicious >= config.VT_SUSPICIOUS_THRESHOLD:
-        # Suspicious-only results are warned about but not auto-deleted;
-        # VirusTotal can produce occasional false positives at this level.
         delete_notice()
-        api.send_message(chat_id, MSG_SUSPICIOUS_FILE.format(user=user_display, filename=filename, count=suspicious))
+        api.send_message(chat_id, get_msg_suspicious_file(lang, user_display, filename))
         logger.warning("FILE SUSPICIOUS | %s | malicious=%d | suspicious=%d", filename, malicious, suspicious)
         return
 
     logger.info("File clean | %s | malicious=%d | suspicious=%d", filename, malicious, suspicious)
-    delete_notice()
+    all_clean = scanned_clean_targets + [filename]
+    display_safe_feedback(", ".join(all_clean))

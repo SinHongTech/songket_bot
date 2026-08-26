@@ -62,7 +62,7 @@ class TelegramAPI:
             params={
                 "offset": offset,
                 "timeout": timeout,
-                "allowed_updates": json.dumps(["message", "edited_message"]),
+                "allowed_updates": json.dumps(["message", "edited_message", "callback_query"]),
             },
             timeout=timeout + 10,
         )
@@ -88,6 +88,56 @@ class TelegramAPI:
         if data.get("ok"):
             return data["result"]["message_id"]
         return None
+
+    def edit_message_text(
+        self,
+        chat_id: int,
+        message_id: int,
+        text: str,
+        reply_markup: Optional[dict] = None,
+        parse_mode: str = "HTML",
+    ) -> bool:
+        payload: dict = {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": text,
+            "parse_mode": parse_mode,
+            "disable_web_page_preview": True,
+        }
+        if reply_markup is not None:
+            payload["reply_markup"] = reply_markup
+        data = self._post("editMessageText", payload)
+        return data.get("ok", False)
+
+    def answer_callback_query(
+        self,
+        callback_query_id: str,
+        text: Optional[str] = None,
+        show_alert: bool = False,
+    ) -> bool:
+        payload: dict = {
+            "callback_query_id": callback_query_id,
+            "show_alert": show_alert,
+        }
+        if text:
+            payload["text"] = text
+        data = self._post("answerCallbackQuery", payload)
+        return data.get("ok", False)
+
+    def edit_message_reply_markup(
+        self,
+        chat_id: int,
+        message_id: int,
+        reply_markup: Optional[dict] = None,
+    ) -> bool:
+        payload: dict = {
+            "chat_id": chat_id,
+            "message_id": message_id,
+        }
+        if reply_markup is not None:
+            payload["reply_markup"] = reply_markup
+        data = self._post("editMessageReplyMarkup", payload)
+        return data.get("ok", False)
 
     def delete_message(self, chat_id: int, message_id: int) -> bool:
         return self._post("deleteMessage", {"chat_id": chat_id, "message_id": message_id}).get("ok", False)

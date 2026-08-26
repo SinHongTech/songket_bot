@@ -8,3 +8,4 @@ venv/
 node_modules/
 telegram-bot-api-data/
 *.log
+update.py
