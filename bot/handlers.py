@@ -403,10 +403,10 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
     # 1. Non-technical explanation modal
     if data in {"explain_threat", "explain_suspicious"}:
         explain_text = (
-            "🛡️ ការណែនាំសុវត្ថិភាព | Security Guide:\n\n"
-            "1. ហាមចុចលើតំណភ្ជាប់ ឬបើកឯកសារដែលមិនស្គាល់ប្រភព\n"
-            "2. Telegram មិនដែលទាមទារឱ្យផ្ញើលេខកូដ OTP ឡើយ\n"
-            "3. បើបានចុច សូមចូល Settings > Privacy & Security > Active Sessions ហើយលុប Session ផ្សេងៗជាបន្ទាន់។"
+            "🛡️ ការណែនាំសុវត្ថិភាព | Security Guide:\n"
+            "1. ហាមចុច link ឬបើក file គួរឱ្យសង្ស័យ\n"
+            "2. Telegram មិនដែលសួរ OTP ឡើយ\n"
+            "3. បើបានចុច: Settings > Privacy > Active Sessions ហើយលុប Session ចោល!"
         )
         api.answer_callback_query(query_id, text=explain_text, show_alert=True)
         return
