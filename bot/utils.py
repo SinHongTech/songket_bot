@@ -1,8 +1,16 @@
 """URL / file heuristics shared by the message handlers and scanner."""
 from __future__ import annotations
 
+import json
+import logging
+import os
 import re
 from urllib.parse import urlparse
+
+from bot import config
+from bot.redis_client import kv_get, kv_json_get
+
+logger = logging.getLogger("BeydaBot.utils")
 
 # ── file extensions ──────────────────────────────────────────────────────────
 HIGH_RISK_EXTENSIONS: set[str] = {
@@ -193,3 +201,106 @@ def get_user_display(sender: dict) -> str:
     first = sender.get("first_name", "")
     last = sender.get("last_name", "")
     return f"{first} {last}".strip() or "Unknown"
+
+
+# ── admin & group authorization helpers ──────────────────────────────────────
+
+def super_admin_ids() -> set[int]:
+    result = set()
+    raw = config.ADMIN_CHAT_ID or os.environ.get("ADMIN_CHAT_ID", "")
+    for item in raw.split(","):
+        item = item.strip()
+        if item:
+            try:
+                result.add(int(item))
+            except ValueError:
+                pass
+    try:
+        redis_super = kv_get("config:super_admin_ids")
+        if redis_super:
+            for item in str(redis_super).split(","):
+                item = item.strip()
+                if item:
+                    try:
+                        result.add(int(item))
+                    except ValueError:
+                        pass
+    except Exception:
+        pass
+    return result
+
+
+def is_super_admin(user_id: int) -> bool:
+    return user_id in super_admin_ids()
+
+
+def get_allowed_groups() -> set[int]:
+    groups = set(config.ALLOWED_GROUP_IDS)
+    try:
+        redis_groups = kv_get("config:allowed_groups")
+        if redis_groups:
+            if isinstance(redis_groups, (list, set)):
+                for g in redis_groups:
+                    groups.add(int(g))
+            elif isinstance(redis_groups, str):
+                for g in redis_groups.split(","):
+                    g = g.strip()
+                    if g:
+                        try:
+                            groups.add(int(g))
+                        except ValueError:
+                            pass
+    except Exception:
+        pass
+    return groups
+
+
+def explicit_group_map() -> dict[int, list[int]]:
+    try:
+        redis_handlers = kv_json_get("config:group_handlers")
+        if redis_handlers and isinstance(redis_handlers, dict):
+            out = {}
+            for uid, grps in redis_handlers.items():
+                out[int(uid)] = [int(g) for g in grps][:config.MAX_DASHBOARD_GROUPS]
+            return out
+    except Exception:
+        pass
+
+    raw = config.GROUP_HANDLERS_JSON or os.environ.get("GROUP_HANDLERS_JSON", "").strip()
+    if not raw:
+        return {}
+    try:
+        cleaned = re.sub(r',\s*([\]}])', r'\1', raw)
+        obj = json.loads(cleaned)
+        out = {}
+        for uid, grps in obj.items():
+            out[int(uid)] = [int(g) for g in grps][:config.MAX_DASHBOARD_GROUPS]
+        return out
+    except Exception:
+        return {}
+
+
+def get_managed_groups_for_user(api, user_id: int) -> list[dict]:
+    """Return the list of {'id': group_id, 'title': title} that the user is authorized to manage."""
+    allowed = get_allowed_groups()
+    group_ids: list[int] = []
+
+    if is_super_admin(user_id):
+        group_ids = sorted(list(allowed))
+    else:
+        explicit = explicit_group_map().get(user_id)
+        if explicit is not None:
+            group_ids = [g for g in explicit if not allowed or g in allowed]
+        else:
+            for gid in sorted(allowed):
+                if api.is_group_admin(user_id, gid):
+                    group_ids.append(gid)
+                    if len(group_ids) >= config.MAX_DASHBOARD_GROUPS:
+                        break
+
+    groups: list[dict] = []
+    for gid in group_ids:
+        chat = api.get_chat(gid)
+        title = (chat or {}).get("title") or f"Group {gid}"
+        groups.append({"id": gid, "title": title})
+    return groups

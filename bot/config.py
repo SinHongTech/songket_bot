@@ -102,6 +102,11 @@ SCAN_CACHE_TTL_SECONDS: int = 24 * 3600
 REPORT_TTL_SECONDS: int = 45 * 24 * 3600
 REPORT_TIMEZONE: str = os.environ.get("REPORT_TIMEZONE", "Asia/Phnom_Penh")
 
+# ── Feature Defaults ────────────────────────────────────────────────────────
+DEFAULT_LANGUAGE: str = os.environ.get("DEFAULT_LANGUAGE", "both").strip().lower()  # 'both', 'kh', 'en'
+DEFAULT_SAFE_TIMEOUT: int = max(0, _int_env("DEFAULT_SAFE_TIMEOUT", 10))
+ENABLE_SAFE_MESSAGES: bool = _bool_env("ENABLE_SAFE_MESSAGES", True)
+
 
 def validate() -> None:
     """Log (not raise) about missing critical configuration at startup."""

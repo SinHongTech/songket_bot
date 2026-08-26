@@ -92,3 +92,37 @@ def cache_get(key: str) -> Optional[dict]:
 
 def cache_set(key: str, value: dict) -> None:
     kv_json_set(f"scan:{key}", value, ttl=config.SCAN_CACHE_TTL_SECONDS)
+
+
+# ── group configuration settings ─────────────────────────────────────────────
+
+def get_group_settings(chat_id: int) -> dict:
+    data = kv_json_get(f"settings:group:{chat_id}")
+    default_settings = {
+        "lang": config.DEFAULT_LANGUAGE,
+        "safe_timeout": config.DEFAULT_SAFE_TIMEOUT,
+        "show_safe": config.ENABLE_SAFE_MESSAGES,
+    }
+    if not data or not isinstance(data, dict):
+        return default_settings
+    return {
+        "lang": str(data.get("lang", config.DEFAULT_LANGUAGE)).lower(),
+        "safe_timeout": int(data.get("safe_timeout", config.DEFAULT_SAFE_TIMEOUT)),
+        "show_safe": bool(data.get("show_safe", config.ENABLE_SAFE_MESSAGES)),
+    }
+
+
+def set_group_settings(chat_id: int, settings: dict) -> bool:
+    current = get_group_settings(chat_id)
+    current.update(settings)
+    return kv_json_set(f"settings:group:{chat_id}", current)
+
+
+def get_group_lang(chat_id: int) -> str:
+    return get_group_settings(chat_id).get("lang", config.DEFAULT_LANGUAGE)
+
+
+def set_group_lang(chat_id: int, lang: str) -> bool:
+    settings = get_group_settings(chat_id)
+    settings["lang"] = lang.strip().lower()
+    return set_group_settings(chat_id, settings)
