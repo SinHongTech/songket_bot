@@ -16,10 +16,11 @@
   --danger: #e04040;
   --warn: #d07820;
   --safe: #2aaa5a;
+  --gold-surface: rgba(212,167,44,0.08);
   --header-bg: rgba(15,12,4,0.92);
 }
 
-[data-theme="light"] {
+[data-theme="light"] { 
   --bg: #fffaf0;
   --surface: #fff8e6;
   --surface2: #fff1cc;
@@ -31,6 +32,7 @@
   --danger: #b82020;
   --warn: #b06010;
   --safe: #1a7a3a;
+  --gold-surface: rgba(212,167,44,0.12);
   --header-bg: rgba(255,250,240,0.92);
 }
 

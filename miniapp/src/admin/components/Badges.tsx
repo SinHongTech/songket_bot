@@ -43,13 +43,40 @@ export function SectionHeader({ title, sub, lang }: { title: string; sub?: strin
 export function StatCard({ icon, label, value, sub, accent, lang }: { icon: React.ReactElement; label: string; value: string | number; sub?: string; accent?: string; lang?: Lang }) {
   const cls = lang ? kh(lang) : "";
   return (
-    <div style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 14, padding: "16px 18px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-        <div style={{ width: 34, height: 34, borderRadius: 9, background: G.goldSurface, border: `1px solid ${G.goldBorder}`, display: "flex", alignItems: "center", justifyContent: "center", color: G.gold, flexShrink: 0 }}>{icon}</div>
-        <span className={cls} style={{ color: G.muted, fontSize: 12, fontWeight: 500 }}>{label}</span>
+    // <div style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 14, padding: "16px 18px", display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "12px" }}>
+    //   <div style={{ fontSize: 26, fontWeight: 700, color: accent || G.text, lineHeight: 1, textAlign: "right", gridColumn: "span3" }}>{value}</div>
+    //   <div style={{ width: 42, height: 42, borderRadius: 9, background: G.goldSurface, border: `1px solid ${G.goldBorder}`, gridColumn: "span", display: "flex", alignItems: "center", justifyContent: "center", color: G.gold, flexShrink: 0 }}>{icon}</div>
+    //   <span className={cls} style={{ color: G.muted, fontSize: 12, fontWeight: 500, gridColumn: "span4" }}>{label}</span>
+    //   {sub && <div className={cls} style={{ fontSize: 11, color: G.muted }}>{sub}</div>}
+    // </div>
+    <div style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 14, padding: "16px 18px", display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "12px", alignItems: "center" }}>
+  
+      {/* Top Left: Big Value Number */}
+      <div style={{ fontSize: 26, fontWeight: 700, color: accent || G.text, lineHeight: 1 }}>
+        {value}
       </div>
-      <div style={{ fontSize: 26, fontWeight: 700, color: accent || G.text, lineHeight: 1 }}>{value}</div>
-      {sub && <div className={cls} style={{ fontSize: 11, color: G.muted, marginTop: 5 }}>{sub}</div>}
+
+      {/* Top Right: Icon */}
+      <div style={{ width: 42, height: 42, borderRadius: 9, background: G.goldSurface, border: `1px solid ${G.goldBorder}`, display: "flex", alignItems: "center", justifyContent: "center", color: G.gold, flexShrink: 0, justifySelf: "end" }}>
+        {icon}
+      </div>
+      
+      {/* Bottom Left: Subtext */}
+      {sub ? (
+        <div className={cls} style={{ fontSize: 11, color: G.muted }}>
+          {sub}
+        </div>
+      ) : (
+        <div /> // Keeps the grid cell occupied if sub is missing
+      )}
+
+      {/* Bottom Right: Label */}
+      <span className={cls} style={{ color: G.muted, fontSize: 12, fontWeight: 500, justifySelf: "end", textAlign: "right" }}>
+        {label}
+      </span>
+
     </div>
+
+
   );
 }

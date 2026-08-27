@@ -1,10 +1,9 @@
 export type Lang = "en" | "km";
 
 const en = {
-  hero_h1_a: "Stop scams before they",
-  hero_h1_b: "reach your community.",
-  hero_sub: "Trusted by 200+ Telegram groups across Cambodia.",
-  hero_desc: "Songket scans every message in your Telegram group — detecting phishing URLs, malware files, and scam content automatically, in seconds.",
+  hero_h1_a: "Don't click to fast", 
+  hero_h1_b: "Let SongKet check first.",
+  hero_desc: "SongKet turns Telegram groups and channels into safer spaces by detecting threats before they can spread.",
   btn_start: "Get Started Free",
   btn_how: "How It Works",
   trust: ["End-to-end secure", "Real-time scanning", "Built for Cambodia"],
@@ -16,7 +15,6 @@ const en = {
   features: [
     { icon: "shield", title: "Phishing URL Detection", desc: "Identifies fake banking, e-wallet, and government URLs before users click them." },
     { icon: "link", title: "Malware File Scanning", desc: "Scans shared documents, APKs, and executables for malicious payloads instantly." },
-    { icon: "users", title: "Scam Text Analysis", desc: "Detects social engineering scripts and suspicious pattern messages common in local scams." },
   ],
   how_h: "How It Works",
   steps: [
@@ -67,10 +65,9 @@ const en = {
 };
 
 const km: typeof en = {
-  hero_h1_a: "ទប់ស្កាត់ការបន្លំ មុន",
-  hero_h1_b: "ពួកវាដល់ក្រុមអ្នក។",
-  hero_sub: "គ្រប់គ្រងក្រុម Telegram ជាង ២០០ នៅទូទាំងកម្ពុជា។",
-  hero_desc: "Songket ស្កែនសារគ្រប់ជាន់នៅក្នុងក្រុម Telegram របស់អ្នក — រកឃើញ URL បន្លំ ឯកសារ malware និងមាតិការបោកប្រាស់ ដោយស្វ័យប្រវត្តិ ក្នុងរយៈពេលប៉ុន្មានវិនាទី។",
+  hero_h1_a: "កុំ ចុចលឿនពេក",
+  hero_h1_b: "សង្កេត មុនសិន",
+  hero_desc: "សង្កេត ជួយការពារក្រុម និងឆានែល Telegram ឱ្យមានសុវត្ថិភាព ដោយស្វែងរកហានិភ័យមុនពេលវារីករាលដាល។",
   btn_start: "ចាប់ផ្តើមឥតគិតថ្លៃ",
   btn_how: "របៀបដំណើរការ",
   trust: ["សុវត្ថិភាពពី end-to-end", "ស្កែនពេលជាក់ស្តែង", "សាងសង់សម្រាប់កម្ពុជា"],
@@ -82,7 +79,6 @@ const km: typeof en = {
   features: [
     { icon: "shield", title: "ការរកឃើញ URL បន្លំ", desc: "ការកំណត់ URL ក្លែងក្លាយសម្រាប់ធនាគារ កាបូបអេឡិចត្រូនិច និងហត្ថលេខារដ្ឋ មុនពេលអ្នកប្រើប្រាស់ចុចលើពួកគេ។" },
     { icon: "link", title: "ការស្កែនឯកសារ Malware", desc: "ស្កែនឯកសារ APK និងឯកសារដែលបានចែករំលែកសម្រាប់ payload ដែលបង្កគ្រោះថ្នាក់ ដោយភ្លាមៗ។" },
-    { icon: "users", title: "ការវិភាគអត្ថបទបោកប្រាស់", desc: "ការរកឃើញស្ត្រីបដំណើរការសង្គម និងសារមានលំនាំគួរឱ្យសង្ស័យ ទូទៅនៅក្នុងការបោកប្រាស់ក្នុងស្រុក។" },
   ],
   how_h: "របៀបដំណើរការ",
   steps: [

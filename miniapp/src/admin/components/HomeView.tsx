@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { Shield, Search, AlertTriangle, Link as LinkIcon } from "lucide-react";
+import { Shield, Search, AlertTriangle, Link as LinkIcon, FileIcon } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
-import { G, HEX, type Lang } from "../palette";
+import { G, type Lang } from "../palette";
 import { t as T, kh } from "../i18n";
 import type { DashboardData } from "../types";
 import { getTimelineFromDashboard, getThreatBreakdownFromDashboard, getThreatsListFromDashboard, PIE_COLORS } from "../data";
@@ -66,32 +66,41 @@ export default function HomeView({ dashboard, lang, isMock }: HomeViewProps) {
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <StatCard
-          icon={<Shield size={17} />}
+          icon={<Shield size={25} />}
           label={tx.groupsLabel}
           value={groupsCount}
           sub={`${groupsCount} ${tx.planSlots}`}
           lang={lang}
         />
         <StatCard
-          icon={<Search size={17} />}
+          icon={<Search size={25} />}
           label={tx.scansToday}
           value={scansToday.toLocaleString()}
           sub={`${totals.scanned.toLocaleString()} total`}
           lang={lang}
         />
         <StatCard
-          icon={<AlertTriangle size={17} />}
+          icon={<FileIcon size={25} />}
+          label={tx.fileBlocked}
+          value={totals.files.toLocaleString()}
+          sub={`${totals.files} files`}
+          lang={lang}
+        />
+        <StatCard
+          icon={<LinkIcon size={25} />}
+          label={tx.urlBlocked}
+          value={totals.urls.toLocaleString()}
+          sub={`${totals.files} files`}
+          lang={lang}
+        />
+      </div>
+      <div style={{ gap: 12 }}>
+        <StatCard
+          icon={<AlertTriangle size={25} />}
           label={tx.deletedFile}
           value={totals.deleted.toLocaleString()}
           sub={`${totals.malicious} malicious`}
           accent={totals.deleted > 0 ? G.danger : G.text}
-          lang={lang}
-        />
-        <StatCard
-          icon={<LinkIcon size={17} />}
-          label={tx.urlBlocked}
-          value={totals.urls.toLocaleString()}
-          sub={`${totals.files} files`}
           lang={lang}
         />
       </div>
@@ -106,20 +115,20 @@ export default function HomeView({ dashboard, lang, isMock }: HomeViewProps) {
             <AreaChart data={timelineData} margin={{ left: -20, right: 4 }}>
               <defs>
                 <linearGradient id="tGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={HEX.danger} stopOpacity={0.3} />
-                  <stop offset="95%" stopColor={HEX.danger} stopOpacity={0} />
+                  <stop offset="5%" stopColor={G.danger} stopOpacity={0.3} />
+                  <stop offset="95%" stopColor={G.danger} stopOpacity={0} />
                 </linearGradient>
                 <linearGradient id="sGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={HEX.gold} stopOpacity={0.2} />
-                  <stop offset="95%" stopColor={HEX.gold} stopOpacity={0} />
+                  <stop offset="5%" stopColor={G.gold} stopOpacity={0.2} />
+                  <stop offset="95%" stopColor={G.gold} stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke={HEX.border} />
-              <XAxis dataKey="day" stroke={HEX.muted} tick={{ fontSize: 10 }} />
-              <YAxis stroke={HEX.muted} tick={{ fontSize: 10 }} />
-              <Tooltip contentStyle={{ background: HEX.surface2, border: `1px solid ${HEX.goldBorder}`, borderRadius: 8, color: HEX.text, fontSize: 12 }} />
-              <Area type="monotone" dataKey="scans" stroke={HEX.gold} strokeWidth={2} fill="url(#sGrad)" name="Scans" />
-              <Area type="monotone" dataKey="threats" stroke={HEX.danger} strokeWidth={2} fill="url(#tGrad)" name="Threats" />
+              <CartesianGrid strokeDasharray="3 3" stroke={G.border} />
+              <XAxis dataKey="day" stroke={G.muted} tick={{ fontSize: 10 }} />
+              <YAxis stroke={G.muted} tick={{ fontSize: 10 }} />
+              <Tooltip contentStyle={{ background: G.surface2, border: `1px solid ${G.goldBorder}`, borderRadius: 8, color: G.text, fontSize: 12 }} />
+              <Area type="monotone" dataKey="scans" stroke={G.gold} strokeWidth={2} fill="url(#sGrad)" name="Scans" />
+              <Area type="monotone" dataKey="threats" stroke={G.danger} strokeWidth={2} fill="url(#tGrad)" name="Threats" />
             </AreaChart>
           </ResponsiveContainer>
         ) : (
@@ -138,8 +147,8 @@ export default function HomeView({ dashboard, lang, isMock }: HomeViewProps) {
             <Pie data={pieData} cx="50%" cy="45%" innerRadius={50} outerRadius={75} dataKey="value" paddingAngle={3}>
               {pieData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
             </Pie>
-            <Tooltip contentStyle={{ background: HEX.surface2, border: `1px solid ${HEX.goldBorder}`, borderRadius: 8, color: HEX.text, fontSize: 12 }} />
-            <Legend iconSize={8} wrapperStyle={{ fontSize: 11, color: HEX.textSec }} />
+            <Tooltip contentStyle={{ background: G.surface2, border: `1px solid ${G.goldBorder}`, borderRadius: 8, color: G.text, fontSize: 12 }} />
+            <Legend iconSize={8} wrapperStyle={{ fontSize: 11, color: G.textSec }} />
           </PieChart>
         </ResponsiveContainer>
       </div>
