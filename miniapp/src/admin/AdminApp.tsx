@@ -203,10 +203,11 @@ function PinGate({ mode, locked, lang, onSuccess }: { mode: "setup" | "login"; l
 
   const fmt = (s: number) => `${Math.floor(s / 60)}m ${s % 60}s`;
   const inputProps = {
-    type: "password",
+    type: "text",
     inputMode: "numeric" as const,
+    pattern: "[0-9]*",
     maxLength: 6,
-    autoComplete: "off",
+    autoComplete: "one-time-code",
   };
 
   async function submit() {

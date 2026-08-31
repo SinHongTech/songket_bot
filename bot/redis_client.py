@@ -134,6 +134,19 @@ def set_group_lang(chat_id: int, lang: str) -> bool:
     return set_group_settings(chat_id, settings)
 
 
+def get_user_lang(user_id: int) -> str:
+    data = kv_json_get(f"settings:user:{user_id}")
+    if data and isinstance(data, dict):
+        return str(data.get("lang", config.DEFAULT_LANGUAGE)).lower()
+    return config.DEFAULT_LANGUAGE
+
+
+def set_user_lang(user_id: int, lang: str) -> bool:
+    data = kv_json_get(f"settings:user:{user_id}") or {}
+    data["lang"] = lang.strip().lower()
+    return kv_json_set(f"settings:user:{user_id}", data)
+
+
 # ── subscriptions & quotas ───────────────────────────────────────────────────
 
 def get_subscription(user_id: int) -> dict:
