@@ -91,8 +91,10 @@ export default function PublicApp() {
         <HowItWorks t={t} isKm={isKm} bodyFont={bodyFont} />
         <Pricing t={t} isKm={isKm} bodyFont={bodyFont} />
         <About t={t} isKm={isKm} bodyFont={bodyFont} />
-        <Footer isKm={isKm} bodyFont={bodyFont} />
         <FAQ t={t} isKm={isKm} bodyFont={bodyFont} />
+        <section id="privacy" style={{paddingBottom: 32}}>
+          <Footer isKm={isKm} bodyFont={bodyFont} />
+        </section>
       </div>
     </div>
   );

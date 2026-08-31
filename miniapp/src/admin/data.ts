@@ -218,15 +218,29 @@ export function getScanHistoryFromDashboard(dashboard?: DashboardData | null) {
     g.daily.forEach(d => {
       if (d.scanned > 0) {
         const hasThreat = d.malicious > 0;
-        history.push({
-          date: d.date,
-          content: `${d.scanned} items (${d.urls} URLs, ${d.files} Files)`,
-          group: g.title,
-          type: d.files > 0 && d.urls === 0 ? "File" : d.urls > 0 && d.files === 0 ? "URL" : "All",
-          result: hasThreat ? "threat" : "clean",
-          scanned: d.scanned,
-          malicious: d.malicious,
-        });
+        const result = hasThreat ? "threat" : "clean";
+        if (d.urls > 0) {
+          history.push({
+            date: d.date,
+            content: `${d.urls} URLs scanned`,
+            group: g.title,
+            type: "URL",
+            result,
+            scanned: d.urls,
+            malicious: d.malicious,
+          });
+        }
+        if (d.files > 0) {
+          history.push({
+            date: d.date,
+            content: `${d.files} files scanned`,
+            group: g.title,
+            type: "File",
+            result,
+            scanned: d.files,
+            malicious: d.malicious,
+          });
+        }
       }
     });
   });

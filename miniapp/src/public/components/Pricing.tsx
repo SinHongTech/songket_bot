@@ -21,7 +21,7 @@ export default function Pricing({ t, isKm, bodyFont }: PricingProps) {
       </div>
       <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 20, paddingLeft: 11, fontFamily: bodyFont }}>{t.pricing_sub}</p>
       <div style={{ display: "flex", gap: 6, marginBottom: 16, paddingLeft: 11 }}>
-        {(["personal", "business"] as const).map(val => {
+        {([ "business","personal"] as const).map(val => {
           const active = tab === val;
           return (
             <button
@@ -44,7 +44,7 @@ export default function Pricing({ t, isKm, bodyFont }: PricingProps) {
                 fontFamily: bodyFont,
               }}
             >
-              {val === "personal" ? t.pricingTabBusiness : t.pricingTabPersonal}
+              {val === "business" ? t.pricingTabBusiness : t.pricingTabPersonal}
             </button>
           );
         })}
@@ -77,8 +77,8 @@ export default function Pricing({ t, isKm, bodyFont }: PricingProps) {
                 </li>
               ))}
             </ul>
-            <button onClick={() => setSelectedPlan(plan.id)} style={{ width: "100%", padding: "12px 0", borderRadius: 9, cursor: "pointer", fontSize: 14, fontWeight: 700, transition: "all 0.2s", fontFamily: bodyFont, background: selectedPlan === plan.id ? "#1a1200" : plan.highlight ? "var(--gold)" : "transparent", color: selectedPlan === plan.id ? "#f5b800" : plan.highlight ? "#1a1200" : "var(--text)", border: plan.highlight ? "none" : "1.5px solid var(--border)", boxShadow: plan.highlight && selectedPlan !== plan.id ? "0 2px 12px rgba(212,167,44,0.4)" : "none" }} onMouseEnter={e => { if (selectedPlan !== plan.id) { e.currentTarget.style.background = plan.highlight ? "#c49424" : "rgba(212,167,44,0.08)"; if (!plan.highlight) e.currentTarget.style.borderColor = "var(--gold)"; } }} onMouseLeave={e => { if (selectedPlan !== plan.id) { e.currentTarget.style.background = plan.highlight ? "var(--gold)" : "transparent"; if (!plan.highlight) e.currentTarget.style.borderColor = "var(--border)"; } }}>
-              {selectedPlan === plan.id ? t.selected : plan.cta}
+             <button onClick={() => window.open("https://t.me/Sin_Hong", "_blank")} style={{ width: "100%", padding: "12px 0", borderRadius: 9, cursor: "pointer", fontSize: 14, fontWeight: 700, transition: "all 0.2s", fontFamily: bodyFont, background: plan.highlight ? "var(--gold)" : "transparent", color: plan.highlight ? "#1a1200" : "var(--text)", border: plan.highlight ? "none" : "1.5px solid var(--border)" }} onMouseEnter={e => { e.currentTarget.style.background = plan.highlight ? "#c49424" : "rgba(212,167,44,0.08)"; if (!plan.highlight) e.currentTarget.style.borderColor = "var(--gold)"; }} onMouseLeave={e => { e.currentTarget.style.background = plan.highlight ? "var(--gold)" : "transparent"; if (!plan.highlight) e.currentTarget.style.borderColor = "var(--border)"; }}>
+              {plan.cta}
             </button>
           </div>
         ))}

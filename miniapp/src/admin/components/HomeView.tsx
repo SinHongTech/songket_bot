@@ -11,18 +11,18 @@ interface HomeViewProps {
   dashboard: DashboardData | null;
   lang: Lang;
   isMock?: boolean;
-  homeDays: number;
-  onHomeDaysChange: (d: number) => void;
+  dateFrom: string;
+  dateTo: string;
+  onDateChange: (from: string, to: string) => void;
   onNavigate: (tab: Nav) => void;
 }
 
-const HOME_DAY_OPTIONS = [1, 7, 14, 30];
-
-export default function HomeView({ dashboard, lang, isMock, homeDays, onHomeDaysChange, onNavigate }: HomeViewProps) {
+export default function HomeView({ dashboard, lang, isMock, dateFrom, dateTo, onDateChange, onNavigate }: HomeViewProps) {
   const tx = T(lang);
   const [expandedThreat, setExpandedThreat] = useState<string | null>(null);
 
-  const timelineData = getTimelineFromDashboard(dashboard);
+  const allTimelineData = getTimelineFromDashboard(dashboard);
+  const timelineData = allTimelineData.filter(item => item.date >= dateFrom && item.date <= dateTo);
   const pieData = getThreatBreakdownFromDashboard(dashboard);
   const threatsList = getThreatsListFromDashboard(dashboard);
 
@@ -113,35 +113,52 @@ export default function HomeView({ dashboard, lang, isMock, homeDays, onHomeDays
         />
       </div>
 
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        {tx.dateFilters.map((label, i) => {
-          const dVal = HOME_DAY_OPTIONS[i] || 7;
-          const active = homeDays === dVal;
-          return (
-            <button
-              key={i}
-              onClick={() => onHomeDaysChange(dVal)}
-              style={{
-                padding: "5px 12px",
-                borderRadius: 20,
-                border: `1.5px solid ${active ? G.gold : G.border}`,
-                background: active ? G.goldSurface : "transparent",
-                color: active ? G.gold : G.muted,
-                cursor: "pointer",
-                fontSize: 11,
-                fontWeight: 700,
-                transition: "all 0.15s",
-              }}
-            >
-              <span className={kh(lang)}>{label}</span>
-            </button>
-          );
-        })}
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1 }}>
+          <span style={{ fontSize: 10, fontWeight: 600, color: G.muted }}>
+            <span className={kh(lang)}>{tx.fromDate}</span>
+          </span>
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={e => onDateChange(e.target.value, dateTo)}
+            style={{
+              padding: "6px 8px",
+              borderRadius: 8,
+              border: `1px solid ${G.border}`,
+              background: G.surface,
+              color: G.text,
+              fontSize: 12,
+              fontFamily: "inherit",
+              outline: "none",
+            }}
+          />
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1 }}>
+          <span style={{ fontSize: 10, fontWeight: 600, color: G.muted }}>
+            <span className={kh(lang)}>{tx.toDate}</span>
+          </span>
+          <input
+            type="date"
+            value={dateTo}
+            onChange={e => onDateChange(dateFrom, e.target.value)}
+            style={{
+              padding: "6px 8px",
+              borderRadius: 8,
+              border: `1px solid ${G.border}`,
+              background: G.surface,
+              color: G.text,
+              fontSize: 12,
+              fontFamily: "inherit",
+              outline: "none",
+            }}
+          />
+        </div>
       </div>
 
       <div style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 14, padding: "16px 14px" }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: G.textSec, marginBottom: 14, display: "flex", justifyContent: "space-between" }}>
-          <span className={kh(lang)}>{tx.threatActivity} ({homeDays} Days)</span>
+          <span className={kh(lang)}>{tx.threatActivity} ({dateFrom} ~ {dateTo})</span>
           <span style={{ fontSize: 11, color: G.gold, fontWeight: 700 }}>{totals.scanned} scans</span>
         </div>
         {timelineData.length > 0 ? (

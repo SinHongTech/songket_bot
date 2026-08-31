@@ -1,5 +1,7 @@
+
 import { useState } from "react";
-import { ChevronLeft, ChevronRight, Shield, AlertTriangle, Trash2 } from "lucide-react";
+import {ChevronLeft,ChevronRight,Shield, AlertTriangle, Trash2,RefreshCw,LogOut,Search,FileText,Link2,LayoutGrid, MessageSquare, History,User,} from "lucide-react";
+import logoImg from "../../shared/assets/Logo.svg";
 
 interface HowItWorksProps {
   t: any;
@@ -11,42 +13,132 @@ interface HowItWorksProps {
 function ContentAddBot({ isKm }: { isKm: boolean }) {
   return (
     <>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 17, paddingBottom: 14, borderBottom: "1px solid #1e1c14" }}>
-        <div style={{ width: 40, height: 40, borderRadius: "50%", background: "#2aabee", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>✈️</div>
-        <div>
-          <div style={{ fontSize: 17, fontWeight: 700, color: "#fff" }}>KhmerDev Community</div>
-          <div style={{ fontSize: 13, color: "#555" }}>1,240 members</div>
+      {/* ── Telegram chat header ── */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "10px 4px 14px",
+          marginBottom: 14,
+          borderBottom: "1px solid #0f1a24",
+        }}
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+          <path d="M15 19l-7-7 7-7" stroke="#6d7f8f" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        <div
+          style={{
+            width: 38,
+            height: 38,
+            borderRadius: "50%",
+            background: "linear-gradient(135deg, #54a9eb, #2683d1)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: 18,
+            flexShrink: 0,
+          }}
+        >
+          PG
+        </div>
+        <div style={{ lineHeight: 1.3 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>Project Next Gen</div>
+          <div style={{ fontSize: 10, color: "#6d7f8f" }}>1,240 members, 89 online</div>
         </div>
       </div>
-      <div className="msg-in-1" style={{ textAlign: "center", marginBottom: 14 }}>
-        <span style={{ fontSize: 13, color: "#555", background: "#1a1810", borderRadius: 10, padding: "4px 14px" }}>Admin added @SongketBot</span>
+
+      {/* ── System/service message ── */}
+      <div className="msg-in-1" style={{ textAlign: "center", marginBottom: 16 }}>
+        <span
+          style={{
+            fontSize: 12.5,
+            color: "#8a97a1",
+            background: "rgba(255,255,255,0.06)",
+            borderRadius: 12,
+            padding: "5px 12px",
+          }}
+        >
+          Admin added @SongketBot
+        </span>
       </div>
-      <div className="msg-in-2" style={{ marginBottom: 14 }}>
-        <div style={{ fontSize: 12, color: "#D4A72C", fontWeight: 600, marginBottom: 4 }}>@SongketBot</div>
-        <div style={{ background: "rgba(212,167,44,0.08)", border: "1px solid rgba(212,167,44,0.2)", borderRadius: "7px 15px 15px 15px", padding: "10px 14px", maxWidth: "88%" }}>
-          <div style={{ fontSize: 15, color: "#D4A72C", lineHeight: 1.5 }}>
-            {isKm ? "🛡️ ករស្វាគមន៍! ការការពារឥឡូវសកម្ម!" : "🛡️ Hello! I'm Songket Bot — protection is now active!"}
+
+      {/* ── Sequential group: avatar shown once, both bubbles share the tail column ── */}
+      <div style={{ display: "flex", gap: 8, alignItems: "flex-start", marginBottom: 4 }}>
+        <div
+          style={{
+            width: 32,
+            height: 32,
+            borderRadius: "50%",
+            overflow: "hidden",
+            flexShrink: 0,
+            marginTop: 2,
+            background: "#0e1621",
+          }}
+        >
+          <img
+            src={logoImg}
+            alt="Songket Bot"
+            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+          />
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 3, maxWidth: "78%" }}>
+          {/* message 1 */}
+          <div className="msg-in-2">
+            <div style={{ fontSize: 13, color: "#D4A72C", fontWeight: 600, marginBottom: 2, paddingLeft: 12 }}>
+              SongketBot
+            </div>
+            <div
+              style={{
+                background: "#182533",
+                borderRadius: "4px 12px 12px 12px",
+                padding: "10px 12px 8px",
+              }}
+            >
+              <div style={{ fontSize: 14.5, color: "#e8edf1", lineHeight: 1.45 }}>
+                {isKm ? "ការស្វាគមន៍! ការការពារឥឡូវសកម្ម!" : "Hello! I'm Songket Bot — protection is now active!"}
+              </div>
+              <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 3, marginTop: 4 }}>
+                <span style={{ fontSize: 11, color: "#6d7f8f" }}>10:24 AM</span>
+                <svg width="15" height="10" viewBox="0 0 16 11" fill="none">
+                  <path d="M1 5.5L4.5 9L11 1.5" stroke="#5eb5f7" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M5 5.5L8.5 9L15 1.5" stroke="#5eb5f7" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
-      <div className="msg-in-3" style={{ background: "rgba(42,170,90,0.06)", border: "1px solid rgba(42,170,90,0.2)", borderRadius: 15, padding: "14px 17px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-          <div className="dot-pulse" style={{ width: 8, height: 8, borderRadius: "50%", background: "#2aaa5a", flexShrink: 0 }} />
-          <span style={{ fontSize: 13, fontWeight: 700, color: "#2aaa5a", letterSpacing: "0.05em" }}>
-            {isKm ? "ការការពារសកម្ម" : "PROTECTION ACTIVE"}
-          </span>
-        </div>
-        <div className="check-appear-1" style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-          <span style={{ color: "#2aaa5a", fontSize: 15, fontWeight: 700 }}>✓</span>
-          <span style={{ fontSize: 15, color: "#c8b980" }}>{isKm ? "ការស្កែន URL" : "URL scanning"}</span>
-        </div>
-        <div className="check-appear-2" style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-          <span style={{ color: "#2aaa5a", fontSize: 15, fontWeight: 700 }}>✓</span>
-          <span style={{ fontSize: 15, color: "#c8b980" }}>{isKm ? "ការស្កែនឯកសារ" : "File scanning"}</span>
-        </div>
-        <div className="check-appear-3" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ color: "#2aaa5a", fontSize: 15, fontWeight: 700 }}>✓</span>
-          <span style={{ fontSize: 15, color: "#c8b980" }}>{isKm ? "ការរកឃើញការបោកប្រាស់" : "Scam detection"}</span>
+
+          {/* message 2 — no avatar/name repeat, continuation bubble */}
+          <div
+            className="msg-in-3"
+            style={{
+              background: "#182533",
+              borderRadius: "12px",
+              padding: "12px",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 10 }}>
+              <div className="dot-pulse" style={{ width: 7, height: 7, borderRadius: "50%", background: "#2aaa5a", flexShrink: 0 }} />
+              <span style={{ fontSize: 12.5, fontWeight: 600, color: "#2aaa5a", letterSpacing: "0.03em" }}>
+                {isKm ? "ការការពារសកម្ម" : "Protection active"}
+              </span>
+            </div>
+
+            {[
+              isKm ? "ការស្កែន URL" : "URL scanning",
+              isKm ? "ការស្កែនឯកសារ" : "File scanning",
+            ].map((label, i) => (
+              <div key={label} className={`check-appear-${i + 1}`} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: i < 2 ? 7 : 0 }}>
+                <span style={{ color: "#2aaa5a", fontSize: 14, fontWeight: 700, width: 14, textAlign: "center", flexShrink: 0 }}>✓</span>
+                <span style={{ fontSize: 14, color: "#c3ccd3" }}>{label}</span>
+              </div>
+            ))}
+
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
+              <span style={{ fontSize: 11, color: "#6d7f8f" }}>10:24 AM</span>
+            </div>
+          </div>
         </div>
       </div>
     </>
@@ -54,22 +146,50 @@ function ContentAddBot({ isKm }: { isKm: boolean }) {
 }
 
 /* ─── Phone screen content: step 2 ─── */
+
 function ContentWatchMessages({ isKm }: { isKm: boolean }) {
   return (
     <>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 17, paddingBottom: 14, borderBottom: "1px solid #1e1c14" }}>
-        <div style={{ width: 40, height: 40, borderRadius: "50%", background: "#2aabee", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>✈️</div>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 17, fontWeight: 700, color: "#fff" }}>KhmerDev Community</div>
-          <div style={{ fontSize: 13, color: "#555" }}>1,240 members</div>
+      {/* ── Telegram chat header ── */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "10px 4px 14px",
+          marginBottom: 14,
+          borderBottom: "1px solid #0f1a24",
+        }}
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+          <path d="M15 19l-7-7 7-7" stroke="#6d7f8f" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        <div
+          style={{
+            width: 38,
+            height: 38,
+            borderRadius: "50%",
+            background: "linear-gradient(135deg, #54a9eb, #2683d1)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: 18,
+            flexShrink: 0,
+          }}
+        >
+          PG
         </div>
-        <Shield size={15} color="#D4A72C" />
+        <div style={{ lineHeight: 1.3 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>Project Next Gen</div>
+          <div style={{ fontSize: 10, color: "#6d7f8f" }}>1,240 members, 89 online</div>
+        </div>
       </div>
+
       <div style={{ position: "relative", overflow: "hidden", borderRadius: 10 }}>
         <div className="msg-in-1" style={{ marginBottom: 10 }}>
           <div style={{ fontSize: 12, color: "#2aabee", fontWeight: 600, marginBottom: 4 }}>Dara</div>
           <div style={{ background: "#1e1c14", borderRadius: "7px 15px 15px 15px", padding: "7px 14px", display: "inline-block" }}>
-            <span style={{ fontSize: 15, color: "#c8b980" }}>{isKm ? "ហេ មើល link ABA 🔗" : "Hey check this ABA link 🔗"}</span>
+            <span style={{ fontSize: 15, color: "#c8b980" }}>{isKm ? "ហេ មើល link នេះ 🔗" : "Hey check this link 🔗"}</span>
           </div>
         </div>
         <div className="msg-in-2" style={{ marginBottom: 10 }}>
@@ -84,17 +204,56 @@ function ContentWatchMessages({ isKm }: { isKm: boolean }) {
             <span style={{ fontSize: 15, color: "#c8b980" }}>{isKm ? "link ណា?" : "Which link?"}</span>
           </div>
         </div>
-        <div className="msg-in-4" style={{ marginBottom: 4 }}>
+        <div className="msg-in-4" style={{ marginBottom: 14 }}>
           <div style={{ fontSize: 12, color: "#7a6830", fontWeight: 600, marginBottom: 4 }}>Sophy</div>
           <div style={{ background: "#1e1c14", borderRadius: "7px 15px 15px 15px", padding: "7px 14px", display: "inline-block" }}>
             <span style={{ fontSize: 15, color: "#c8b980" }}>{isKm ? "ខ្ញុំក៏ទទួលបាន" : "I got that too"}</span>
           </div>
         </div>
-        <div className="scan-sweep" style={{ position: "absolute", left: 0, right: 0, height: 3, background: "linear-gradient(90deg, transparent, rgba(212,167,44,0.7), transparent)", borderRadius: 2, pointerEvents: "none" }} />
-      </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14, padding: "8px 14px", background: "rgba(212,167,44,0.06)", border: "1px solid rgba(212,167,44,0.18)", borderRadius: 12 }}>
-        <div className="spin" style={{ width: 17, height: 17, borderRadius: "50%", border: "2.5px solid #D4A72C", borderTopColor: "transparent", flexShrink: 0 }} />
-        <span style={{ fontSize: 14, color: "#D4A72C" }}>{isKm ? "Songket កំពុងស្កែន…" : "Songket scanning every message…"}</span>
+
+        {/* ── Bot scanning response: shared logo avatar + two scan rows ── */}
+        <div className="msg-in-5" style={{ display: "flex", gap: 8, alignItems: "flex-start" }}>
+          <div style={{ width: 28, height: 28, borderRadius: "50%", overflow: "hidden", flexShrink: 0, marginTop: 1, background: "#0e1621" }}>
+            <img src={logoImg} alt="Songket Bot" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+          </div>
+
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div
+              style={{
+                background: "#182533",
+                borderRadius: 10,
+                padding: "7px 9px",
+                minWidth: 0,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 0 }}>
+                  <span style={{ fontSize: 11, color: "#2aabee", fontWeight: 600, flexShrink: 0 }}>Songket Bot</span>
+                  <span
+                    style={{
+                      fontSize: 8.5,
+                      fontWeight: 600,
+                      color: "#7cd992",
+                      background: "rgba(42,170,90,0.15)",
+                      borderRadius: 4,
+                      padding: "1px 5px",
+                      flexShrink: 0,
+                    }}
+                  >
+                    {isKm ? "អ្នកគ្រប់គ្រង" : "admin"}
+                  </span>
+                </div>
+                <span style={{ fontSize: 9.5, color: "#6d7f8f", flexShrink: 0 }}>15:48</span>
+              </div>
+
+              <div style={{ fontSize: 12, color: "#9aa7b0", marginTop: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                🔍 {isKm ? "កំពុងស្កែនមាតិកា..." : "Scanning content..."}
+              </div>
+            </div>
+          </div>
+        </div>
+
+<div className="scan-sweep" style={{ position: "absolute", left: 0, right: 0, height: 3, background: "linear-gradient(90deg, transparent, rgba(212,167,44,0.7), transparent)", borderRadius: 2, pointerEvents: "none" }} />
       </div>
     </>
   );
@@ -104,87 +263,403 @@ function ContentWatchMessages({ isKm }: { isKm: boolean }) {
 function ContentBlockThreats({ isKm }: { isKm: boolean }) {
   return (
     <>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 17, paddingBottom: 14, borderBottom: "1px solid #1e1c14" }}>
-        <div style={{ width: 40, height: 40, borderRadius: "50%", background: "#2aabee", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, flexShrink: 0 }}>✈️</div>
-        <div style={{ fontSize: 17, fontWeight: 700, color: "#fff" }}>KhmerDev Community</div>
+      {/* ── Telegram chat header ── */}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          padding: "10px 4px 14px",
+          marginBottom: 14,
+          borderBottom: "1px solid #0f1a24",
+        }}
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0 }}>
+          <path d="M15 19l-7-7 7-7" stroke="#6d7f8f" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        <div
+          style={{
+            width: 38,
+            height: 38,
+            borderRadius: "50%",
+            background: "linear-gradient(135deg, #54a9eb, #2683d1)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: 18,
+            flexShrink: 0,
+          }}
+        >
+          PG
+        </div>
+        <div style={{ lineHeight: 1.3 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>Project Next Gen</div>
+          <div style={{ fontSize: 10, color: "#6d7f8f" }}>1,240 members, 89 online</div>
+        </div>
       </div>
+
+      {/* ── Dara sends the file/link (unchanged) ── */}
       <div className="threat-slide" style={{ marginBottom: 12 }}>
-        <div style={{ fontSize: 12, color: "#2aabee", fontWeight: 600, marginBottom: 4 }}>Dara</div>
+        <div style={{ fontSize: 10, color: "#2aabee", fontWeight: 500, marginBottom: 4 }}>Dara</div>
         <div style={{ background: "rgba(224,64,64,0.06)", border: "1px solid rgba(224,64,64,0.2)", borderRadius: "7px 15px 15px 15px", padding: "7px 14px", display: "inline-block", maxWidth: "92%" }}>
-          <span style={{ fontSize: 13, color: "#e04040", fontFamily: "JetBrains Mono, monospace", wordBreak: "break-all" }}>http://aba-bank-verify.xyz/login</span>
+          <span style={{ fontSize: 7, color: "#e04040", fontFamily: "JetBrains Mono, monospace", wordBreak: "break-all" }}>http://aba-bank-verify.xyz/login</span>
         </div>
       </div>
-      <div className="alert-appear" style={{ background: "rgba(224,64,64,0.08)", border: "1px solid rgba(224,64,64,0.35)", borderRadius: 15, padding: "14px 17px", marginBottom: 12 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 8 }}>
-          <AlertTriangle size={17} color="#e04040" />
-          <span style={{ fontSize: 14, fontWeight: 700, color: "#e04040", letterSpacing: "0.05em" }}>SONGKET ALERT</span>
-        </div>
-        <div style={{ fontSize: 15, color: "#c8b980", lineHeight: 1.5, marginBottom: 10 }}>
-          {isKm ? "🚨 Phishing URL — ក្លែងក្លាយ ABA Bank!" : "🚨 Phishing URL — impersonating ABA Bank!"}
-        </div>
-        <div className="deleted-appear" style={{ display: "flex", alignItems: "center", gap: 7 }}>
-          <Trash2 size={15} color="#e04040" />
-          <span style={{ fontSize: 15, color: "#e04040", fontWeight: 700 }}>{isKm ? "សារត្រូវបានលុប" : "Message deleted"}</span>
-        </div>
-      </div>
-      <div className="deleted-appear">
-        <div style={{ fontSize: 12, color: "#D4A72C", fontWeight: 600, marginBottom: 4 }}>@SongketBot</div>
-        <div style={{ background: "rgba(212,167,44,0.08)", border: "1px solid rgba(212,167,44,0.2)", borderRadius: "7px 15px 15px 15px", padding: "8px 14px", display: "inline-block", maxWidth: "90%" }}>
-          <span style={{ fontSize: 15, color: "#2aaa5a" }}>
-            {isKm ? "✅ ក្រុមការពារ — Dara ត្រូវបានព្រមាន" : "✅ Group protected — Dara has been warned"}
+
+      {/* ── Bot detailed threat report ── */}
+      <div className="alert-appear" style={{ display: "flex", flexDirection: "column", alignItems: "flex-start" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%", marginBottom: 4 }}>
+          <span style={{ fontSize: 10, color: "#D4A72C", fontWeight: 600 }}>Songket Bot</span>
+          <span
+            style={{
+              fontSize: 8,
+              fontWeight: 600,
+              color: "#7cd992",
+              background: "rgba(42,170,90,0.15)",
+              borderRadius: 5,
+              padding: "1px 7px",
+            }}
+          >
+            {isKm ? "អ្នកគ្រប់គ្រង" : "admin"}
           </span>
         </div>
+
+        <div style={{ background: "#182533", borderRadius: 14, overflow: "hidden", width: "100%" }}>
+          <div style={{ padding: "10px 12px 6px" }}>
+            {/* Threat Detection header */}
+            <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 1 }}>
+              <span style={{ fontSize: 10 }}>🔴</span>
+              <span style={{ fontSize: 8, fontWeight: 700, color: "#fff" }}>
+                {isKm ? "រកឃើញការគំរាមកំហែងថ្មី" : "New Threat Detected"} | {isKm ? "Threat Detection" : "Threat Detection"}
+              </span>
+            </div>
+            {/* Detail rows */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 2 }}>
+              <div style={{ display: "flex", gap: 8, fontSize: 8, lineHeight: 1.4 }}>
+                <span style={{ color: "#2aabee", flexShrink: 0 }}>◆</span>
+                <span style={{ color: "#e8edf1" }}>
+                  <b>{isKm ? "អ្នកផ្ញើ" : "Sender"}</b> ({isKm ? "Sender" : "Sender"}) :{" "}
+                  <span style={{ color: "#5eb5f7" }}>@Panhakhonn</span>
+                </span>
+              </div>
+              <div style={{ display: "flex", gap: 8, fontSize: 8, lineHeight: 1.4 }}>
+                <span style={{ color: "#2aabee", flexShrink: 0 }}>◆</span>
+                <span style={{ color: "#e8edf1" }}>
+                  <b>{isKm ? "គោលដៅ" : "Target"}</b> ({isKm ? "Target" : "Target"}) :{" "}
+                  <span style={{ color: "#5eb5f7", fontFamily: "JetBrains Mono, monospace" }}>Matlab.exe</span>
+                </span>
+              </div>
+              <div style={{ display: "flex", gap: 8, fontSize: 8, lineHeight: 1.4 }}>
+                <span style={{ color: "#2aabee", flexShrink: 0 }}>◆</span>
+                <span style={{ color: "#e8edf1" }}>
+                  <b>{isKm ? "សកម្មភាព" : "Action"}</b> ({isKm ? "Action" : "Action"}) :{" "}
+                  {isKm ? "សារត្រូវបានលុបចោលភ្លាមៗ" : "Message deleted immediately"}
+                  {isKm ? " (Message deleted immediately)" : ""}
+                </span>
+              </div>
+            </div>
+
+            {/* What is this */}
+            <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
+              <span style={{ fontSize: 10 }}>🤔</span>
+              <span style={{ fontSize: 8, fontWeight: 700, color: "#fff" }}>
+                {isKm ? "តើនេះជាអ្វី?" : "What is this?"} | What is this?
+              </span>
+            </div>
+            <div style={{ display: "flex", gap: 6, fontSize: 8, lineHeight: 1.45, color: "#c3ccd3", marginBottom: 12 }}>
+              <span style={{ flexShrink: 0 }}>•</span>
+              <span>
+                {isKm
+                  ? "នេះជាឧបាយកលបោកប្រាស់ ឬមេរោគដែលព្យាយាមលួចគណនី/ពាក្យសម្ងាត់"
+                  : "Phishing scam or malware attempting to steal account/passwords."}
+              </span>
+            </div>
+
+            {/* What to do */}
+            <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
+              <span style={{ fontSize: 10 }}>🔴</span>
+              <span style={{ fontSize: 8, fontWeight: 700, color: "#fff" }}>
+                {isKm ? "អ្វីដែលត្រូវធ្វើ" : "What to do"} | What to do:
+              </span>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 12 }}>
+              <div style={{ display: "flex", gap: 7, fontSize: 8, alignItems: "flex-start" }}>
+                <span style={{ flexShrink: 0 }}>❌</span>
+                <span style={{ color: "#e8edf1" }}>{isKm ? "ហាមចុច ឬបើកឯកសារ" : "Do NOT click or open"}</span>
+              </div>
+              <div style={{ display: "flex", gap: 7, fontSize: 8, alignItems: "flex-start" }}>
+                <span style={{ flexShrink: 0 }}>❌</span>
+                <span style={{ color: "#e8edf1" }}>{isKm ? "ហាមផ្តល់លេខកូដ OTP" : "Never share OTP codes"}</span>
+              </div>
+            </div>
+
+            {/* If already clicked */}
+            <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 6 }}>
+              <span style={{ fontSize: 10 }}>💡</span>
+              <span style={{ fontSize: 8, fontWeight: 700, color: "#fff" }}>
+                {isKm ? "បើបានចុចរួចហើយ" : "If already clicked"} | If already clicked:
+              </span>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ display: "flex", gap: 8, fontSize: 8, alignItems: "flex-start" }}>
+                <span
+                  style={{
+                    width:10,
+                    height: 10,
+                    borderRadius: "50%",
+                    background: "#2aabee",
+                    color: "#fff",
+                    fontSize: 7,
+                    fontWeight: 700,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexShrink: 0,
+                  }}
+                >
+                  1
+                </span>
+                <span style={{ color: "#e8edf1" }}>
+                  {isKm ? "ចូល Settings > Privacy & Security > Active Sessions រួចចុច" : "Go to"} Settings &gt; Privacy &amp; Security &gt; Active Sessions{isKm ? "" : ", then"} Terminate other sessions
+                </span>
+              </div>
+              <div style={{ display: "flex", gap: 8, fontSize: 8, alignItems: "flex-start", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <span
+                    style={{
+                      width: 10,
+                      height: 10,
+                      borderRadius: "50%",
+                      background: "#2aabee",
+                      color: "#fff",
+                      fontSize: 7,
+                      fontWeight: 700,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      flexShrink: 0,
+                    }}
+                  >
+                    2
+                  </span>
+                  <span style={{ color: "#e8edf1" }}>{isKm ? "បើកកម្មវិធី Two-Step Verification ជាបន្ទាន់" : "Turn on Two-Step Verification"}</span>
+                </div>
+                <span style={{ fontSize: 8, color: "#6d7f8f", flexShrink: 0, marginLeft: 8 }}>15:51</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Footer strip */}
+          <div
+            style={{
+              borderTop: "1px solid #1e2c3a",
+              padding: "9px 14px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+            }}
+          >
+            <span style={{ fontSize: 13 }}>💡</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "#5eb5f7" }}>
+              {isKm ? "ការណែនាំសុវត្ថិភាព" : "Security Guide"} | Security Guide
+            </span>
+          </div>
+        </div>
       </div>
+
+      {/* ── Grouped avatar for the last bot bubble ── */}
     </>
   );
 }
 
 /* ─── Phone screen content: step 4 ─── */
+
 function ContentDashboard({ isKm }: { isKm: boolean }) {
-  const bars = [
-    { cls: "bar-1", label: "M" },
-    { cls: "bar-2", label: "T" },
-    { cls: "bar-3", label: "W" },
-    { cls: "bar-4", label: "T" },
-    { cls: "bar-5", label: "F" },
-    { cls: "bar-6", label: "S" },
-    { cls: "bar-7", label: "S" },
+  const iconBtn: React.CSSProperties = {
+    width:8,
+    height: 8,
+    borderRadius: 9,
+    border: "1px solid #2e2400",
+    background: "#1a1400",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  };
+
+  const stats = [
+    {
+      cls: "stat-in-1",
+      icon: <Shield size={16} color="#D4A72C" />,
+      value: "1",
+      caption: isKm ? "ក្រុម ១ សកម្ម" : "1 group(s) active",
+      label: isKm ? "ក្រុម" : "Groups",
+    },
+    {
+      cls: "stat-in-2",
+      icon: <Search size={16} color="#D4A72C" />,
+      value: "7",
+      caption: isKm ? "សរុប ៦១" : "61 total",
+      label: isKm ? "ស្កែនថ្ងៃនេះ" : "Scans Today",
+    },
+    {
+      cls: "stat-in-3",
+      icon: <FileText size={16} color="#D4A72C" />,
+      value: "57",
+      caption: isKm ? "ឯកសារ ៥៧" : "57 files",
+      label: isKm ? "ឯកសារបានស្កែន" : "Files Scanned",
+    },
+    {
+      cls: "stat-in-4",
+      icon: <Link2 size={16} color="#D4A72C" />,
+      value: "3",
+      caption: isKm ? "ឯកសារ ៥៧" : "57 files",
+      label: isKm ? "URL បានស្កែន" : "URLs Scanned",
+    },
   ];
+
+  const navItems = [
+    { icon: LayoutGrid, label: isKm ? "ទំព័រដើម" : "Home", active: true },
+    { icon: MessageSquare, label: isKm ? "ក្រុម" : "Groups", active: false },
+    { icon: AlertTriangle, label: isKm ? "ការគំរាម" : "Threats", active: false },
+    { icon: History, label: isKm ? "ប្រវត្តិ" : "History", active: false },
+    { icon: User, label: isKm ? "គណនី" : "Account", active: false },
+  ];
+
   return (
     <>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <Shield size={18} color="#D4A72C" />
-          <span style={{ fontSize: 17, fontWeight: 700, color: "#D4A72C" }}>Songket Admin</span>
+      {/* ── Top bar ── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 18 }}>
+        <div style={iconBtn}>
+          <ChevronLeft size={17} color="#c8b980" />
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-          <div className="dot-pulse" style={{ width: 8, height: 8, borderRadius: "50%", background: "#2aaa5a", flexShrink: 0 }} />
-          <span style={{ fontSize: 14, color: "#2aaa5a" }}>Live</span>
+
+        <div style={{ width: 34, height: 34, borderRadius: 9, overflow: "hidden", flexShrink: 0, background: "#1a1400" }}>
+          <img src={logoImg} alt="Songket" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+        </div>
+
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#D4A72C" }}>SongKet</span>
+            <span
+              style={{
+                fontSize: 5,
+                fontWeight: 700,
+                color: "#7cd992",
+                background: "rgba(42,170,90,0.15)",
+                border: "1px solid rgba(42,170,90,0.3)",
+                borderRadius: 5,
+                padding: "1px 6px",
+              }}
+            >
+              {isKm ? "កំពុងដំណើរការ" : "LIVE"}
+            </span>
+          </div>
+          <div style={{ fontSize: 8, color: "#7a6830" }}>{isKm ? "អ្នកគ្រប់គ្រង · ទំព័រដើម" : "Admin · HOME"}</div>
+        </div>
+
+        <div style={iconBtn}>
+          <RefreshCw size={20} color="#c8b980" />
+        </div>
+        <div style={iconBtn}>
+          <LogOut size={20} color="#c8b980" />
+        </div>
+        <div
+          style={{
+            padding: "5px 9px",
+            borderRadius: 9,
+            background: "#D4A72C",
+            fontSize: 6,
+            fontWeight: 700,
+            color: "#1a1400",
+            whiteSpace: "nowrap",
+            flexShrink: 0,
+          }}
+        >
+          {isKm ? "ដំឡើងកម្រិត" : "Upgrade"}
         </div>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 20 }}>
-        {[
-          { cls: "stat-in-1", label: isKm ? "ស្កែន" : "Scans", value: "768", color: "#D4A72C" },
-          { cls: "stat-in-2", label: isKm ? "ការគំរាម" : "Threats", value: "41", color: "#e04040" },
-          { cls: "stat-in-3", label: isKm ? "បានលុប" : "Deleted", value: "38", color: "#d07820" },
-          { cls: "stat-in-4", label: isKm ? "ក្រុម" : "Groups", value: "4/5", color: "#2aaa5a" },
-        ].map(s => (
-          <div key={s.label} className={s.cls} style={{ background: "#1a1400", border: "1px solid #2e2400", borderRadius: 12, padding: "10px 14px" }}>
-            <div style={{ fontSize: 12, color: "#7a6830", marginBottom: 5 }}>{s.label}</div>
-            <div style={{ fontSize: 27, fontWeight: 700, color: s.color, lineHeight: 1 }}>{s.value}</div>
+
+      {/* ── Greeting card ── */}
+      <div
+        className="stat-in-1"
+        style={{
+          background: "#1a1400",
+          border: "1px solid #2e2400",
+          borderRadius: 10,
+          padding: "16px 18px",
+          marginBottom: 16,
+        }}
+      >
+        <div style={{ fontSize: 14, fontWeight: 700, color: "#fff", marginBottom: 4 }}>
+          {isKm ? "រាត្រីសួស្តី" : "Good afternoon"}
+        </div>
+        <div style={{ fontSize: 9, color: "#c3ccd3" }}>
+          {isKm ? "ក្រុមរបស់អ្នកកំពុងត្រូវបានតាមដានក្នុងពេលជាក់ស្តែង។" : "Your groups are being monitored in real time."}
+        </div>
+      </div>
+
+      {/* ── Stat grid (2x2) ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+        {stats.map((s) => (
+          <div
+            key={s.label}
+            className={s.cls}
+            style={{ background: "#1a1400", border: "1px solid #2e2400", borderRadius: 12, padding: "12px 14px" }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+              <span style={{ fontSize: 18, fontWeight: 800, color: "#fff", lineHeight: 1 }}>{s.value}</span>
+              <div style={{ width: 28, height: 28, borderRadius: 8, border: "1px solid #2e2400", background: "rgba(212,167,44,0.08)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                {s.icon}
+              </div>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 10 }}>
+              <span style={{ fontSize: 9, color: "#7a6830" }}>{s.caption}</span>
+              <span style={{ fontSize: 10, color: "#c3ccd3", textAlign: "right" }}>{s.label}</span>
+            </div>
           </div>
         ))}
       </div>
-      <div style={{ fontSize: 12, color: "#7a6830", fontWeight: 600, letterSpacing: "0.07em", marginBottom: 10 }}>
-        {isKm ? "ការស្កែន ៧ ថ្ងៃ" : "7-DAY ACTIVITY"}
+
+      {/* ── Threats Deleted (full width) ── */}
+      <div
+        className="stat-in-4"
+        style={{ background: "rgba(224,64,64,0.06)", border: "1px solid rgba(224,64,64,0.25)", borderRadius: 12, padding: "12px 14px", marginBottom: 18 }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+          <span style={{ fontSize: 18, fontWeight: 800, color: "#e04040", lineHeight: 1 }}>34</span>
+          <div style={{ width: 28, height: 28, borderRadius: 8, border: "1px solid rgba(224,64,64,0.3)", background: "rgba(224,64,64,0.1)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <AlertTriangle size={16} color="#e04040" />
+          </div>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 10 }}>
+          <span style={{ fontSize: 9, color: "#b06060" }}>{isKm ? "គំរាម ៣៥" : "35 malicious"}</span>
+          <span style={{ fontSize: 10, color: "#c3ccd3" }}>{isKm ? "ការគំរាមបានលុប" : "Threats Deleted"}</span>
+        </div>
       </div>
-      <div style={{ display: "flex", alignItems: "flex-end", gap: 7, height: 110 }}>
-        {bars.map((b, idx) => (
-          <div key={idx} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", gap: 5 }}>
-            <div className={b.cls} style={{ width: "100%", background: "rgba(212,167,44,0.5)", borderRadius: "3px 3px 0 0", minHeight: 2 }} />
-            <span style={{ fontSize: 10, color: "#555", fontFamily: "JetBrains Mono, monospace" }}>{b.label}</span>
+
+      {/* ── Bottom tab bar ── */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          borderTop: "1px solid #2e2400",
+          paddingTop: 12,
+          marginBottom: 10,
+        }}
+      >
+        {navItems.map(({ icon: Icon, label, active }) => (
+          <div key={label} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, flex: 1 }}>
+            <Icon size={18} color={active ? "#D4A72C" : "#6d6250"} />
+            <span style={{ fontSize: 9.5, fontWeight: active ? 700 : 500, color: active ? "#D4A72C" : "#6d6250" }}>{label}</span>
           </div>
         ))}
+      </div>
+
+      {/* ── Bot handle footer ── */}
+      <div style={{ textAlign: "center", paddingTop: 10, borderTop: "1px solid #14202b" }}>
+        <span style={{ fontSize: 11.5, color: "#6d7f8f" }}>@songket_beyda_bot</span>
       </div>
     </>
   );
