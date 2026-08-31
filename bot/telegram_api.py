@@ -241,8 +241,15 @@ class TelegramAPI:
     def ban_chat_member(self, chat_id: int, user_id: int) -> bool:
         return self._post("banChatMember", {"chat_id": chat_id, "user_id": user_id}).get("ok", False)
 
-    def set_chat_menu_button(self, web_app_url: str, text: str = "Menu") -> dict:
-        return self._post(
-            "setChatMenuButton",
-            {"menu_button": {"type": "web_app", "text": text, "web_app": {"url": web_app_url}}},
-        )
+    def set_chat_menu_button(self, button_type: str = "commands", text: str = "Menu", web_app_url: str = "") -> dict:
+        if button_type == "web_app" and web_app_url:
+            menu_button = {"type": "web_app", "text": text, "web_app": {"url": web_app_url}}
+        else:
+            menu_button = {"type": "commands"}
+        return self._post("setChatMenuButton", {"menu_button": menu_button})
+
+    def set_my_commands(self, commands: list, scope: Optional[dict] = None) -> dict:
+        payload: dict = {"commands": commands}
+        if scope:
+            payload["scope"] = scope
+        return self._post("setMyCommands", payload)

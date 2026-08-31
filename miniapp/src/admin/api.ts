@@ -36,7 +36,7 @@ export function getTelegramWebApp() {
 
 export function getSessionToken(): string {
   try {
-    return localStorage.getItem(SESSION_KEY) || "";
+    return sessionStorage.getItem(SESSION_KEY) || "";
   } catch {
     return "";
   }
@@ -44,8 +44,8 @@ export function getSessionToken(): string {
 
 export function setSessionToken(token: string) {
   try {
-    if (token) localStorage.setItem(SESSION_KEY, token);
-    else localStorage.removeItem(SESSION_KEY);
+    if (token) sessionStorage.setItem(SESSION_KEY, token);
+    else sessionStorage.removeItem(SESSION_KEY);
   } catch {
     // ignore storage errors
   }

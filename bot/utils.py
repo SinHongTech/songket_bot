@@ -286,6 +286,23 @@ def is_super_admin(user_id: int) -> bool:
     return user_id in super_admin_ids()
 
 
+def whitelist_user_ids() -> set[int]:
+    result = set(config.WHITELIST_USER_IDS)
+    try:
+        redis_extra = kv_get("config:whitelist_user_ids")
+        if redis_extra:
+            for item in str(redis_extra).split(","):
+                item = item.strip()
+                if item:
+                    try:
+                        result.add(int(item))
+                    except ValueError:
+                        pass
+    except Exception:
+        pass
+    return result
+
+
 def get_allowed_groups() -> set[int]:
     groups = set(config.ALLOWED_GROUP_IDS)
     try:
