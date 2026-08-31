@@ -56,6 +56,26 @@ export interface DashboardApiResponse {
   user?: TelegramUser;
   dashboard?: DashboardData;
   config?: SystemConfig;
+  plans?: Record<string, PlanEntry> | null;
+  subscriptions?: Subscription[] | null;
+  pin_status?: "setup" | "login";
+  locked?: number;
+  attempts?: number;
+  session?: string;
   error?: string;
   isMock?: boolean;
+}
+
+export interface PlanEntry {
+  name: string;
+  price: number;
+  scans: number;
+  groups: number;
+  history_days: number;
+}
+
+export interface Subscription {
+  user_id: number;
+  plan: string;
+  expiry: number;
 }

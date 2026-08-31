@@ -14,11 +14,13 @@ import {
   Loader2,
   Copy,
   Sliders,
+  Lock,
+  LogOut,
 } from "lucide-react";
 import LogoMark from "@/shared/components/LogoMark";
 import { G, type Nav, type Lang } from "@/admin/palette";
 import { t as T, kh } from "@/admin/i18n";
-import { fetchDashboardData } from "@/admin/api";
+import { fetchDashboardData, setupPin, loginPin, setSessionToken } from "@/admin/api";
 import type { DashboardApiResponse } from "@/admin/types";
 import HomeView from "@/admin/components/HomeView";
 import GroupsView from "@/admin/components/GroupsView";
@@ -183,6 +185,109 @@ function UpgradeModal({ onClose, lang }: { onClose: () => void; lang: Lang }) {
   );
 }
 
+function PinGate({ mode, locked, lang, onSuccess }: { mode: "setup" | "login"; locked: number; lang: Lang; onSuccess: () => void }) {
+  const tx = T(lang);
+  const [pin, setPin] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [remaining, setRemaining] = useState(locked);
+
+  useEffect(() => {
+    setRemaining(locked);
+    if (locked > 0) {
+      const id = setInterval(() => setRemaining(prev => Math.max(0, prev - 1)), 1000);
+      return () => clearInterval(id);
+    }
+  }, [locked]);
+
+  const fmt = (s: number) => `${Math.floor(s / 60)}m ${s % 60}s`;
+  const inputProps = {
+    type: "password",
+    inputMode: "numeric" as const,
+    maxLength: 6,
+    autoComplete: "off",
+  };
+
+  async function submit() {
+    setErr(null);
+    if (pin.length !== 6) {
+      setErr(tx.pinIncorrect);
+      return;
+    }
+    if (mode === "setup" && pin !== confirm) {
+      setErr(tx.pinMismatch);
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = mode === "setup" ? await setupPin(pin, confirm) : await loginPin(pin);
+      if (res.session) {
+        setSessionToken(res.session);
+        onSuccess();
+        return;
+      }
+      if (res.locked) setRemaining(res.locked);
+      setErr(res.error || tx.pinIncorrect);
+    } catch (e: any) {
+      setErr(e?.message || tx.pinIncorrect);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "70dvh", padding: "16px" }}>
+      <div style={{ background: G.surface, border: `1px solid ${G.goldBorder}`, borderRadius: 20, padding: "28px 24px", width: "100%", maxWidth: 380, textAlign: "center" }}>
+        <LogoMark size={48} />
+        <div style={{ fontSize: 18, fontWeight: 800, color: G.gold, marginTop: 12 }}>
+          <span className={kh(lang)}>{mode === "setup" ? tx.pinSetupTitle : tx.pinLoginTitle}</span>
+        </div>
+        <div style={{ fontSize: 12, color: G.textSec, lineHeight: 1.5, margin: "8px 0 20px" }}>
+          <span className={kh(lang)}>{mode === "setup" ? tx.pinSetupDesc : tx.pinLoginDesc}</span>
+        </div>
+
+        {remaining > 0 && (
+          <div style={{ background: "rgba(224,64,64,0.12)", border: `1px solid ${G.danger}`, color: G.danger, borderRadius: 10, padding: "10px", fontSize: 12, fontWeight: 600, marginBottom: 14 }}>
+            <span className={kh(lang)}>{tx.pinLocked}</span> — {fmt(remaining)}
+          </div>
+        )}
+
+        <input
+          {...inputProps}
+          value={pin}
+          onChange={e => setPin(e.target.value.replace(/\D/g, ""))}
+          placeholder={tx.enterPin}
+          disabled={remaining > 0}
+          style={{ width: "100%", background: G.surface2, border: `1px solid ${G.border}`, borderRadius: 10, padding: "12px 14px", color: G.text, fontSize: 18, letterSpacing: "0.3em", textAlign: "center", outline: "none", marginBottom: 10, fontFamily: "JetBrains Mono, monospace" }}
+        />
+
+        {mode === "setup" && (
+          <input
+            {...inputProps}
+            value={confirm}
+            onChange={e => setConfirm(e.target.value.replace(/\D/g, ""))}
+            placeholder={tx.confirmPin}
+            disabled={remaining > 0}
+            style={{ width: "100%", background: G.surface2, border: `1px solid ${G.border}`, borderRadius: 10, padding: "12px 14px", color: G.text, fontSize: 18, letterSpacing: "0.3em", textAlign: "center", outline: "none", marginBottom: 10, fontFamily: "JetBrains Mono, monospace" }}
+          />
+        )}
+
+        {err && <div style={{ color: G.danger, fontSize: 12, marginBottom: 12 }}>{err}</div>}
+
+        <button
+          onClick={submit}
+          disabled={busy || remaining > 0}
+          style={{ width: "100%", background: G.gold, color: "#1a1200", border: "none", borderRadius: 10, padding: "13px 0", fontWeight: 800, cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, opacity: busy || remaining > 0 ? 0.6 : 1 }}
+        >
+          <Lock size={15} />
+          <span className={kh(lang)}>{mode === "setup" ? tx.setPin : tx.unlock}</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminApp() {
   const [nav, setNav] = useState<Nav>("dashboard");
   const [dark, setDark] = useState<boolean>(() => {
@@ -310,6 +415,11 @@ export default function AdminApp() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleLogout = () => {
+    setSessionToken("");
+    loadData(false, days);
+  };
+
   const isSuperAdmin = apiData?.is_super_admin ?? false;
 
   const NAV_ITEMS: { id: Nav; icon: React.ReactElement; label: string }[] = [
@@ -331,7 +441,7 @@ export default function AdminApp() {
     groups: <GroupsView dashboard={dashboard} lang={lang} />,
     threats: <ThreatsView dashboard={dashboard} lang={lang} days={days} onDaysChange={handleDaysChange} />,
     history: <HistoryView dashboard={dashboard} lang={lang} days={days} onDaysChange={handleDaysChange} />,
-    manage: <ManageView config={apiData?.config} lang={lang} onRefresh={() => loadData(true, days)} />,
+    manage: <ManageView config={apiData?.config} plans={apiData?.plans} subscriptions={apiData?.subscriptions} lang={lang} onRefresh={() => loadData(true, days)} />,
     account: <AccountView user={user} dashboard={dashboard} dark={dark} setDark={setDark} lang={lang} setLang={setLang} />,
   };
 
@@ -404,6 +514,27 @@ export default function AdminApp() {
             <RefreshCw size={14} className={refreshing ? "spin-animation" : ""} />
           </button>
 
+          {apiData?.authorized && (
+            <button
+              onClick={handleLogout}
+              style={{
+                background: "transparent",
+                border: `1px solid ${G.border}`,
+                color: G.muted,
+                borderRadius: 8,
+                width: 32,
+                height: 32,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+              title={tx.logout}
+            >
+              <LogOut size={14} />
+            </button>
+          )}
+
           <button
             onClick={() => setUpgradeOpen(true)}
             style={{
@@ -454,6 +585,8 @@ export default function AdminApp() {
               <span className={kh(lang)}>{tx.retry}</span>
             </button>
           </div>
+        ) : apiData?.pin_status ? (
+          <PinGate mode={apiData.pin_status} locked={apiData.locked || 0} lang={lang} onSuccess={() => loadData(false, days)} />
         ) : apiData && !apiData.authorized ? (
           <div style={{ background: G.surface, border: `1px solid ${G.goldBorder}`, borderRadius: 16, padding: "28px 20px", textAlign: "center" }}>
             <ShieldAlert size={40} color={G.warn} style={{ marginBottom: 14 }} />

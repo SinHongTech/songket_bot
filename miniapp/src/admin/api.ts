@@ -1,4 +1,4 @@
-import type { DashboardApiResponse } from "./types";
+import type { DashboardApiResponse, PlanEntry } from "./types";
 import { mockDashboardData, mockUser } from "./data";
 
 declare global {
@@ -25,11 +25,30 @@ declare global {
   }
 }
 
+const SESSION_KEY = "songket.admin.session";
+
 export function getTelegramWebApp() {
   if (typeof window !== "undefined" && window.Telegram?.WebApp) {
     return window.Telegram.WebApp;
   }
   return null;
+}
+
+export function getSessionToken(): string {
+  try {
+    return localStorage.getItem(SESSION_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+export function setSessionToken(token: string) {
+  try {
+    if (token) localStorage.setItem(SESSION_KEY, token);
+    else localStorage.removeItem(SESSION_KEY);
+  } catch {
+    // ignore storage errors
+  }
 }
 
 export async function fetchDashboardData(days: number = 7): Promise<DashboardApiResponse> {
@@ -77,7 +96,7 @@ export async function fetchDashboardData(days: number = 7): Promise<DashboardApi
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ initData, days }),
+    body: JSON.stringify({ initData, days, session: getSessionToken() }),
   });
 
   if (!response.ok && response.status !== 401) {
@@ -88,29 +107,63 @@ export async function fetchDashboardData(days: number = 7): Promise<DashboardApi
   return data;
 }
 
-export async function saveSystemConfig(config: {
-  whitelist: number[];
-  allowed_groups: number[];
-  group_handlers: Record<string, number[]>;
-}): Promise<{ ok: boolean; config: any }> {
+async function postAction(payload: Record<string, unknown>) {
   const tg = getTelegramWebApp();
   const initData = tg?.initData || "";
 
   const response = await fetch("/api/dashboard", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      initData,
-      action: "save_config",
-      ...config,
-    }),
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ initData, session: getSessionToken(), ...payload }),
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to save system configuration (HTTP ${response.status})`);
+    throw new Error(`Request failed (HTTP ${response.status})`);
   }
-
   return await response.json();
+}
+
+export async function setupPin(pin: string, confirm: string) {
+  const tg = getTelegramWebApp();
+  const initData = tg?.initData || "";
+  const response = await fetch("/api/dashboard", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ initData, action: "setup_pin", pin, confirm }),
+  });
+  return await response.json();
+}
+
+export async function loginPin(pin: string) {
+  const tg = getTelegramWebApp();
+  const initData = tg?.initData || "";
+  const response = await fetch("/api/dashboard", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ initData, action: "login_pin", pin }),
+  });
+  return await response.json();
+}
+
+export async function saveSystemConfig(config: {
+  whitelist: number[];
+  allowed_groups: number[];
+  group_handlers: Record<string, number[]>;
+}): Promise<{ ok: boolean; config: any }> {
+  return await postAction({
+    action: "save_config",
+    ...config,
+  });
+}
+
+export async function savePlans(plans: Record<string, PlanEntry>) {
+  return postAction({ action: "save_plans", plans });
+}
+
+export async function assignPlan(user_id: number, plan: string) {
+  return postAction({ action: "assign_plan", user_id, plan });
+}
+
+export async function removePlan(user_id: number) {
+  return postAction({ action: "remove_plan", user_id });
 }

@@ -90,8 +90,8 @@ def cache_get(key: str) -> Optional[dict]:
     return None
 
 
-def cache_set(key: str, value: dict) -> None:
-    kv_json_set(f"scan:{key}", value, ttl=config.SCAN_CACHE_TTL_SECONDS)
+def cache_set(key: str, value: dict, ttl: Optional[int] = None) -> None:
+    kv_json_set(f"scan:{key}", value, ttl=ttl or config.SCAN_CACHE_TTL_SECONDS)
 
 
 # ── group configuration settings ─────────────────────────────────────────────
@@ -102,6 +102,9 @@ def get_group_settings(chat_id: int) -> dict:
         "lang": config.DEFAULT_LANGUAGE,
         "safe_timeout": config.DEFAULT_SAFE_TIMEOUT,
         "show_safe": config.ENABLE_SAFE_MESSAGES,
+        "verify_mode": config.VERIFY_NEW_MEMBERS_DEFAULT,
+        "link_preview": config.LINK_PREVIEW_ENABLED,
+        "trust_score": config.TRUST_SCORE_ENABLED,
     }
     if not data or not isinstance(data, dict):
         return default_settings
@@ -109,6 +112,9 @@ def get_group_settings(chat_id: int) -> dict:
         "lang": str(data.get("lang", config.DEFAULT_LANGUAGE)).lower(),
         "safe_timeout": int(data.get("safe_timeout", config.DEFAULT_SAFE_TIMEOUT)),
         "show_safe": bool(data.get("show_safe", config.ENABLE_SAFE_MESSAGES)),
+        "verify_mode": bool(data.get("verify_mode", config.VERIFY_NEW_MEMBERS_DEFAULT)),
+        "link_preview": bool(data.get("link_preview", config.LINK_PREVIEW_ENABLED)),
+        "trust_score": bool(data.get("trust_score", config.TRUST_SCORE_ENABLED)),
     }
 
 
@@ -126,3 +132,116 @@ def set_group_lang(chat_id: int, lang: str) -> bool:
     settings = get_group_settings(chat_id)
     settings["lang"] = lang.strip().lower()
     return set_group_settings(chat_id, settings)
+
+
+# ── subscriptions & quotas ───────────────────────────────────────────────────
+
+def get_subscription(user_id: int) -> dict:
+    data = kv_json_get(f"sub:{user_id}")
+    if data and isinstance(data, dict):
+        return data
+    return {"plan": "personal_free", "expiry": 0}
+
+
+def set_subscription(user_id: int, plan: str, expiry: int) -> bool:
+    ok = kv_json_set(f"sub:{user_id}", {"plan": plan, "expiry": expiry})
+    index = kv_get("subs:index") or ""
+    ids = [x.strip() for x in str(index).split(",") if x.strip()]
+    sid = str(user_id)
+    if sid not in ids:
+        ids.append(sid)
+        kv_set("subs:index", ",".join(ids))
+    return ok
+
+
+def get_strikes(chat_id: int, user_id: int) -> int:
+    value = kv_get(f"strikes:{chat_id}:{user_id}")
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def set_strikes(chat_id: int, user_id: int, strikes: int) -> None:
+    kv_set(f"strikes:{chat_id}:{user_id}", str(strikes))
+
+
+def record_first_seen(user_id: int) -> float:
+    """Return the first-seen timestamp for a user (best-effort account age proxy)."""
+    key = f"firstseen:{user_id}"
+    existing = kv_get(key)
+    if existing:
+        try:
+            return float(existing)
+        except (TypeError, ValueError):
+            pass
+    now = time.time()
+    kv_set(key, str(now))
+    return now
+
+
+def record_join_time(chat_id: int, user_id: int) -> float:
+    key = f"joined:{chat_id}:{user_id}"
+    existing = kv_get(key)
+    if existing:
+        try:
+            return float(existing)
+        except (TypeError, ValueError):
+            pass
+    now = time.time()
+    kv_set(key, str(now))
+    return now
+
+
+# ── scan quota (per user, per month) ─────────────────────────────────────────
+
+def _quota_month() -> str:
+    return time.strftime("%Y-%m", time.gmtime())
+
+
+def get_scan_usage(user_id: int) -> int:
+    value = kv_get(f"quota:{user_id}:{_quota_month()}")
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def increment_scan_usage(user_id: int) -> int:
+    used = get_scan_usage(user_id) + 1
+    kv_set(f"quota:{user_id}:{_quota_month()}", str(used))
+    return used
+
+
+def _quota_day() -> str:
+    return time.strftime("%Y-%m-%d", time.gmtime())
+
+
+def get_daily_scan_usage(user_id: int) -> int:
+    value = kv_get(f"quota:daily:{user_id}:{_quota_day()}")
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def increment_daily_scan_usage(user_id: int) -> int:
+    used = get_daily_scan_usage(user_id) + 1
+    kv_set(f"quota:daily:{user_id}:{_quota_day()}", str(used))
+    return used
+
+
+def plan_scan_limit(plan: str) -> int:
+    return int(config.PLAN_CATALOG.get(plan, {}).get("scans", 0))
+
+
+def get_plan_catalog() -> dict:
+    """Plan catalog from Redis (edited via the Mini App), falling back to config."""
+    data = kv_json_get("config:plan_catalog")
+    if data and isinstance(data, dict) and data:
+        return data
+    return config.PLAN_CATALOG
+
+
+def plan_scan_limit_runtime(plan: str) -> int:
+    return int(get_plan_catalog().get(plan, {}).get("scans", 0))

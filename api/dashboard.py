@@ -3,32 +3,59 @@ to whitelisted users. Deployed on Vercel at POST /api/dashboard."""
 import json
 import logging
 import os
+import time
 from datetime import date, timedelta
 from http.server import BaseHTTPRequestHandler
 
 try:
     from api.common import (
+        PIN_AUTH_ENABLED,
+        create_session,
         get_allowed_groups,
         get_chat,
+        get_plan_catalog,
         get_system_config,
         groups_for_user,
         is_super_admin,
         kv_json_get,
+        list_subscriptions,
         local_date,
+        pin_exists,
+        pin_lock_seconds,
+        record_pin_fail,
+        reset_pin_fail,
+        save_plan_catalog,
         save_system_config,
+        set_subscription,
+        setup_pin,
+        validate_session,
+        verify_pin,
         verify_telegram_init_data,
         whitelist_ids,
     )
 except ImportError:
     from common import (
+        PIN_AUTH_ENABLED,
+        create_session,
         get_allowed_groups,
         get_chat,
+        get_plan_catalog,
         get_system_config,
         groups_for_user,
         is_super_admin,
         kv_json_get,
+        list_subscriptions,
         local_date,
+        pin_exists,
+        pin_lock_seconds,
+        record_pin_fail,
+        reset_pin_fail,
+        save_plan_catalog,
         save_system_config,
+        set_subscription,
+        setup_pin,
+        validate_session,
+        verify_pin,
         verify_telegram_init_data,
         whitelist_ids,
     )
@@ -87,6 +114,48 @@ class handler(BaseHTTPRequestHandler):
 
             uid = int(user["id"])
             super_admin = is_super_admin(uid)
+            is_admin = super_admin or uid in whitelist_ids()
+
+            # ── PIN gate (admin dashboard second factor) ──────────────────
+            if PIN_AUTH_ENABLED and is_admin:
+                session_uid = validate_session(body.get("session", ""))
+                if session_uid != uid:
+                    action = body.get("action", "")
+
+                    if action == "setup_pin":
+                        ok, err = setup_pin(uid, body.get("pin", ""), body.get("confirm", ""))
+                        if not ok:
+                            return self._json(400, {"authorized": False, "pin_status": "setup", "error": err})
+                        reset_pin_fail(uid)
+                        token = create_session(uid)
+                        return self._json(200, self._full_payload(uid, user, super_admin, body, token))
+
+                    if action == "login_pin":
+                        lock = pin_lock_seconds(uid)
+                        if lock > 0:
+                            return self._json(200, {"authorized": False, "pin_status": "login", "locked": lock})
+                        if verify_pin(uid, body.get("pin", "")):
+                            reset_pin_fail(uid)
+                            token = create_session(uid)
+                            return self._json(200, self._full_payload(uid, user, super_admin, body, token))
+                        fails = record_pin_fail(uid)
+                        return self._json(
+                            200,
+                            {
+                                "authorized": False,
+                                "pin_status": "login",
+                                "locked": pin_lock_seconds(uid),
+                                "attempts": fails.get("count", 0),
+                                "error": "Incorrect PIN",
+                            },
+                        )
+
+                    if not pin_exists(uid):
+                        return self._json(200, {"authorized": False, "pin_status": "setup"})
+                    lock = pin_lock_seconds(uid)
+                    if lock > 0:
+                        return self._json(200, {"authorized": False, "pin_status": "login", "locked": lock})
+                    return self._json(200, {"authorized": False, "pin_status": "login"})
 
             # Action: Save System Configuration (Super Admin only)
             if body.get("action") == "save_config":
@@ -98,6 +167,41 @@ class handler(BaseHTTPRequestHandler):
                 ok = save_system_config(whitelist, allowed_groups, group_handlers)
                 return self._json(200, {"ok": ok, "config": get_system_config()})
 
+            # Action: Save plan catalog (Super Admin only)
+            if body.get("action") == "save_plans":
+                if not super_admin:
+                    return self._json(403, {"ok": False, "error": "Unauthorized. Super Admin access required."})
+                catalog = body.get("plans", {})
+                ok = save_plan_catalog(catalog)
+                return self._json(200, {"ok": ok, "plans": get_plan_catalog()})
+
+            # Action: Assign a plan to a user (Super Admin only)
+            if body.get("action") == "assign_plan":
+                if not super_admin:
+                    return self._json(403, {"ok": False, "error": "Unauthorized. Super Admin access required."})
+                try:
+                    target = int(body.get("user_id", 0))
+                except (TypeError, ValueError):
+                    return self._json(400, {"ok": False, "error": "Invalid user_id"})
+                plan = str(body.get("plan", "")).strip()
+                catalog = get_plan_catalog()
+                if plan not in catalog:
+                    return self._json(400, {"ok": False, "error": "Unknown plan"})
+                expiry = int(time.time()) + int(os.environ.get("PLAN_EXPIRY_DAYS", "30")) * 86400
+                ok = set_subscription(target, plan, expiry)
+                return self._json(200, {"ok": ok, "subscriptions": list_subscriptions()})
+
+            # Action: Revoke a plan (reset to free) (Super Admin only)
+            if body.get("action") == "remove_plan":
+                if not super_admin:
+                    return self._json(403, {"ok": False, "error": "Unauthorized. Super Admin access required."})
+                try:
+                    target = int(body.get("user_id", 0))
+                except (TypeError, ValueError):
+                    return self._json(400, {"ok": False, "error": "Invalid user_id"})
+                ok = set_subscription(target, "personal_free", 0)
+                return self._json(200, {"ok": ok, "subscriptions": list_subscriptions()})
+
             if not super_admin and uid not in whitelist_ids():
                 return self._json(
                     200,
@@ -108,19 +212,24 @@ class handler(BaseHTTPRequestHandler):
                     },
                 )
 
-            return self._json(
-                200,
-                {
-                    "authorized": True,
-                    "is_super_admin": super_admin,
-                    "user": {"id": uid, "first_name": user.get("first_name", ""), "username": user.get("username", "")},
-                    "dashboard": build_dashboard(uid, int(body.get("days", 7))),
-                    "config": get_system_config() if super_admin else None,
-                },
-            )
+            return self._json(200, self._full_payload(uid, user, super_admin, body))
         except Exception:
             logger.exception("Mini App error")
             return self._json(500, {"authorized": False, "error": "Server error"})
+
+    def _full_payload(self, uid: int, user: dict, super_admin: bool, body: dict, session: str = "") -> dict:
+        payload = {
+            "authorized": True,
+            "is_super_admin": super_admin,
+            "user": {"id": uid, "first_name": user.get("first_name", ""), "username": user.get("username", "")},
+            "dashboard": build_dashboard(uid, int(body.get("days", 7))),
+            "config": get_system_config() if super_admin else None,
+            "plans": get_plan_catalog() if super_admin else None,
+            "subscriptions": list_subscriptions() if super_admin else None,
+        }
+        if session:
+            payload["session"] = session
+        return payload
 
     def _json(self, status: int, obj: dict) -> None:
         self.send_response(status)

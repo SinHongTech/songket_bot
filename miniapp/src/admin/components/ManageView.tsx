@@ -1,18 +1,20 @@
 import { useState, useEffect } from "react";
-import { Users, MessageSquare, Plus, Trash2, Check, ShieldCheck, Loader2, Save, ArrowRight } from "lucide-react";
+import { Users, MessageSquare, Plus, Trash2, Check, ShieldCheck, Loader2, Save, ArrowRight, CreditCard, Tag } from "lucide-react";
 import { G, type Lang } from "../palette";
 import { t as T, kh } from "../i18n";
-import type { SystemConfig } from "../types";
-import { saveSystemConfig } from "../api";
+import type { SystemConfig, PlanEntry, Subscription } from "../types";
+import { saveSystemConfig, savePlans, assignPlan, removePlan } from "../api";
 import { SectionHeader } from "./Badges";
 
 interface ManageViewProps {
   config?: SystemConfig | null;
+  plans?: Record<string, PlanEntry> | null;
+  subscriptions?: Subscription[] | null;
   lang: Lang;
   onRefresh: () => void;
 }
 
-export default function ManageView({ config, lang, onRefresh }: ManageViewProps) {
+export default function ManageView({ config, plans, subscriptions, lang, onRefresh }: ManageViewProps) {
   const tx = T(lang);
 
   const [whitelist, setWhitelist] = useState<number[]>([]);
@@ -29,6 +31,14 @@ export default function ManageView({ config, lang, onRefresh }: ManageViewProps)
   const [savedToast, setSavedToast] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // Plan management state
+  const [planCatalog, setPlanCatalog] = useState<Record<string, PlanEntry>>({});
+  const [subs, setSubs] = useState<Subscription[]>([]);
+  const [assignUserId, setAssignUserId] = useState("");
+  const [assignPlanKey, setAssignPlanKey] = useState("");
+  const [savingPlans, setSavingPlans] = useState(false);
+  const [planToast, setPlanToast] = useState(false);
+
   useEffect(() => {
     if (config) {
       setWhitelist(config.whitelist_user_ids || []);
@@ -36,6 +46,14 @@ export default function ManageView({ config, lang, onRefresh }: ManageViewProps)
       setGroupHandlers(config.group_handlers || {});
     }
   }, [config]);
+
+  useEffect(() => {
+    if (plans) setPlanCatalog(plans);
+  }, [plans]);
+
+  useEffect(() => {
+    if (subscriptions) setSubs(subscriptions);
+  }, [subscriptions]);
 
   // Whitelist operations
   function handleAddWhitelist() {
@@ -139,6 +157,65 @@ export default function ManageView({ config, lang, onRefresh }: ManageViewProps)
     minWidth: 0,
     fontFamily: "Outfit, sans-serif",
   };
+
+  function updatePlanField(key: string, field: keyof PlanEntry, value: string) {
+    setPlanCatalog(prev => {
+      const entry = { ...prev[key] };
+      if (field === "name") {
+        entry.name = value;
+      } else {
+        const num = parseFloat(value);
+        entry[field] = isNaN(num) ? 0 : num;
+      }
+      return { ...prev, [key]: entry };
+    });
+  }
+
+  async function handleSavePlans() {
+    setSavingPlans(true);
+    setErrorMsg(null);
+    try {
+      await savePlans(planCatalog);
+      setPlanToast(true);
+      setTimeout(() => setPlanToast(false), 3000);
+      onRefresh();
+    } catch (err: any) {
+      setErrorMsg(err?.message || "Failed to save plans");
+    } finally {
+      setSavingPlans(false);
+    }
+  }
+
+  async function handleAssignPlan() {
+    const uid = parseInt(assignUserId.trim(), 10);
+    if (isNaN(uid) || !assignPlanKey) return;
+    setSavingPlans(true);
+    setErrorMsg(null);
+    try {
+      await assignPlan(uid, assignPlanKey);
+      setAssignUserId("");
+      setAssignPlanKey("");
+      setPlanToast(true);
+      setTimeout(() => setPlanToast(false), 3000);
+      onRefresh();
+    } catch (err: any) {
+      setErrorMsg(err?.message || "Failed to assign plan");
+    } finally {
+      setSavingPlans(false);
+    }
+  }
+
+  async function handleRevokePlan(userId: number) {
+    setSavingPlans(true);
+    try {
+      await removePlan(userId);
+      onRefresh();
+    } catch (err: any) {
+      setErrorMsg(err?.message || "Failed to revoke plan");
+    } finally {
+      setSavingPlans(false);
+    }
+  }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
@@ -338,6 +415,133 @@ export default function ManageView({ config, lang, onRefresh }: ManageViewProps)
           </button>
         </div>
       </div>
+
+      {/* 4. Plans & Pricing */}
+      <div style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 14, padding: "18px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+          <CreditCard size={16} color={G.gold} />
+          <div style={{ fontSize: 14, fontWeight: 700, color: G.text }}>
+            <span className={kh(lang)}>{tx.plansManagement}</span>
+          </div>
+        </div>
+        <div style={{ fontSize: 11, color: G.muted, marginBottom: 14 }}>
+          <span className={kh(lang)}>{tx.plansDesc}</span>
+        </div>
+
+        {Object.entries(planCatalog).map(([key, plan]) => (
+          <div key={key} style={{ background: G.surface2, border: `1px solid ${G.border}`, borderRadius: 10, padding: "12px", marginBottom: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: G.gold, fontFamily: "JetBrains Mono, monospace" }}>{key}</span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 10, color: G.muted }}>
+                {tx.planName}
+                <input value={plan.name} onChange={e => updatePlanField(key, "name", e.target.value)} style={inputStyle} />
+              </label>
+              <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 10, color: G.muted }}>
+                {tx.planPrice}
+                <input type="number" step="0.01" value={plan.price} onChange={e => updatePlanField(key, "price", e.target.value)} style={inputStyle} />
+              </label>
+              <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 10, color: G.muted }}>
+                {tx.planScans}
+                <input type="number" value={plan.scans} onChange={e => updatePlanField(key, "scans", e.target.value)} style={inputStyle} />
+              </label>
+              <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 10, color: G.muted }}>
+                {tx.planGroups}
+                <input type="number" value={plan.groups} onChange={e => updatePlanField(key, "groups", e.target.value)} style={inputStyle} />
+              </label>
+              <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 10, color: G.muted }}>
+                {tx.planHistory}
+                <input type="number" value={plan.history_days} onChange={e => updatePlanField(key, "history_days", e.target.value)} style={inputStyle} />
+              </label>
+            </div>
+          </div>
+        ))}
+
+        <button
+          onClick={handleSavePlans}
+          disabled={savingPlans}
+          style={{ background: G.surface2, color: G.gold, border: `1px solid ${G.goldBorder}`, borderRadius: 8, padding: "10px 0", fontWeight: 700, cursor: "pointer", fontSize: 12, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+        >
+          {savingPlans ? <Loader2 size={14} className="spin-animation" /> : <Save size={14} />}
+          <span className={kh(lang)}>{tx.planSave}</span>
+        </button>
+      </div>
+
+      {/* 5. Assign Plan */}
+      <div style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 14, padding: "18px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+          <Tag size={16} color={G.gold} />
+          <div style={{ fontSize: 14, fontWeight: 700, color: G.text }}>
+            <span className={kh(lang)}>{tx.assignPlan}</span>
+          </div>
+        </div>
+        <div style={{ fontSize: 11, color: G.muted, marginBottom: 14 }}>
+          <span className={kh(lang)}>{tx.assignPlanDesc}</span>
+        </div>
+
+        <div style={{ display: "flex", gap: 8 }}>
+          <input value={assignUserId} onChange={e => setAssignUserId(e.target.value)} placeholder={tx.planUserPlaceholder} type="number" style={inputStyle} />
+          <select value={assignPlanKey} onChange={e => setAssignPlanKey(e.target.value)} style={{ ...inputStyle, maxWidth: 180 }}>
+            <option value="">{tx.planSelect}</option>
+            {Object.entries(planCatalog).map(([key, plan]) => (
+              <option key={key} value={key}>{plan.name}</option>
+            ))}
+          </select>
+        </div>
+        <button
+          onClick={handleAssignPlan}
+          disabled={savingPlans || !assignPlanKey}
+          style={{ background: G.gold, color: "#1a1200", border: "none", borderRadius: 8, padding: "10px 0", fontWeight: 700, cursor: "pointer", fontSize: 12, width: "100%", marginTop: 10, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}
+        >
+          {savingPlans ? <Loader2 size={14} className="spin-animation" /> : <ArrowRight size={14} />}
+          <span className={kh(lang)}>{tx.assignPlanBtn}</span>
+        </button>
+      </div>
+
+      {/* 6. Subscriptions */}
+      <div style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 14, padding: "18px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+          <ShieldCheck size={16} color={G.gold} />
+          <div style={{ fontSize: 14, fontWeight: 700, color: G.text }}>
+            <span className={kh(lang)}>{tx.subscriptions}</span>
+          </div>
+        </div>
+        <div style={{ fontSize: 11, color: G.muted, marginBottom: 14 }}>
+          <span className={kh(lang)}>{tx.subscriptionsDesc}</span>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {subs.length === 0 ? (
+            <div style={{ fontSize: 12, color: G.muted, fontStyle: "italic" }}>
+              <span className={kh(lang)}>{tx.noSubscriptions}</span>
+            </div>
+          ) : (
+            subs.map(s => (
+              <div key={s.user_id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: G.surface2, border: `1px solid ${G.border}`, borderRadius: 8, padding: "10px 12px" }}>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: G.text, fontFamily: "JetBrains Mono, monospace" }}>{s.user_id}</div>
+                  <div style={{ fontSize: 11, color: G.gold }}>{planCatalog[s.plan]?.name || s.plan}</div>
+                </div>
+                <button
+                  onClick={() => handleRevokePlan(s.user_id)}
+                  disabled={savingPlans}
+                  style={{ background: "transparent", border: `1px solid ${G.border}`, color: G.danger, borderRadius: 6, padding: "5px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}
+                >
+                  <span className={kh(lang)}>{tx.revoke}</span>
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      {planToast && (
+        <div style={{ background: "rgba(42,170,90,0.15)", border: `1px solid ${G.safe}`, color: G.safe, borderRadius: 10, padding: "12px 16px", fontSize: 13, display: "flex", alignItems: "center", gap: 8, fontWeight: 600 }}>
+          <Check size={16} />
+          <span className={kh(lang)}>{tx.planSaved}</span>
+        </div>
+      )}
 
       {/* Save Button */}
       <button
