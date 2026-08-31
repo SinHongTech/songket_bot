@@ -7,7 +7,7 @@ export const G = {
   surface2: "var(--surface2)",
   border: "var(--border)",
   text: "var(--text)",
-  textSec: "var(--text-sec)",
+  textSec: "var(--text-secondary)",
   muted: "var(--muted)",
   gold: "var(--gold)",
   goldBorder: "var(--border-gold)",

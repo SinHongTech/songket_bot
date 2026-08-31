@@ -1,10 +1,9 @@
 export type Lang = "en" | "km";
 
 const en = {
-  hero_h1_a: "Stop scams before they",
-  hero_h1_b: "reach your community.",
-  hero_sub: "Trusted by 200+ Telegram groups across Cambodia.",
-  hero_desc: "Songket scans every message in your Telegram group — detecting phishing URLs, malware files, and scam content automatically, in seconds.",
+  hero_h1_a: "Don't click too fast,", 
+  hero_h1_b: "Let SongKet check first.",
+  hero_desc: "SongKet turns Telegram groups and channels into safer spaces by detecting threats before they can spread.",
   btn_start: "Get Started Free",
   btn_how: "How It Works",
   trust: ["End-to-end secure", "Real-time scanning", "Built for Cambodia"],
@@ -16,7 +15,6 @@ const en = {
   features: [
     { icon: "shield", title: "Phishing URL Detection", desc: "Identifies fake banking, e-wallet, and government URLs before users click them." },
     { icon: "link", title: "Malware File Scanning", desc: "Scans shared documents, APKs, and executables for malicious payloads instantly." },
-    { icon: "users", title: "Scam Text Analysis", desc: "Detects social engineering scripts and suspicious pattern messages common in local scams." },
   ],
   how_h: "How It Works",
   steps: [
@@ -27,7 +25,9 @@ const en = {
   ],
   pricing_h: "Simple, Transparent Pricing",
   pricing_sub: "Start free. Upgrade when your community grows.",
-  plans: [
+  pricingTabPersonal: "Personal",
+  pricingTabBusiness: "Business",
+  personalPlans: [
     {
       id: "starter",
       name: "Starter",
@@ -50,6 +50,19 @@ const en = {
       groups: "UP TO 5 GROUPS",
       features: ["5 Telegram groups", "Unlimited scans", "File + media scanning", "Priority support", "Monthly PDF reports"],
     },
+  ],
+  businessPlans: [
+    {
+      id: "business",
+      name: "Business",
+      price: "$29",
+      period: "PER MONTH",
+      highlight: true,
+      badge: "MOST POPULAR",
+      cta: "Choose Business",
+      groups: "UP TO 20 GROUPS",
+      features: ["20 Telegram groups", "Unlimited scans", "File + media scanning", "Custom detection rules", "Priority support", "Monthly PDF reports"],
+    },
     {
       id: "enterprise",
       name: "Enterprise",
@@ -64,13 +77,35 @@ const en = {
   ],
   selected: "Selected",
   pricing_privacy: "No credit card required · Cancel anytime · 14-day free trial on Pro",
+  faq_h: "Frequently Asked Questions",
+  faq: [
+    {
+      q: "How accurate is Songket Bot?",
+      a: "Songket achieves over 97% detection accuracy on phishing URLs and known malware signatures, validated against Cambodia-specific threat datasets. False positives are rare and can be reported for quick review.",
+    },
+    {
+      q: "Does Songket read private messages?",
+      a: "No. Songket only processes messages sent in groups where it has been added as an admin. It never reads private chats or stores message content beyond the scan result.",
+    },
+    {
+      q: "What happens when a threat is detected?",
+      a: "The malicious message or file is deleted instantly. The sender receives a warning, and the incident is logged in your admin dashboard for full audit history.",
+    },
+    {
+      q: "Can I customize what Songket blocks?",
+      a: "Yes. Pro and Enterprise plans let you configure custom block rules, whitelist trusted domains, and adjust sensitivity levels per group.",
+    },
+    {
+      q: "Is Songket compliant with Telegram's policies?",
+      a: "Absolutely. Songket uses only the official Telegram Bot API, respects all rate limits, and does not violate Telegram's Terms of Service.",
+    },
+  ],
 };
 
 const km: typeof en = {
-  hero_h1_a: "ទប់ស្កាត់ការបន្លំ មុន",
-  hero_h1_b: "ពួកវាដល់ក្រុមអ្នក។",
-  hero_sub: "គ្រប់គ្រងក្រុម Telegram ជាង ២០០ នៅទូទាំងកម្ពុជា។",
-  hero_desc: "Songket ស្កែនសារគ្រប់ជាន់នៅក្នុងក្រុម Telegram របស់អ្នក — រកឃើញ URL បន្លំ ឯកសារ malware និងមាតិការបោកប្រាស់ ដោយស្វ័យប្រវត្តិ ក្នុងរយៈពេលប៉ុន្មានវិនាទី។",
+  hero_h1_a: "កុំ ចុចលឿនពេក,",
+  hero_h1_b: "សង្កេត មុនសិន",
+  hero_desc: "សង្កេត ជួយការពារក្រុម និងឆានែល Telegram ឱ្យមានសុវត្ថិភាព ដោយស្វែងរកហានិភ័យមុនពេលវារីករាលដាល។",
   btn_start: "ចាប់ផ្តើមឥតគិតថ្លៃ",
   btn_how: "របៀបដំណើរការ",
   trust: ["សុវត្ថិភាពពី end-to-end", "ស្កែនពេលជាក់ស្តែង", "សាងសង់សម្រាប់កម្ពុជា"],
@@ -82,7 +117,6 @@ const km: typeof en = {
   features: [
     { icon: "shield", title: "ការរកឃើញ URL បន្លំ", desc: "ការកំណត់ URL ក្លែងក្លាយសម្រាប់ធនាគារ កាបូបអេឡិចត្រូនិច និងហត្ថលេខារដ្ឋ មុនពេលអ្នកប្រើប្រាស់ចុចលើពួកគេ។" },
     { icon: "link", title: "ការស្កែនឯកសារ Malware", desc: "ស្កែនឯកសារ APK និងឯកសារដែលបានចែករំលែកសម្រាប់ payload ដែលបង្កគ្រោះថ្នាក់ ដោយភ្លាមៗ។" },
-    { icon: "users", title: "ការវិភាគអត្ថបទបោកប្រាស់", desc: "ការរកឃើញស្ត្រីបដំណើរការសង្គម និងសារមានលំនាំគួរឱ្យសង្ស័យ ទូទៅនៅក្នុងការបោកប្រាស់ក្នុងស្រុក។" },
   ],
   how_h: "របៀបដំណើរការ",
   steps: [
@@ -93,7 +127,9 @@ const km: typeof en = {
   ],
   pricing_h: "តម្លៃច្បាស់លាស់ ងាយស្រួលយល់",
   pricing_sub: "ចាប់ផ្តើមដោយឥតគិតថ្លៃ។ ធ្វើឱ្យប្រសើរនៅពេលក្រុមរបស់អ្នកលូតលាស់។",
-  plans: [
+  pricingTabPersonal: "សម្រាប់បុគ្គល",
+  pricingTabBusiness: "សម្រាប់អាជីវកម្ម",
+  personalPlans: [
     {
       id: "starter",
       name: "ចាប់ផ្តើម",
@@ -116,6 +152,19 @@ const km: typeof en = {
       groups: "រហូតដល់ ៥ ក្រុម",
       features: ["ក្រុម Telegram ៥", "ស្កែនគ្មានដែន", "ស្កែនឯកសារ + មេឌៀ", "ការគាំទ្រអាទិភាព", "របាយការណ៍ PDF ប្រចាំខែ"],
     },
+  ],
+  businessPlans: [
+    {
+      id: "business",
+      name: "អាជីវកម្ម",
+      price: "$29",
+      period: "ក្នុងមួយខែ",
+      highlight: true,
+      badge: "ល្បីបំផុត",
+      cta: "ជ្រើសរើស Business",
+      groups: "រហូតដល់ ២០ ក្រុម",
+      features: ["ក្រុម Telegram ២០", "ស្កែនគ្មានដែន", "ស្កែនឯកសារ + មេឌៀ", "ច្បាប់ការរកឃើញផ្ទាល់ខ្លួន", "ការគាំទ្រអាទិភាព", "របាយការណ៍ PDF ប្រចាំខែ"],
+    },
     {
       id: "enterprise",
       name: "សហគ្រាស",
@@ -130,6 +179,29 @@ const km: typeof en = {
   ],
   selected: "បានជ្រើសរើស",
   pricing_privacy: "មិនត្រូវការប័ណ្ណឥណទាន · បោះបង់ពេលណាក៏បាន · សាកល្បង Pro ១៤ ថ្ងៃ",
+  faq_h: "សំណួរដែលសួរញឹកញាប់",
+  faq: [
+    {
+      q: "Songket Bot មានភាពត្រឹមត្រូវប៉ុណ្ណា?",
+      a: "Songket досяга លើស ៩៧% នៃភាពត្រឹមត្រូវក្នុងការរកឃើញ URL បន្លំ និងហត្ថលេខា malware ដែលបានបញ្ជាក់ប្រឆាំងនឹងទិន្នន័យការគំរាមកំហែងពិសេសសម្រាប់កម្ពុជា។",
+    },
+    {
+      q: "តើ Songket អានសារឯកជនទេ?",
+      a: "ទេ។ Songket ដំណើរការតែសារដែលផ្ញើក្នុងក្រុមដែលវាត្រូវបានបន្ថែមជាអ្នកគ្រប់គ្រង។ វាមិនអានការជជែកឯកជន ឬរក្សាទុកមាតិកាសារ ក្រៅពីលទ្ធផលស្កែនទេ។",
+    },
+    {
+      q: "តើអ្វីកើតឡើងនៅពេលរកឃើញការគំរាមកំហែង?",
+      a: "សារ ឬឯកសារព្យាបាទត្រូវបានលុបភ្លាមៗ។ អ្នកផ្ញើទទួលការព្រមាន ហើយឧប្បត្តិហេតុត្រូវបានកត់ត្រានៅក្នុងផ្ទាំងគ្រប់គ្រងរបស់អ្នក។",
+    },
+    {
+      q: "តើខ្ញុំអាចប្ដូរអ្វីដែល Songket ទប់ស្កាត់?",
+      a: "បាន។ គម្រោង Pro និង Enterprise អនុញ្ញាតឱ្យអ្នកកំណត់ច្បាប់ block ផ្ទាល់ខ្លួន បញ្ជីស្ថានដែនដែលទុកចិត្ត និងកំណត់កម្រិតដូចគ្នាក្នុងមួយក្រុម។",
+    },
+    {
+      q: "តើ Songket អនុលោមតាមគោលការណ៍ Telegram?",
+      a: "ពិតប្រាកដ។ Songket ប្រើតែ Telegram Bot API ផ្លូវការ គោរពដែនកំណត់អត្រា និងមិនបំពានលក្ខខណ្ឌសេវាកម្ម Telegram ទេ។",
+    },
+  ],
 };
 
 export const T: Record<Lang, typeof en> = { en, km };

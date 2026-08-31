@@ -9,6 +9,9 @@ interface PricingProps {
 
 export default function Pricing({ t, isKm, bodyFont }: PricingProps) {
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
+  const [tab, setTab] = useState<"personal" | "business">("personal");
+
+  const plans = tab === "personal" ? t.personalPlans : t.businessPlans;
 
   return (
     <section id="pricing" style={{ paddingBottom: 40 }}>
@@ -17,8 +20,37 @@ export default function Pricing({ t, isKm, bodyFont }: PricingProps) {
         <h2 style={{ fontSize: 20, fontWeight: 700, letterSpacing: isKm ? 0 : "-0.01em", fontFamily: bodyFont }}>{t.pricing_h}</h2>
       </div>
       <p style={{ fontSize: 13, color: "var(--muted)", marginBottom: 20, paddingLeft: 11, fontFamily: bodyFont }}>{t.pricing_sub}</p>
+      <div style={{ display: "flex", gap: 6, marginBottom: 16, paddingLeft: 11 }}>
+        {(["personal", "business"] as const).map(val => {
+          const active = tab === val;
+          return (
+            <button
+              key={val}
+              onClick={() => {
+                setTab(val);
+                setSelectedPlan(null);
+              }}
+              style={{
+                flex: 1,
+                padding: "9px 0",
+                borderRadius: 10,
+                border: `1.5px solid ${active ? "var(--gold)" : "var(--border)"}`,
+                background: active ? "rgba(212,167,44,0.12)" : "transparent",
+                color: active ? "var(--gold)" : "var(--muted)",
+                cursor: "pointer",
+                fontSize: 13,
+                fontWeight: 700,
+                transition: "all 0.2s",
+                fontFamily: bodyFont,
+              }}
+            >
+              {val === "personal" ? t.pricingTabBusiness : t.pricingTabPersonal}
+            </button>
+          );
+        })}
+      </div>
       <div style={{ display: "grid", gap: 12 }}>
-        {t.plans.map((plan: any) => (
+        {plans.map((plan: any) => (
           <div key={plan.id} style={{ borderRadius: 14, padding: plan.highlight ? "20px 18px" : "18px 18px", background: plan.highlight ? "var(--surface2)" : "var(--surface)", border: plan.highlight ? "2px solid rgb(220,180,82)" : "1px solid var(--border)", boxShadow: plan.highlight ? "0 4px 24px rgba(212,167,44,0.22)" : "none" }}>
             {plan.highlight && <div style={{ height: 3, background: "var(--gold)", borderRadius: "2px 2px 0 0", marginBottom: 12 }} />}
             {plan.badge && (

@@ -8,6 +8,8 @@ import HowItWorks from "@/public/components/HowItWorks";
 import Pricing from "@/public/components/Pricing";
 import About from "@/public/components/About";
 import Footer from "@/public/components/Footer";
+import LogoSplash from "@/public/components/LogoSplash";
+import FAQ from "@/public/components/FAQ";
 
 export default function PublicApp() {
   const [lang, setLang] = useState<Lang>("en");
@@ -80,6 +82,9 @@ export default function PublicApp() {
           </div>
         </div>
       </header>
+      <div style={{ borderBottom: "1px solid var(--border)", background: "var(--bg)" }}>
+        <LogoSplash compact />
+      </div>
       <div style={{ maxWidth: 480, margin: "0 auto", padding: "0 18px 60px" }}>
         <Hero t={t} isKm={isKm} bodyFont={bodyFont} onScrollTo={scrollTo} />
         <Features t={t} isKm={isKm} bodyFont={bodyFont} />
@@ -87,6 +92,7 @@ export default function PublicApp() {
         <Pricing t={t} isKm={isKm} bodyFont={bodyFont} />
         <About t={t} isKm={isKm} bodyFont={bodyFont} />
         <Footer isKm={isKm} bodyFont={bodyFont} />
+        <FAQ t={t} isKm={isKm} bodyFont={bodyFont} />
       </div>
     </div>
   );
