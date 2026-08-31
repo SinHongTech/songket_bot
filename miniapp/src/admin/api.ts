@@ -97,6 +97,17 @@ export async function fetchDashboardData(days: number = 7): Promise<DashboardApi
   }
 
   const data: DashboardApiResponse = await response.json();
+
+  // Non-whitelisted users get preview/mock data only (no PIN, no real data).
+  if (data.preview) {
+    return {
+      authorized: true,
+      isMock: true,
+      user: data.user || mockUser,
+      dashboard: mockDashboardData(days),
+    };
+  }
+
   return data;
 }
 
