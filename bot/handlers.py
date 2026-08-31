@@ -25,6 +25,7 @@ from bot.redis_client import (
     get_join_time,
     get_strikes,
     get_subscription,
+    get_user_lang,
     increment_daily_scan_usage,
     increment_scan_usage,
     plan_scan_limit_runtime,
@@ -32,6 +33,7 @@ from bot.redis_client import (
     record_join_time,
     set_group_lang,
     set_group_settings,
+    set_user_lang,
 )
 from bot.reports import record_report
 from bot.scanner import vt_scan_file, vt_scan_url
@@ -47,6 +49,7 @@ from bot.utils import (
     is_whitelisted,
     mask_domain,
     resolve_redirect,
+    whitelist_user_ids,
 )
 
 logger = logging.getLogger("BeydaBot.handlers")
@@ -300,6 +303,14 @@ def _handle_personal_scan(api: TelegramAPI, chat_id: int, message: dict, user_id
         api.send_message(chat_id, "🔍 Send me a link or file and I'll scan it for threats.")
         return
 
+    lang = get_user_lang(user_id)
+    headers = {
+        "threat": {"kh": "🚨 <b>រកឃើញគ្រោះថ្នាក់</b>", "en": "🚨 <b>Threat detected</b>", "both": "🚨 <b>រកឃើញគ្រោះថ្នាក់ | Threat detected</b>"},
+        "suspicious": {"kh": "⚠️ <b>សង្ស័យ</b>", "en": "⚠️ <b>Suspicious</b>", "both": "⚠️ <b>សង្ស័យ | Suspicious</b>"},
+        "clean": {"kh": "✅ <b>សុវត្ថិភាព</b>", "en": "✅ <b>Clean</b>", "both": "✅ <b>សុវត្ថិភាព | Clean</b>"},
+    }
+    target_label = {"kh": "គោលដៅ", "en": "Target", "both": "គោលដៅ/Target"}[lang]
+
     for kind, target, r in results:
         if "error" in r:
             api.send_message(chat_id, f"⚠️ Could not scan <code>{target}</code>: {r['error']}")
@@ -308,11 +319,12 @@ def _handle_personal_scan(api: TelegramAPI, chat_id: int, message: dict, user_id
         susp = r.get("suspicious", 0)
         display = mask_domain(target) if kind == "link" else target
         if mal >= config.VT_MALICIOUS_THRESHOLD:
-            api.send_message(chat_id, f"🚨 <b>Threat detected</b>\nTarget: <code>{display}</code>\n{engine_consensus(r)}")
+            header = headers["threat"][lang]
         elif susp >= config.VT_SUSPICIOUS_THRESHOLD:
-            api.send_message(chat_id, f"⚠️ <b>Suspicious</b>\nTarget: <code>{display}</code>\n{engine_consensus(r)}")
+            header = headers["suspicious"][lang]
         else:
-            api.send_message(chat_id, f"✅ <b>Clean</b>\nTarget: <code>{display}</code>\n{engine_consensus(r)}")
+            header = headers["clean"][lang]
+        api.send_message(chat_id, f"{header}\n{target_label}: <code>{display}</code>\n{engine_consensus(r)}")
 
 
 def _handle_new_members(api: TelegramAPI, chat_id: int, new_members: list, settings: dict) -> None:
@@ -374,8 +386,8 @@ def _build_admin_menu_keyboard(managed_groups: list[dict]) -> dict:
     for grp in managed_groups:
         keyboard.append([{"text": f"👥 {grp['title']}", "callback_data": f"adm_grp:{grp['id']}"}])
 
-    if config.WEB_APP_URL:
-        keyboard.append([{"text": "🛡️ Open Security Mini App", "web_app": {"url": config.WEB_APP_URL}}])
+    if config.WEB_APP_DASHBOARD_URL:
+        keyboard.append([{"text": "🛡️ Open Security Mini App", "web_app": {"url": config.WEB_APP_DASHBOARD_URL}}])
 
     return {"inline_keyboard": keyboard}
 
@@ -425,11 +437,102 @@ def _build_group_settings_view(api: TelegramAPI, group_id: int) -> tuple[str, di
     return text, {"inline_keyboard": keyboard}
 
 
+ADMIN_COMMANDS = [
+    {"command": "privacy", "description": "Privacy Policy"},
+    {"command": "help", "description": "How to use"},
+    {"command": "terms", "description": "Terms of Service"},
+    {"command": "lang", "description": "My chat language"},
+    {"command": "app", "description": "Open Mini App"},
+    {"command": "settings", "description": "Language & group settings"},
+]
+
+PRIVACY_TEXT = (
+    "🔒 <b>Privacy Policy | គោលការណ៍ភាពឯកជន</b>\n\n"
+    "• Files/links processed in RAM only, deleted after scan.\n"
+    "• No permanent storage of files or messages.\n"
+    "• Only scan counts + SHA-256 hashes are stored.\n"
+    "• Your Telegram ID is never shown publicly."
+)
+
+HELP_TEXT = (
+    "💡 <b>How to use Songket | របៀបប្រើ</b>\n\n"
+    "• Add the bot as admin to your group.\n"
+    "• It scans links + files automatically.\n"
+    "• Send a link/file here to scan privately.\n"
+    "• Admins: /settings to configure language."
+)
+
+TERMS_TEXT = (
+    "📜 <b>Terms of Service | លក្ខខណ្ឌប្រើប្រាស់</b>\n\n"
+    "• Automated scanning — no 100% guarantee.\n"
+    "• No liability for damages or losses.\n"
+    "• Prohibited: evasion testing, abuse, illegal use."
+)
+
+UNAUTHORIZED_TEXT = (
+    "🔒 <b>Unauthorized | គ្មានសិទ្ធិ</b>\n\n"
+    "You are not whitelisted. Contact the admin to get access."
+)
+
+ADMIN_MENU_TEXT = (
+    "⚙️ <b>Settings | ការកំណត់</b>\n\n"
+    "Select a group to configure its language and safe-message timer:"
+)
+
+
 def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
-    # No slash commands anymore — the Mini App is opened via the Menu button.
-    # Private chats only handle personal scanning of links/files.
-    content = (message.get("text") or "") + " " + (message.get("caption") or "")
     user_id = (message.get("from") or {}).get("id", 0)
+    text = (message.get("text") or "").strip()
+    command = text.split()[0].split("@", 1)[0] if text else ""
+    whitelisted = user_id in whitelist_user_ids() or is_super_admin(user_id)
+
+    if command:
+        # Whitelisted users get the admin commands scoped to their private chat.
+        if whitelisted:
+            api.set_my_commands(ADMIN_COMMANDS, scope={"type": "chat", "chat_id": chat_id})
+
+        if command == "/privacy":
+            api.send_message(chat_id, PRIVACY_TEXT)
+            return
+        if command == "/help":
+            api.send_message(chat_id, HELP_TEXT)
+            return
+        if command == "/terms":
+            api.send_message(chat_id, TERMS_TEXT)
+            return
+        if command == "/app":
+            if config.WEB_APP_URL:
+                kb = {"inline_keyboard": [[{"text": "🛡️ Open Mini App", "web_app": {"url": config.WEB_APP_URL}}]]}
+                api.send_message(chat_id, "បើក Mini App (Open the Mini App):", reply_markup=kb)
+            else:
+                api.send_message(chat_id, "Mini App URL not configured.")
+            return
+        if command in {"/lang", "/language"}:
+            current = get_user_lang(user_id)
+            kb = {
+                "inline_keyboard": [
+                    [
+                        {"text": f"{'✅ ' if current == 'both' else ''}🌐 Both", "callback_data": f"usrlang:{user_id}:both"},
+                        {"text": f"{'✅ ' if current == 'kh' else ''}🇰🇭 ខ្មែរ", "callback_data": f"usrlang:{user_id}:kh"},
+                        {"text": f"{'✅ ' if current == 'en' else ''}🇬🇧 English", "callback_data": f"usrlang:{user_id}:en"},
+                    ]
+                ]
+            }
+            api.send_message(chat_id, "🌐 <b>ជ្រើសរើសភាសា | Select your chat language:</b>", reply_markup=kb)
+            return
+        if command == "/settings":
+            if not whitelisted:
+                api.send_message(chat_id, UNAUTHORIZED_TEXT)
+                return
+            managed_groups = get_managed_groups_for_user(api, user_id)
+            if not managed_groups:
+                api.send_message(chat_id, "មិនទាន់មានក្រុមចាត់តាំង (No groups assigned yet).")
+                return
+            api.send_message(chat_id, ADMIN_MENU_TEXT, reply_markup=_build_admin_menu_keyboard(managed_groups))
+            return
+
+    # Personal scanning — any link or file sent privately
+    content = (message.get("text") or "") + " " + (message.get("caption") or "")
     if extract_urls(content) or (message.get("document") or {}).get("file_id"):
         _handle_personal_scan(api, chat_id, message, user_id)
 
@@ -495,6 +598,19 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
                 api.answer_callback_query(query_id, text="✅ Verified — chat unlocked.")
             else:
                 api.answer_callback_query(query_id, text="❌ You cannot verify someone else.", show_alert=True)
+            return
+
+    # 0.5 Private chat language switch
+    if data.startswith("usrlang:"):
+        parts = data.split(":")
+        if len(parts) == 3:
+            target_uid = int(parts[1])
+            new_lang = parts[2]
+            if user_id != target_uid:
+                api.answer_callback_query(query_id, text="❌ Not yours.", show_alert=True)
+                return
+            set_user_lang(target_uid, new_lang)
+            api.answer_callback_query(query_id, text=f"✅ Language set to {new_lang.upper()}")
             return
 
     # 1. Non-technical explanation modal

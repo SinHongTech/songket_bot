@@ -57,6 +57,8 @@ def _int_set_env(name: str) -> set[int]:
 BOT_TOKEN: str = os.environ.get("BOT_TOKEN", "")
 ADMIN_CHAT_ID: str = os.environ.get("ADMIN_CHAT_ID", "")
 WEB_APP_URL: str = os.environ.get("WEB_APP_URL", "").strip()
+# The admin dashboard lives at /dashboard; the menu button opens it directly.
+WEB_APP_DASHBOARD_URL: str = (WEB_APP_URL.rstrip("/") + "/dashboard") if WEB_APP_URL else ""
 
 # Whether to talk to a locally-hosted Telegram Bot API server (recommended:
 # it removes the 20MB download limit imposed by api.telegram.org and lets us
