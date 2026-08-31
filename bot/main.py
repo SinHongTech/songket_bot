@@ -51,8 +51,8 @@ def main() -> None:
     api.delete_webhook()  # getUpdates is rejected while a webhook is registered
 
     # Menu button opens the command menu (Privacy / Help / Terms by default).
-    r_btn = api.set_chat_menu_button("commands")
-    r_cmds = api.set_my_commands([
+    api.set_chat_menu_button("commands")
+    api.set_my_commands([
         {"command": "app", "description": "Open Mini App"},
         {"command": "guide", "description": "How to use"},
         {"command": "lang", "description": "My chat language"},
@@ -60,8 +60,6 @@ def main() -> None:
         {"command": "privacy", "description": "Privacy Policy"},
         {"command": "terms", "description": "Terms of Service"},
     ])
-    logger.info("setChatMenuButton => %s", r_btn)
-    logger.info("setMyCommands => %s", r_cmds)
 
     signal.signal(signal.SIGINT, _handle_shutdown)
     signal.signal(signal.SIGTERM, _handle_shutdown)
