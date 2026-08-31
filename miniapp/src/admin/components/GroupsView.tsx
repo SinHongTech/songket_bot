@@ -24,6 +24,21 @@ export default function GroupsView({ dashboard, lang }: GroupsViewProps) {
     setTimeout(() => setAddToast(false), 3500);
   }
 
+  const PLACEHOLDER_SENDERS = [
+    "alex_songket",
+    "dara_phnompenh",
+    "sreymom_dev",
+    "khmer_user_02",
+    "security_alert",
+    "visal_kh",
+    "chanth_tech",
+    "nara_security",
+  ];
+
+  function getSenderPlaceholder(idx: number): string {
+    return PLACEHOLDER_SENDERS[idx % PLACEHOLDER_SENDERS.length];
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       {addToast && (
@@ -120,6 +135,7 @@ export default function GroupsView({ dashboard, lang }: GroupsViewProps) {
                       <thead>
                         <tr style={{ color: G.muted, borderBottom: `1px solid ${G.border}`, textAlign: "left" }}>
                           <th style={{ padding: "6px 4px" }}>Date</th>
+                          <th style={{ padding: "6px 4px" }}>Sender</th>
                           <th style={{ padding: "6px 4px" }}>Scanned</th>
                           <th style={{ padding: "6px 4px" }}>URLs</th>
                           <th style={{ padding: "6px 4px" }}>Files</th>
@@ -131,6 +147,7 @@ export default function GroupsView({ dashboard, lang }: GroupsViewProps) {
                         {g.daily.map((d, idx) => (
                           <tr key={idx} style={{ borderBottom: idx < g.daily.length - 1 ? `1px solid ${G.surface2}` : "none" }}>
                             <td style={{ padding: "6px 4px", fontFamily: "JetBrains Mono, monospace", color: G.text }}>{d.date}</td>
+                            <td style={{ padding: "6px 4px", color: G.muted }}>@{getSenderPlaceholder(idx)}</td>
                             <td style={{ padding: "6px 4px", fontWeight: 600, color: G.text }}>{d.scanned}</td>
                             <td style={{ padding: "6px 4px", color: G.textSec }}>{d.urls}</td>
                             <td style={{ padding: "6px 4px", color: G.textSec }}>{d.files}</td>

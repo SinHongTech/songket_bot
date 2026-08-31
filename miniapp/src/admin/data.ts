@@ -86,15 +86,13 @@ export function getTimelineFromDashboard(dashboard?: DashboardData | null) {
 
   const dateMap: Record<string, { date: string; day: string; scans: number; threats: number }> = {};
 
-  const daysOfWeek = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
   dashboard.groups.forEach(group => {
     group.daily.forEach(item => {
       if (!dateMap[item.date]) {
         let dayLabel = item.date;
         try {
           const d = new Date(item.date);
-          dayLabel = daysOfWeek[d.getDay()] || item.date;
+          dayLabel = String(d.getDate());
         } catch {
           // fallback to date
         }

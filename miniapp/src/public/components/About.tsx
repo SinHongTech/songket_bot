@@ -1,6 +1,8 @@
-import { Mail, Send, Briefcase, Code, Palette, Lock, Monitor, ClipboardList, Megaphone, Users, Lightbulb, MapPin, ExternalLink, ArrowUpRight } from "lucide-react";
-import gekleang from "./MongGekleang.png";
-import { FaLinkedin } from "react-icons/fa";
+import { Mail, Send, Briefcase, Code, Palette, Lock, Monitor, ClipboardList, Megaphone, Users, Lightbulb, MapPin, ArrowUpRight } from "lucide-react";
+import lika from "../assets/SaoSochealika.png";
+import gekleang from "../assets/MongGekleang.png";
+import smey from "../assets/KongLeakSmey.png";
+import { FaLinkedin } from "../assets/FaLinkedin";
 
 
 interface AboutProps {
@@ -18,19 +20,19 @@ const TEAM = [
     descEn: "Sets Songket's vision and turns Cambodia's scam problem into practical safety products people can use every day.",
     descKm: "កំណត់ទិសដៅរបស់ Songket និងដោះស្រាយបញ្ហាការបន្លំនៅកម្ពុជា។",
     icon: <Briefcase size={28} color="var(--gold)" />,
-    img: gekleang,
-    linkedin: "https://www.linkedin.com/feed/",
+    img: lika,
+    linkedin: "https://linkedin.com/in/sao-sochealika-b41161369",
   },
   {
     num: "02",
     name: "Mong Gekleang",
     roleEn: "Frontend Developer",
     roleKm: "អ្នកអភិវឌ្ឍ Frontend",
-    descEn: "Builds the Mini App and admin dashboard — everything users see and interact with daily.",
+    descEn: "Builds the Mini App and admin dashboard  everything users see and interact with daily.",
     descKm: "បង្កើត Mini App និងផ្ទាំងគ្រប់គ្រងដែលអ្នកប្រើប្រាស់ឃើញ។",
     icon: <Code size={28} color="var(--gold)" />,
     img: gekleang,
-    linkedin: "https://www.linkedin.com/feed/",
+    linkedin: "https://www.linkedin.com/in/mong-gekleang-1849b5343/",
   },
   {
     num: "03",
@@ -40,8 +42,8 @@ const TEAM = [
     descEn: "Crafts intuitive interfaces so users of all backgrounds can navigate Songket with confidence.",
     descKm: "រចនាចំណុចប្រទាក់ងាយស្រួលប្រើសម្រាប់អ្នកប្រើប្រាស់គ្រប់រូប។",
     icon: <Palette size={28} color="var(--gold)" />,
-    img: gekleang,
-    linkedin: "https://www.linkedin.com/feed/",
+    img: smey,
+    linkedin: "https://www.linkedin.com/in/kong-leak-smey/",
   },
   {
     num: "04",
@@ -118,7 +120,7 @@ export default function About({ isKm, bodyFont }: AboutProps) {
         <p style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.7, fontFamily: bodyFont }}>
           {isKm
             ? "Songket គឺជាបូតសុវត្ថិភាព Telegram ដំបូងគេដែលត្រូវបានរចនាឡើងសម្រាប់សហគមន៍កម្ពុជា។"
-            : "Songket is the first Telegram security bot built for Cambodian communities. It detects and blocks malicious files, phishing links, and harmful users — automatically, in seconds."}
+            : "Songket is the first Telegram security bot built for Cambodian communities. It detects and blocks malicious files, phishing links, and harmful users  automatically, in seconds."}
         </p>
       </div>
 

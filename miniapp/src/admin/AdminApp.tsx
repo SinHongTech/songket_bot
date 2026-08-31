@@ -185,8 +185,22 @@ function UpgradeModal({ onClose, lang }: { onClose: () => void; lang: Lang }) {
 
 export default function AdminApp() {
   const [nav, setNav] = useState<Nav>("dashboard");
-  const [dark, setDark] = useState(false);
-  const [lang, setLang] = useState<Lang>("km");
+  const [dark, setDark] = useState<boolean>(() => {
+    try {
+      const v = localStorage.getItem("songket.admin.dark");
+      return v === null ? false : v === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [lang, setLang] = useState<Lang>(() => {
+    try {
+      const v = localStorage.getItem("songket.admin.lang");
+      return v === "km" || v === "en" ? v : "km";
+    } catch {
+      return "km";
+    }
+  });
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -196,12 +210,29 @@ export default function AdminApp() {
   const [error, setError] = useState<string | null>(null);
   const [apiData, setApiData] = useState<DashboardApiResponse | null>(null);
   const [days, setDays] = useState(7);
+  const [homeDays, setHomeDays] = useState(7);
 
   const tx = T(lang);
 
   useLayoutEffect(() => {
     document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
   }, [dark]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("songket.admin.dark", dark ? "1" : "0");
+    } catch {
+      // ignore storage errors
+    }
+  }, [dark]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("songket.admin.lang", lang);
+    } catch {
+      // ignore storage errors
+    }
+  }, [lang]);
 
   const loadData = useCallback(async (isRefresh = false, queryDays = days) => {
     if (isRefresh) {
@@ -229,6 +260,37 @@ export default function AdminApp() {
 
   const handleDaysChange = (newDays: number) => {
     setDays(newDays);
+  };
+
+  const loadHomeData = useCallback(async (isRefresh = false, queryDays = homeDays) => {
+    if (isRefresh) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
+    setError(null);
+
+    try {
+      const data = await fetchDashboardData(queryDays);
+      if (data.dashboard) {
+        data.dashboard.days = queryDays;
+      }
+      setApiData(data);
+    } catch (err: any) {
+      console.error("Home graph fetch error:", err);
+      setError(err?.message || "Failed to load dashboard data");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [homeDays]);
+
+  useEffect(() => {
+    loadHomeData(false, homeDays);
+  }, [homeDays, loadHomeData]);
+
+  const handleHomeDaysChange = (newDays: number) => {
+    setHomeDays(newDays);
   };
 
   const handleCopyId = (id: number) => {
@@ -265,7 +327,7 @@ export default function AdminApp() {
   const isMock = apiData?.isMock ?? false;
 
   const views: Record<Nav, React.ReactElement> = {
-    dashboard: <HomeView dashboard={dashboard} lang={lang} isMock={isMock} />,
+    dashboard: <HomeView dashboard={dashboard} lang={lang} isMock={isMock} homeDays={homeDays} onHomeDaysChange={handleHomeDaysChange} onNavigate={(tab) => setNav(tab)} />,
     groups: <GroupsView dashboard={dashboard} lang={lang} />,
     threats: <ThreatsView dashboard={dashboard} lang={lang} days={days} onDaysChange={handleDaysChange} />,
     history: <HistoryView dashboard={dashboard} lang={lang} days={days} onDaysChange={handleDaysChange} />,

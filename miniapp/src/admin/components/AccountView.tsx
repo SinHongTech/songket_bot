@@ -20,14 +20,13 @@ export default function AccountView({ user, dashboard, dark, setDark, lang, setL
   const [email, setEmail] = useState("admin@telegram.security");
   const [telegram, setTelegram] = useState(user?.username ? `@${user.username}` : user?.first_name || "@admin");
   const [notifTelegram, setNotifTelegram] = useState(true);
-  const [notifEmail, setNotifEmail] = useState(false);
   const [notifPDF, setNotifPDF] = useState(false);
-  const [saved, setSaved] = useState(false);
+  // const [saved, setSaved] = useState(false);
 
-  function handleSave() {
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  }
+  // function handleSave() {
+  //   setSaved(true);
+  //   setTimeout(() => setSaved(false), 2000);
+  // }
 
   const inputStyle = {
     background: G.surface2,
@@ -194,7 +193,6 @@ export default function AccountView({ user, dashboard, dark, setDark, lang, setL
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           {[
             { label: tx.notifTelegram, on: notifTelegram, toggle: () => setNotifTelegram(v => !v) },
-            { label: tx.notifEmail, on: notifEmail, toggle: () => setNotifEmail(v => !v) },
             { label: tx.notifPDF, on: notifPDF, toggle: () => setNotifPDF(v => !v) },
           ].map(n => (
             <div key={n.label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -207,7 +205,7 @@ export default function AccountView({ user, dashboard, dark, setDark, lang, setL
         </div>
       </div>
 
-      <button
+      {/* <button
         onClick={handleSave}
         style={{
           background: saved ? G.safe : G.gold,
@@ -223,7 +221,7 @@ export default function AccountView({ user, dashboard, dark, setDark, lang, setL
         }}
       >
         <span className={kh(lang)}>{saved ? tx.saved : tx.save}</span>
-      </button>
+      </button> */}
     </div>
   );
 }

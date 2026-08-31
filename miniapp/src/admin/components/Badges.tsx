@@ -40,8 +40,9 @@ export function SectionHeader({ title, sub, lang }: { title: string; sub?: strin
   );
 }
 
-export function StatCard({ icon, label, value, sub, accent, lang }: { icon: React.ReactElement; label: string; value: string | number; sub?: string; accent?: string; lang?: Lang }) {
+export function StatCard({ icon, label, value, sub, accent, lang, onClick }: { icon: React.ReactElement; label: string; value: string | number; sub?: string; accent?: string; lang?: Lang; onClick?: () => void }) {
   const cls = lang ? kh(lang) : "";
+  const extraStyle: React.CSSProperties = onClick ? { cursor: "pointer" } : {};
   return (
     // <div style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 14, padding: "16px 18px", display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "12px" }}>
     //   <div style={{ fontSize: 26, fontWeight: 700, color: accent || G.text, lineHeight: 1, textAlign: "right", gridColumn: "span3" }}>{value}</div>
@@ -49,7 +50,7 @@ export function StatCard({ icon, label, value, sub, accent, lang }: { icon: Reac
     //   <span className={cls} style={{ color: G.muted, fontSize: 12, fontWeight: 500, gridColumn: "span4" }}>{label}</span>
     //   {sub && <div className={cls} style={{ fontSize: 11, color: G.muted }}>{sub}</div>}
     // </div>
-    <div style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 14, padding: "16px 18px", display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "12px", alignItems: "center" }}>
+    <div onClick={onClick} style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 14, padding: "16px 18px", display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: "12px", alignItems: "center", ...extraStyle }}>
   
       {/* Top Left: Big Value Number */}
       <div style={{ fontSize: 26, fontWeight: 700, color: accent || G.text, lineHeight: 1 }}>

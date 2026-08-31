@@ -1,6 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Kantumruy+Pro:wght@300;400;500;600;700&display=swap');
 
-/* Dark is the default — no JS needed to avoid flash */
+/* Dark is the default  no JS needed to avoid flash */
 :root {
   --gold: #D4A72C;
   --gold-light: #f5c842;
