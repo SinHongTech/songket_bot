@@ -446,28 +446,115 @@ ADMIN_COMMANDS = [
     {"command": "settings", "description": "Language & group settings"},
 ]
 
-PRIVACY_TEXT = (
-    "🔒 <b>Privacy Policy | គោលការណ៍ភាពឯកជន</b>\n\n"
-    "• Files/links processed in RAM only, deleted after scan.\n"
-    "• No permanent storage of files or messages.\n"
-    "• Only scan counts + SHA-256 hashes are stored.\n"
-    "• Your Telegram ID is never shown publicly."
-)
-
-HELP_TEXT = (
-    "💡 <b>How to use Songket | របៀបប្រើ</b>\n\n"
-    "• Add the bot as admin to your group.\n"
-    "• It scans links + files automatically.\n"
-    "• Send a link/file here to scan privately.\n"
-    "• Admins: /settings to configure language."
-)
-
-TERMS_TEXT = (
-    "📜 <b>Terms of Service | លក្ខខណ្ឌប្រើប្រាស់</b>\n\n"
-    "• Automated scanning — no 100% guarantee.\n"
-    "• No liability for damages or losses.\n"
-    "• Prohibited: evasion testing, abuse, illegal use."
-)
+INFO_TEXTS = {
+    "terms": {
+        "both": (
+            "📜 <b>លក្ខខណ្ឌនៃការប្រើប្រាស់ | Terms of Service</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "សូមស្វាគមន៍មកកាន់ Songket (សង្កេត)។ ការប្រើប្រាស់ Bot នេះមានន័យថាអ្នកបានយល់ព្រមលើលក្ខខណ្ឌដូចខាងក្រោម៖\n"
+            "1️⃣ គោលបំណង (Purpose):\n"
+            "• Songket គឺជាជំនួយការស្វ័យប្រវត្តសម្រាប់ត្រួតពិនិត្យ និងវិភាគសុវត្ថិភាពតំណភ្ជាប់ (Links) និងឯកសារ (Files) ក្នុង Telegram។\n"
+            "2️⃣ ការកំណត់ការទទួលខុសត្រូវ (Disclaimer):\n"
+            "• គ្មានប្រព័ន្ធណាអាចធានាសុវត្ថិភាព ១០០% លើមេរោគថ្មី (Zero-Day) ឡើយ។ ក្រុមការងារមិនទទួលខុសត្រូវចំពោះការខូចខាត ឬការបាត់បង់ទិន្នន័យឡើយ។\n"
+            "3️⃣ ការការពារទិន្នន័យ (Data Privacy):\n"
+            "• ឯកសារទាំងអស់ដំណើរការជាបណ្ដោះអាសន្នក្នុង RAM និងលុបចេញភ្លាមៗ។ គ្មានឯកសារណារក្សាទុកជាអចិន្ត្រៃយ៍ឡើយ។\n"
+            "4️⃣ បម្រាម (Prohibited Use):\n"
+            "• ហាមឃាត់ការប្រើប្រាស់សម្រាប់ធ្វើតេស្តគេចវេះមេរោគ (Evasion Testing) ឬសកម្មភាពបំពានច្បាប់។\n"
+            "🤖 Songket Security Team | ក្រុមការងារសង្កេត\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        ),
+        "kh": (
+            "📜 <b>លក្ខខណ្ឌនៃការប្រើប្រាស់</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "សូមស្វាគមន៍មកកាន់ Songket (សង្កេត)។ ការប្រើប្រាស់ Bot នេះមានន័យថាអ្នកបានយល់ព្រមលើលក្ខខណ្ឌដូចខាងក្រោម៖\n"
+            "1️⃣ គោលបំណង: Songket ជួយត្រួតពិនិត្យ និងវិភាគសុវត្ថិភាពតំណភ្ជាប់ និងឯកសារក្នុង Telegram។\n"
+            "2️⃣ ការកំណត់ការទទួលខុសត្រូវ: គ្មានប្រព័ន្ធណាធានាសុវត្ថិភាព ១០០% បានឡើយ។\n"
+            "3️⃣ ការការពារទិន្នន័យ: ឯកសារដំណើរការជាបណ្ដោះអាសន្នក្នុង RAM ហើយលុបចេញភ្លាមៗ។\n"
+            "4️⃣ បម្រាម: ហាមប្រើសម្រាប់ធ្វើតេស្តគេចវេះមេរោគ ឬបំពានច្បាប់។\n"
+            "🤖 Songket Security Team | ក្រុមការងារសង្កេត"
+        ),
+        "en": (
+            "📜 <b>Terms of Service</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "Welcome to Songket. By using this bot you agree to:\n"
+            "1️⃣ Purpose: Songket is an automated assistant that scans links and files in Telegram.\n"
+            "2️⃣ Disclaimer: No system guarantees 100% protection against new (zero-day) threats. We are not liable for damages or data loss.\n"
+            "3️⃣ Data Privacy: Files are processed temporarily in RAM and deleted immediately. Nothing is stored permanently.\n"
+            "4️⃣ Prohibited Use: Evasion testing or illegal abuse is forbidden.\n"
+            "🤖 Songket Security Team"
+        ),
+    },
+    "privacy": {
+        "both": (
+            "🔒 <b>គោលការណ៍ភាពឯកជន | Privacy Policy</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "ការការពារភាពឯកជនរបស់អ្នកគឺជាអាទិភាពចម្បងរបស់យើង៖\n"
+            "🛡️ 1. ដំណើរការបណ្ដោះអាសន្ន (Ephemeral Processing):\n"
+            "• ឯកសារ/តំណភ្ជាប់ត្រូវបានអានក្នុង RAM តែពេលស្កេន ហើយលុបភ្លាមៗក្រោយស្កេនចប់។\n"
+            "🚫 2. គ្មានការរក្សាទុកឯកសារ (Zero Permanent Storage):\n"
+            "• យើងមិនរក្សាទុកឯកសារ ឬខ្លឹមសារសាររបស់អ្នកឡើយ។\n"
+            "📊 3. ទិន្នន័យស្ថិតិ (Anonymous Statistics):\n"
+            "• កត់ត្រាតែចំនួនស្កេន, ចំនួនមេរោគទប់ស្កាត់, និង SHA-256 Hash សម្រាប់ Cache។\n"
+            "🔐 4. ការសម្ងាត់គណនី (Identity Protection):\n"
+            "• Telegram ID មិនបង្ហាញជាសាធារណៈទេ (បង្ហាញតែ @username)។\n"
+            "🤖 Songket Security Team | ក្រុមការងារសង្កេត\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        ),
+        "kh": (
+            "🔒 <b>គោលការណ៍ភាពឯកជន</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "1️⃣ ដំណើរការបណ្ដោះអាសន្ន: ឯកសារ/តំណភ្ជាប់អានក្នុង RAM តែពេលស្កេន រួចលុបភ្លាមៗ។\n"
+            "2️⃣ គ្មានការរក្សាទុកឯកសារ: យើងមិនរក្សាទុកឯកសារ ឬសាររបស់អ្នកឡើយ។\n"
+            "3️⃣ ទិន្នន័យស្ថិតិ: កត់ត្រាតែចំនួនស្កេន និង SHA-256 Hash សម្រាប់ Cache។\n"
+            "4️⃣ ការសម្ងាត់គណនី: Telegram ID មិនបង្ហាញជាសាធារណៈទេ។\n"
+            "🤖 Songket Security Team | ក្រុមការងារសង្កេត"
+        ),
+        "en": (
+            "🔒 <b>Privacy Policy</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "Your privacy is our priority:\n"
+            "1️⃣ Ephemeral Processing: Files/links are read in RAM only during scanning, then deleted.\n"
+            "2️⃣ Zero Permanent Storage: We never store your files or messages.\n"
+            "3️⃣ Anonymous Statistics: Only scan counts and SHA-256 hashes (for cache) are kept.\n"
+            "4️⃣ Identity Protection: Your Telegram ID is never shown publicly (only @username).\n"
+            "🤖 Songket Security Team"
+        ),
+    },
+    "help": {
+        "both": (
+            "💡 <b>មគ្គុទ្ទេសក៍សុវត្ថិភាពសាយប័រ | Cyber Safety Guide</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "អនុសាសន៍ដើម្បីការពារខ្លួនពីការវាយប្រហារតាម Telegram៖\n"
+            "⚠️ 1. ឯកសារ (File Safety):\n"
+            "• កុំបើកឯកសារសង្ស័យ .exe, .bat, .scr, .zip, .rar, .apk, .js, .docm។\n"
+            "🌐 2. តំណភ្ជាប់ (Link / Phishing Safety):\n"
+            "• កុំបំពេញ Password, OTP លើតំណមិនស្គាល់។\n"
+            "🚨 3. បើបានចុចរួចហើយ (Incident Response):\n"
+            "1️⃣ ផ្ដាច់ Internet ភ្លាមៗ\n"
+            "2️⃣ ប្តូរពាក្យសម្ងាត់ពីឧបករណ៍ផ្សេង\n"
+            "3️⃣ Scan ដោយ Antivirus\n"
+            "🤖 Songket Security Team | ក្រុមការងារសង្កេត\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        ),
+        "kh": (
+            "💡 <b>មគ្គុទ្ទេសក៍សុវត្ថិភាពសាយប័រ</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "1️⃣ ឯកសារ: កុំបើកឯកសារសង្ស័យ .exe, .bat, .zip, .apk, .docm។\n"
+            "2️⃣ តំណភ្ជាប់: កុំបំពេញ Password, OTP លើតំណមិនស្គាល់។\n"
+            "3️⃣ បើបានចុចរួច: ផ្ដាច់ Internet, ប្តូរពាក្យសម្ងាត់, Scan ដោយ Antivirus។\n"
+            "🤖 Songket Security Team | ក្រុមការងារសង្កេត"
+        ),
+        "en": (
+            "💡 <b>Cyber Safety Guide</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "Protect yourself from Telegram attacks:\n"
+            "1️⃣ Files: Don't open suspicious .exe, .bat, .zip, .apk, .docm.\n"
+            "2️⃣ Links: Never enter passwords or OTP on unknown links.\n"
+            "3️⃣ If you clicked: Disconnect internet, change passwords from another device, scan with antivirus.\n"
+            "🤖 Songket Security Team"
+        ),
+    },
+}
 
 UNAUTHORIZED_TEXT = (
     "🔒 <b>Unauthorized | គ្មានសិទ្ធិ</b>\n\n"
@@ -478,6 +565,10 @@ ADMIN_MENU_TEXT = (
     "⚙️ <b>Settings | ការកំណត់</b>\n\n"
     "Select a group to configure its language and safe-message timer:"
 )
+
+
+def _info(kind: str, lang: str) -> str:
+    return INFO_TEXTS.get(kind, {}).get(lang) or INFO_TEXTS.get(kind, {}).get("both", "")
 
 
 def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
@@ -492,13 +583,13 @@ def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
             api.set_my_commands(ADMIN_COMMANDS, scope={"type": "chat", "chat_id": chat_id})
 
         if command == "/privacy":
-            api.send_message(chat_id, PRIVACY_TEXT)
+            api.send_message(chat_id, _info("privacy", get_user_lang(user_id)))
             return
         if command == "/help":
-            api.send_message(chat_id, HELP_TEXT)
+            api.send_message(chat_id, _info("help", get_user_lang(user_id)))
             return
         if command == "/terms":
-            api.send_message(chat_id, TERMS_TEXT)
+            api.send_message(chat_id, _info("terms", get_user_lang(user_id)))
             return
         if command == "/app":
             if config.WEB_APP_URL:
