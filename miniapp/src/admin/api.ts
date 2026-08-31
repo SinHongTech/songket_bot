@@ -25,7 +25,9 @@ declare global {
   }
 }
 
-const SESSION_KEY = "songket.admin.session";
+// In-memory session: cleared on every fresh WebApp open, so PIN is required
+// each time the app is (re)opened. Not persisted to storage.
+let _sessionToken = "";
 
 export function getTelegramWebApp() {
   if (typeof window !== "undefined" && window.Telegram?.WebApp) {
@@ -35,20 +37,11 @@ export function getTelegramWebApp() {
 }
 
 export function getSessionToken(): string {
-  try {
-    return sessionStorage.getItem(SESSION_KEY) || "";
-  } catch {
-    return "";
-  }
+  return _sessionToken;
 }
 
 export function setSessionToken(token: string) {
-  try {
-    if (token) sessionStorage.setItem(SESSION_KEY, token);
-    else sessionStorage.removeItem(SESSION_KEY);
-  } catch {
-    // ignore storage errors
-  }
+  _sessionToken = token;
 }
 
 export async function fetchDashboardData(days: number = 7): Promise<DashboardApiResponse> {

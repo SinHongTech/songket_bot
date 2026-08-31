@@ -121,6 +121,10 @@ class handler(BaseHTTPRequestHandler):
                 session_uid = validate_session(body.get("session", ""))
                 if session_uid != uid:
                     action = body.get("action", "")
+                    logger.info(
+                        "PIN gate | uid=%s | action=%s | pin_set=%s | lock=%ss",
+                        uid, action or "-", pin_exists(uid), pin_lock_seconds(uid),
+                    )
 
                     if action == "setup_pin":
                         ok, err = setup_pin(uid, body.get("pin", ""), body.get("confirm", ""))
