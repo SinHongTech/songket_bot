@@ -442,6 +442,7 @@ ADMIN_COMMANDS = [
     {"command": "help", "description": "How to use"},
     {"command": "terms", "description": "Terms of Service"},
     {"command": "lang", "description": "My chat language"},
+    {"command": "app", "description": "Open Mini App"},
     {"command": "settings", "description": "Language & group settings"},
 ]
 
@@ -498,6 +499,13 @@ def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
             return
         if command == "/terms":
             api.send_message(chat_id, TERMS_TEXT)
+            return
+        if command == "/app":
+            if config.WEB_APP_URL:
+                kb = {"inline_keyboard": [[{"text": "🛡️ Open Mini App", "web_app": {"url": config.WEB_APP_URL}}]]}
+                api.send_message(chat_id, "បើក Mini App (Open the Mini App):", reply_markup=kb)
+            else:
+                api.send_message(chat_id, "Mini App URL not configured.")
             return
         if command in {"/lang", "/language"}:
             current = get_user_lang(user_id)

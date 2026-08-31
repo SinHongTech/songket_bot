@@ -57,6 +57,7 @@ def main() -> None:
         {"command": "help", "description": "How to use Songket"},
         {"command": "terms", "description": "Terms of Service"},
         {"command": "lang", "description": "My chat language"},
+        {"command": "app", "description": "Open Mini App"},
     ])
 
     signal.signal(signal.SIGINT, _handle_shutdown)
