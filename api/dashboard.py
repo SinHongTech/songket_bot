@@ -211,6 +211,7 @@ class handler(BaseHTTPRequestHandler):
                     200,
                     {
                         "authorized": False,
+                        "preview": True,
                         "is_super_admin": False,
                         "user": {"id": uid, "first_name": user.get("first_name", ""), "username": user.get("username", "")},
                     },

@@ -1,10 +1,13 @@
 """URL / file heuristics shared by the message handlers and scanner."""
 from __future__ import annotations
 
+import html
+import ipaddress
 import json
 import logging
 import os
 import re
+import socket
 import time
 from typing import Optional
 from urllib.parse import urljoin, urlparse
@@ -15,6 +18,32 @@ from bot import config
 from bot.redis_client import kv_get, kv_json_get
 
 logger = logging.getLogger("BeydaBot.utils")
+
+
+def esc(s: str) -> str:
+    """HTML-escape user-controlled text before inserting into parse_mode=HTML."""
+    return html.escape(str(s), quote=True)
+
+
+def _blocked_host(host: str) -> bool:
+    """True if host resolves to a private/reserved/loopback address (SSRF guard)."""
+    try:
+        ip = ipaddress.ip_address(host)
+        return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast or ip.is_unspecified
+    except ValueError:
+        pass
+    try:
+        infos = socket.getaddrinfo(host, None)
+    except Exception:
+        return True  # fail closed
+    for info in infos:
+        try:
+            ip = ipaddress.ip_address(info[4][0])
+            if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+                return True
+        except ValueError:
+            pass
+    return False
 
 # ── file extensions ──────────────────────────────────────────────────────────
 HIGH_RISK_EXTENSIONS: set[str] = {
@@ -199,11 +228,20 @@ def mask_domain(domain: str) -> str:
 
 
 def resolve_redirect(url: str, max_redirects: int = None, timeout: int = None) -> str:
-    """Resolve a URL's redirect chain to its final destination without reading the body."""
+    """Resolve a URL's redirect chain to its final destination without reading the body.
+
+    SSRF guard: only http/https, and hosts resolving to private/reserved/loopback
+    addresses are never fetched.
+    """
     max_redirects = config.LINK_PREVIEW_MAX_REDIRECTS if max_redirects is None else max_redirects
     timeout = config.LINK_PREVIEW_TIMEOUT if timeout is None else timeout
     current = url if url.startswith("http") else "https://" + url
     for _ in range(max_redirects + 1):
+        parsed = urlparse(current)
+        if parsed.scheme not in ("http", "https") or not parsed.hostname:
+            return current
+        if _blocked_host(parsed.hostname):
+            return current
         try:
             r = requests.get(
                 current,
@@ -249,10 +287,10 @@ def compute_trust(chat_id: int, user_id: int, first_seen: float, join_ts: Option
 def get_user_display(sender: dict) -> str:
     username = sender.get("username")
     if username:
-        return f"@{username}"
+        return esc(f"@{username}")
     first = sender.get("first_name", "")
     last = sender.get("last_name", "")
-    return f"{first} {last}".strip() or "Unknown"
+    return esc(f"{first} {last}".strip() or "Unknown")
 
 
 # ── admin & group authorization helpers ──────────────────────────────────────

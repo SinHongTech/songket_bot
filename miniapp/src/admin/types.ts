@@ -62,6 +62,7 @@ export interface DashboardApiResponse {
   locked?: number;
   attempts?: number;
   session?: string;
+  preview?: boolean;
   error?: string;
   isMock?: boolean;
 }

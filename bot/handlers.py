@@ -40,6 +40,7 @@ from bot.scanner import vt_scan_file, vt_scan_url
 from bot.telegram_api import TelegramAPI
 from bot.utils import (
     compute_trust,
+    esc,
     extract_domain,
     extract_urls,
     get_allowed_groups,
@@ -317,7 +318,7 @@ def _handle_personal_scan(api: TelegramAPI, chat_id: int, message: dict, user_id
             continue
         mal = r.get("malicious", 0)
         susp = r.get("suspicious", 0)
-        display = mask_domain(target) if kind == "link" else target
+        display = mask_domain(target) if kind == "link" else esc(target)
         if mal >= config.VT_MALICIOUS_THRESHOLD:
             header = headers["threat"][lang]
         elif susp >= config.VT_SUSPICIOUS_THRESHOLD:
@@ -1049,7 +1050,7 @@ def process_update(api: TelegramAPI, update: dict) -> None:
     if decision.oversize:
         record_report(chat_id, chat_title, "oversize")
         delete_notice()
-        api.send_message(chat_id, MSG_TOO_LARGE.format(user=sender_label, filename=filename, size_mb=decision.size_mb))
+        api.send_message(chat_id, MSG_TOO_LARGE.format(user=sender_label, filename=esc(filename), size_mb=decision.size_mb))
         return
 
     if not decision.ok:
@@ -1081,7 +1082,7 @@ def process_update(api: TelegramAPI, update: dict) -> None:
         if deleted:
             record_report(chat_id, chat_title, "deleted")
         _send_threat_alert(
-            api, chat_id, sender_label, filename, deleted, lang=lang,
+            api, chat_id, sender_label, esc(filename), deleted, lang=lang,
             extra="\n\n" + engine_consensus(result),
         )
         logger.warning("FILE THREAT | %s | malicious=%d | suspicious=%d | deleted=%s", filename, malicious, suspicious, deleted)
@@ -1089,7 +1090,7 @@ def process_update(api: TelegramAPI, update: dict) -> None:
 
     if suspicious >= config.VT_SUSPICIOUS_THRESHOLD:
         delete_notice()
-        warn_text = get_msg_suspicious_file(lang, sender_label, filename) + "\n\n" + engine_consensus(result)
+        warn_text = get_msg_suspicious_file(lang, sender_label, esc(filename)) + "\n\n" + engine_consensus(result)
         api.send_message(chat_id, warn_text)
         logger.warning("FILE SUSPICIOUS | %s | malicious=%d | suspicious=%d", filename, malicious, suspicious)
         return
