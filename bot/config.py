@@ -142,7 +142,6 @@ VERIFY_AGE_DAYS: int = max(0, _int_env("VERIFY_AGE_DAYS", 7))
 VERIFY_TIMEOUT_MINUTES: int = max(0, _int_env("VERIFY_TIMEOUT_MINUTES", 10))
 
 # ── Plans / quotas ───────────────────────────────────────────────────────────
-SUPER_ADMIN_IDS: str = os.environ.get("SUPER_ADMIN_IDS", "").strip()
 PLAN_EXPIRY_DAYS: int = max(1, _int_env("PLAN_EXPIRY_DAYS", 30))
 QUOTA_ENABLED: bool = _bool_env("QUOTA_ENABLED", True)
 

@@ -193,6 +193,16 @@ def record_join_time(chat_id: int, user_id: int) -> float:
     return now
 
 
+def get_join_time(chat_id: int, user_id: int) -> Optional[float]:
+    existing = kv_get(f"joined:{chat_id}:{user_id}")
+    if existing:
+        try:
+            return float(existing)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
 # ── scan quota (per user, per month) ─────────────────────────────────────────
 
 def _quota_month() -> str:
