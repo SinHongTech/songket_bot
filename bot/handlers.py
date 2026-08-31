@@ -419,9 +419,9 @@ def _build_group_settings_view(api: TelegramAPI, group_id: int) -> tuple[str, di
 
     keyboard = [
         [
-            {"text": f"{'✅ ' if lang == 'both' else ''}🌐 ទាំងពីរ (Both)", "callback_data": f"adm_lang:{group_id}:both"},
-            {"text": f"{'✅ ' if lang == 'kh' else ''}🇰🇭 ខ្មែរ", "callback_data": f"adm_lang:{group_id}:kh"},
-            {"text": f"{'✅ ' if lang == 'en' else ''}🇬🇧 English", "callback_data": f"adm_lang:{group_id}:en"},
+            {"text": f"{'Selected · ' if lang == 'both' else ''}🌐 ទាំងពីរ (Both)", "callback_data": f"adm_lang:{group_id}:both"},
+            {"text": f"{'Selected · ' if lang == 'kh' else ''}🇰🇭 ខ្មែរ", "callback_data": f"adm_lang:{group_id}:kh"},
+            {"text": f"{'Selected · ' if lang == 'en' else ''}🇬🇧 English", "callback_data": f"adm_lang:{group_id}:en"},
         ],
         [
             {"text": f"{'✅ ' if show_safe and timer == 10 else ''}⏱️ 10s", "callback_data": f"adm_timer:{group_id}:10"},
@@ -438,12 +438,13 @@ def _build_group_settings_view(api: TelegramAPI, group_id: int) -> tuple[str, di
 
 
 ADMIN_COMMANDS = [
-    {"command": "privacy", "description": "Privacy Policy"},
-    {"command": "help", "description": "How to use"},
-    {"command": "terms", "description": "Terms of Service"},
-    {"command": "lang", "description": "My chat language"},
     {"command": "app", "description": "Open Mini App"},
-    {"command": "settings", "description": "Language & group settings"},
+    {"command": "settings", "description": "Bot Settings"},
+    {"command": "guide", "description": "How to use"},
+    {"command": "lang", "description": "My chat language"},
+    {"command": "help", "description": "Safety guide"},
+    {"command": "privacy", "description": "Privacy Policy"},
+    {"command": "terms", "description": "Terms of Service"},
 ]
 
 INFO_TEXTS = {
@@ -554,6 +555,32 @@ INFO_TEXTS = {
             "🤖 Songket Security Team"
         ),
     },
+    "guide": {
+        "both": (
+            "📖 <b>មគ្គុទ្ទេសក៍ប្រើប្រាស់ | User Guide</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "👤 ផ្ទាល់ខ្លួន (Personal):\n"
+            "• ផ្ញើ link ឬ file មក bot ក្នុង chat នេះ ដើម្បីស្កេន។\n"
+            "👥 ក្រុម (Group):\n"
+            "• បន្ថែម bot ជា Admin ក្នុងក្រុម → bot ស្កេនដោយស្វ័យប្រវត្តិ។\n"
+            "🤖 Songket Security Team | ក្រុមការងារសង្កេត\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        ),
+        "kh": (
+            "📖 <b>មគ្គុទ្ទេសក៍ប្រើប្រាស់</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "👤 ផ្ទាល់ខ្លួន: ផ្ញើ link ឬ file មក bot ដើម្បីស្កេន។\n"
+            "👥 ក្រុម: បន្ថែម bot ជា Admin → ស្កេនដោយស្វ័យប្រវត្តិ។\n"
+            "🤖 Songket Security Team | ក្រុមការងារសង្កេត"
+        ),
+        "en": (
+            "📖 <b>User Guide</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "👤 Personal: send a link or file to this chat to scan.\n"
+            "👥 Group: add the bot as admin → it scans automatically.\n"
+            "🤖 Songket Security Team"
+        ),
+    },
 }
 
 UNAUTHORIZED_TEXT = (
@@ -588,6 +615,9 @@ def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
         if command == "/help":
             api.send_message(chat_id, _info("help", get_user_lang(user_id)))
             return
+        if command == "/guide":
+            api.send_message(chat_id, _info("guide", get_user_lang(user_id)))
+            return
         if command == "/terms":
             api.send_message(chat_id, _info("terms", get_user_lang(user_id)))
             return
@@ -603,9 +633,9 @@ def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
             kb = {
                 "inline_keyboard": [
                     [
-                        {"text": f"{'✅ ' if current == 'both' else ''}🌐 Both", "callback_data": f"usrlang:{user_id}:both"},
-                        {"text": f"{'✅ ' if current == 'kh' else ''}🇰🇭 ខ្មែរ", "callback_data": f"usrlang:{user_id}:kh"},
-                        {"text": f"{'✅ ' if current == 'en' else ''}🇬🇧 English", "callback_data": f"usrlang:{user_id}:en"},
+                        {"text": f"{'Selected · ' if current == 'both' else ''}🌐 Both", "callback_data": f"usrlang:{user_id}:both"},
+                        {"text": f"{'Selected · ' if current == 'kh' else ''}🇰🇭 ខ្មែរ", "callback_data": f"usrlang:{user_id}:kh"},
+                        {"text": f"{'Selected · ' if current == 'en' else ''}🇬🇧 English", "callback_data": f"usrlang:{user_id}:en"},
                     ]
                 ]
             }
@@ -745,9 +775,9 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
             new_keyboard = {
                 "inline_keyboard": [
                     [
-                        {"text": f"{'✅ ' if new_lang == 'both' else ''}🌐 ទាំងពីរ (Both)", "callback_data": f"grp_lang:{target_gid}:both"},
-                        {"text": f"{'✅ ' if new_lang == 'kh' else ''}🇰🇭 ខ្មែរ", "callback_data": f"grp_lang:{target_gid}:kh"},
-                        {"text": f"{'✅ ' if new_lang == 'en' else ''}🇬🇧 English", "callback_data": f"grp_lang:{target_gid}:en"},
+                        {"text": f"{'Selected · ' if new_lang == 'both' else ''}🌐 ទាំងពីរ (Both)", "callback_data": f"grp_lang:{target_gid}:both"},
+                        {"text": f"{'Selected · ' if new_lang == 'kh' else ''}🇰🇭 ខ្មែរ", "callback_data": f"grp_lang:{target_gid}:kh"},
+                        {"text": f"{'Selected · ' if new_lang == 'en' else ''}🇬🇧 English", "callback_data": f"grp_lang:{target_gid}:en"},
                     ]
                 ]
             }
