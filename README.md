@@ -194,22 +194,23 @@ BOT_TOKEN=... WEB_APP_URL=https://your-project.vercel.app python setup_webapp.py
 
 ## Commands
 
+No `/start` command — the Mini App is opened via the Telegram **Menu** button
+(left of the message box). The bot sets this automatically on startup.
+
 | Command | Scope | Function |
 |---|---|---|
-| `/start` | Private | Onboarding, welcome, Mini App button |
-| `/settings` `/config` | Private | Admin control panel (group management) |
-| `/lang` | Private | Select a group, then switch its language |
-| `/plan` | Private (super admin) | Assign a plan to a user |
-| `/sub` | Private (super admin) | Check a user's subscription |
 | `/whois` | Group | Show a user's trust badge + strike count |
-| `/help` `/guide` `/terms` `/privacy` | Private & Group | Info / legal content |
+
+All administration (group linking, language, safe-message timer, plan
+assignment, plan pricing) happens inside the Mini App, gated by a 6-digit PIN.
 
 ---
 
 ## Plans & Quotas
 
-V1 uses **manual plan assignment** by the super admin (no automatic payment).
-PayWay self-serve is planned for later.
+V1 uses **manual plan assignment** by the super admin (`ADMIN_CHAT_ID`) from
+the Mini App **Manage** tab (no automatic payment). PayWay self-serve is
+planned for later.
 
 | Plan | Price | Scans/month | Groups | History |
 |---|---|---|---|---|
@@ -220,7 +221,6 @@ PayWay self-serve is planned for later.
 | Group Pro | $18.99 | 1,000 | 5 | 30 days |
 | Group Premium | $35.99 | 2,000 | 10 | 90 days |
 
-Super admin: `/plan <user_id> <plan_key>` (e.g. `/plan 123456789 group_pro`).
 Plans expire after `PLAN_EXPIRY_DAYS` (30 days) and revert to Free.
 
 ---

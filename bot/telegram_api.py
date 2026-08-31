@@ -241,7 +241,7 @@ class TelegramAPI:
     def ban_chat_member(self, chat_id: int, user_id: int) -> bool:
         return self._post("banChatMember", {"chat_id": chat_id, "user_id": user_id}).get("ok", False)
 
-    def set_chat_menu_button(self, web_app_url: str, text: str = "Security Dashboard") -> dict:
+    def set_chat_menu_button(self, web_app_url: str, text: str = "Menu") -> dict:
         return self._post(
             "setChatMenuButton",
             {"menu_button": {"type": "web_app", "text": text, "web_app": {"url": web_app_url}}},

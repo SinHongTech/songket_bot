@@ -20,9 +20,9 @@ from bot.file_handler import fetch_and_validate
 from bot.redis_client import (
     get_group_lang,
     get_group_settings,
-    get_plan_catalog,
     get_scan_usage,
     get_daily_scan_usage,
+    get_join_time,
     get_strikes,
     get_subscription,
     increment_daily_scan_usage,
@@ -32,7 +32,6 @@ from bot.redis_client import (
     record_join_time,
     set_group_lang,
     set_group_settings,
-    set_subscription,
 )
 from bot.reports import record_report
 from bot.scanner import vt_scan_file, vt_scan_url
@@ -233,7 +232,7 @@ def trust_label(chat_id: int, user_id: int, settings: dict) -> str:
     if not (config.TRUST_SCORE_ENABLED and settings.get("trust_score", True)):
         return ""
     first = record_first_seen(user_id)
-    join = record_join_time(chat_id, user_id)
+    join = get_join_time(chat_id, user_id)
     return " " + compute_trust(chat_id, user_id, first, join)["label"]
 
 
@@ -427,85 +426,10 @@ def _build_group_settings_view(api: TelegramAPI, group_id: int) -> tuple[str, di
 
 
 def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
-    text = (message.get("text") or "").strip()
-    command = text.split()[0].split("@", 1)[0] if text else ""
-    user_id = (message.get("from") or {}).get("id", 0)
-    args = text.split()[1:] if len(text.split()) > 1 else []
-
-    # Super admin: assign a plan manually
-    if command == "/plan":
-        if not is_super_admin(user_id):
-            return
-        catalog = get_plan_catalog()
-        if len(args) < 2:
-            plan_list = "\n".join(f"• {k} — {v.get('name', k)} (${v.get('price', 0)})" for k, v in catalog.items())
-            api.send_message(chat_id, f"Usage: /plan &lt;user_id&gt; &lt;plan_key&gt;\n\nPlans:\n{plan_list}")
-            return
-        try:
-            target = int(args[0])
-        except ValueError:
-            api.send_message(chat_id, "Invalid user_id.")
-            return
-        plan_key = args[1].lower()
-        if plan_key not in catalog:
-            api.send_message(chat_id, "Unknown plan key.")
-            return
-        expiry = int(time.time()) + config.PLAN_EXPIRY_DAYS * 86400
-        set_subscription(target, plan_key, expiry)
-        plan = catalog[plan_key]
-        api.send_message(
-            chat_id,
-            f"✅ Assigned <b>{plan.get('name', plan_key)}</b> to user <code>{target}</code> (expires in {config.PLAN_EXPIRY_DAYS} days).",
-        )
-        return
-
-    if command == "/sub":
-        if not is_super_admin(user_id):
-            return
-        if not args:
-            api.send_message(chat_id, "Usage: /sub &lt;user_id&gt;")
-            return
-        try:
-            target = int(args[0])
-        except ValueError:
-            return
-        sub = get_subscription(target)
-        api.send_message(chat_id, f"User <code>{target}</code> — plan: {sub.get('plan')}, expiry: {sub.get('expiry')}")
-        return
-
-    if command in {"/start", "/settings", "/config", "/app", "/help", "/lang"}:
-        managed_groups = get_managed_groups_for_user(api, user_id)
-
-        # 1. Non-admin / Regular users -> Welcome & Mini App preview
-        if not managed_groups:
-            welcome_text = (
-                "🛡️ <b>ប្រព័ន្ធសុវត្ថិភាព Telegram | Telegram Security Bot</b>\n\n"
-                "ប្រព័ន្ធស្កែន និងការពារសុវត្ថិភាពដោយស្វ័យប្រវត្តិសម្រាប់ក្រុម Telegram "
-                "(Automated security bot protecting groups against malicious links, phishing scams, and infected files).\n\n"
-                "ផ្ញើ link ឬ file មក bot ដើម្បីស្កេន (Send a link or file to scan)."
-            )
-            markup = None
-            if config.WEB_APP_URL:
-                markup = {
-                    "inline_keyboard": [
-                        [{"text": "🛡️ Open Security Mini App", "web_app": {"url": config.WEB_APP_URL}}]
-                    ]
-                }
-            api.send_message(chat_id, welcome_text, reply_markup=markup)
-            return
-
-        # 2. Authorized Group Handlers / Admins -> Group Management Panel
-        admin_text = (
-            "⚙️ <b>ផ្ទាំងគ្រប់គ្រងរចនាសម្ព័ន្ធសុវត្ថិភាព | Admin Control Panel</b>\n\n"
-            "សូមជ្រើសរើសក្រុមដែលអ្នកគ្រប់គ្រងដើម្បីកំណត់ <b>ភាសា (Language)</b> និង <b>សារសុវត្ថិភាព (Safe Message Timer)</b>៖\n"
-            "<i>(Select a managed group below to configure):</i>"
-        )
-        markup = _build_admin_menu_keyboard(managed_groups)
-        api.send_message(chat_id, admin_text, reply_markup=markup)
-        return
-
-    # 3. Personal scanning — any link or file sent privately
+    # No slash commands anymore — the Mini App is opened via the Menu button.
+    # Private chats only handle personal scanning of links/files.
     content = (message.get("text") or "") + " " + (message.get("caption") or "")
+    user_id = (message.get("from") or {}).get("id", 0)
     if extract_urls(content) or (message.get("document") or {}).get("file_id"):
         _handle_personal_scan(api, chat_id, message, user_id)
 
@@ -747,6 +671,7 @@ def process_update(api: TelegramAPI, update: dict) -> None:
     lang = group_settings.get("lang", config.DEFAULT_LANGUAGE)
     safe_timeout = group_settings.get("safe_timeout", config.DEFAULT_SAFE_TIMEOUT)
     show_safe = group_settings.get("show_safe", config.ENABLE_SAFE_MESSAGES) and safe_timeout > 0
+    sender_label = user_display + trust_label(chat_id, sender_id, group_settings)
 
     notice_id = api.send_message(chat_id, get_msg_scanning(lang))
 
@@ -756,7 +681,7 @@ def process_update(api: TelegramAPI, update: dict) -> None:
 
     def display_safe_feedback(target_name: str) -> None:
         if show_safe and notice_id:
-            safe_text = get_msg_safe(lang, user_display, target_name, safe_timeout)
+            safe_text = get_msg_safe(lang, sender_label, target_name, safe_timeout)
             api.edit_message_text(chat_id, notice_id, safe_text)
             time.sleep(safe_timeout)
             api.delete_message(chat_id, notice_id)
@@ -843,7 +768,7 @@ def process_update(api: TelegramAPI, update: dict) -> None:
     if decision.oversize:
         record_report(chat_id, chat_title, "oversize")
         delete_notice()
-        api.send_message(chat_id, MSG_TOO_LARGE.format(user=user_display, filename=filename, size_mb=decision.size_mb))
+        api.send_message(chat_id, MSG_TOO_LARGE.format(user=sender_label, filename=filename, size_mb=decision.size_mb))
         return
 
     if not decision.ok:
@@ -874,7 +799,6 @@ def process_update(api: TelegramAPI, update: dict) -> None:
         deleted = api.delete_message(chat_id, msg_id)
         if deleted:
             record_report(chat_id, chat_title, "deleted")
-        sender_label = user_display + trust_label(chat_id, sender_id, group_settings)
         _send_threat_alert(
             api, chat_id, sender_label, filename, deleted, lang=lang,
             extra="\n\n" + engine_consensus(result),
@@ -884,7 +808,6 @@ def process_update(api: TelegramAPI, update: dict) -> None:
 
     if suspicious >= config.VT_SUSPICIOUS_THRESHOLD:
         delete_notice()
-        sender_label = user_display + trust_label(chat_id, sender_id, group_settings)
         warn_text = get_msg_suspicious_file(lang, sender_label, filename) + "\n\n" + engine_consensus(result)
         api.send_message(chat_id, warn_text)
         logger.warning("FILE SUSPICIOUS | %s | malicious=%d | suspicious=%d", filename, malicious, suspicious)

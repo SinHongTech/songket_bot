@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import time
+from typing import Optional
 from urllib.parse import urljoin, urlparse
 
 import requests
@@ -224,8 +225,12 @@ def resolve_redirect(url: str, max_redirects: int = None, timeout: int = None) -
     return current
 
 
-def compute_trust(chat_id: int, user_id: int, first_seen: float, join_ts: float) -> dict:
-    """Compute a per-user trust badge from strikes + account/join age signals."""
+def compute_trust(chat_id: int, user_id: int, first_seen: float, join_ts: Optional[float]) -> dict:
+    """Compute a per-user trust badge from strikes + account/join age signals.
+
+    `join_ts` may be None when the member joined before the bot was added (no
+    new_chat_members event) — in that case the join-age signal is skipped.
+    """
     from bot.redis_client import get_strikes
 
     strikes = get_strikes(chat_id, user_id)
@@ -234,7 +239,7 @@ def compute_trust(chat_id: int, user_id: int, first_seen: float, join_ts: float)
 
     now = time.time()
     account_new = (now - first_seen) / 86400 < config.TRUST_NEW_ACCOUNT_DAYS
-    member_new = (now - join_ts) / 86400 < config.TRUST_NEW_MEMBER_DAYS
+    member_new = join_ts is not None and (now - join_ts) / 86400 < config.TRUST_NEW_MEMBER_DAYS
     is_new = account_new and member_new if config.TRUST_NEW_MATCH_MODE == "all" else account_new or member_new
     if is_new:
         return {"level": "new", "label": "🟡 New"}
@@ -254,7 +259,7 @@ def get_user_display(sender: dict) -> str:
 
 def super_admin_ids() -> set[int]:
     result = set()
-    raw = config.SUPER_ADMIN_IDS or config.ADMIN_CHAT_ID or os.environ.get("ADMIN_CHAT_ID", "")
+    raw = config.ADMIN_CHAT_ID or os.environ.get("ADMIN_CHAT_ID", "")
     for item in raw.split(","):
         item = item.strip()
         if item:
