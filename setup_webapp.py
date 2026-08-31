@@ -29,6 +29,6 @@ def call(method: str, payload: dict) -> dict:
 if __name__ == "__main__":
     call(
         "setChatMenuButton",
-        {"menu_button": {"type": "web_app", "text": "Security Dashboard", "web_app": {"url": WEB_APP_URL}}},
+        {"menu_button": {"type": "web_app", "text": "Menu", "web_app": {"url": WEB_APP_URL}}},
     )
     print("Mini App:", WEB_APP_URL)

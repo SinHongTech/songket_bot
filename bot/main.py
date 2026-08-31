@@ -50,6 +50,10 @@ def main() -> None:
     api = TelegramAPI()
     api.delete_webhook()  # getUpdates is rejected while a webhook is registered
 
+    # Register the Mini App as the chat Menu button (replaces /start).
+    if config.WEB_APP_URL:
+        api.set_chat_menu_button(config.WEB_APP_URL, "Menu")
+
     signal.signal(signal.SIGINT, _handle_shutdown)
     signal.signal(signal.SIGTERM, _handle_shutdown)
 

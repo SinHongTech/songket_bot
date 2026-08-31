@@ -1,186 +1,255 @@
-# PED Telegram Security Bot
+# Songket (សង្កេត) — Telegram Security Bot & Mini App
 
-A bilingual (Khmer + English) Telegram security bot that scans links and
-files shared in group chats with [VirusTotal](https://www.virustotal.com/),
-automatically removes confirmed threats, warns on suspicious content, and
-gives authorized admins a daily per-group security dashboard.
+Songket is a bilingual (Khmer + English) Telegram security platform that
+protects groups and private chats from malicious links, phishing scams, and
+infected files. It scans content with VirusTotal, automatically removes
+confirmed threats, warns on suspicious content, enforces a graduated strike
+system, and gives administrators a daily security dashboard via a Telegram
+Mini App.
 
-## How it's put together
+> **Brand signature:** 🤖 Songket Security Team | ក្រុមការងារសង្កេត
+
+---
+
+## Table of Contents
+
+1. [Architecture](#architecture)
+2. [Features](#features)
+3. [How Scanning Works](#how-scanning-works)
+4. [Prerequisites](#prerequisites)
+5. [Configuration](#configuration)
+6. [Run Locally with Docker](#run-locally-with-docker)
+7. [Deploy to Railway](#deploy-to-railway)
+8. [Deploy the Mini App to Vercel](#deploy-the-mini-app-to-vercel)
+9. [Commands](#commands)
+10. [Plans & Quotas](#plans--quotas)
+11. [Project Structure](#project-structure)
+
+---
+
+## Architecture
+
+Two independent components share one Upstash Redis database:
 
 ```
-PED_Telegram_Security_Bot/
-│
-├── bot/                  # Python bot — long-polls Telegram, runs 24/7
-│   ├── main.py           # Entry point: polling loop
-│   ├── config.py         # Environment variables
-│   ├── telegram_api.py   # Client for the local Telegram Bot API server
-│   ├── handlers.py       # Message/update processing, threat responses
-│   ├── file_handler.py   # File download + validation
-│   ├── scanner.py        # VirusTotal scanning
-│   ├── redis_client.py   # Upstash Redis (cache + report storage)
-│   ├── reports.py        # Daily per-group statistics
-│   └── utils.py          # URL/domain/file heuristics
-│
-├── telegram-bot-api/      # Self-hosted Telegram Bot API server
-│   └── Dockerfile         # Builds tdlib/telegram-bot-api from source
-│
-├── miniapp/               # Telegram Mini App (deployed to Vercel as static files)
-│   ├── index.html
-│   ├── app.js
-│   └── style.css
-│
-├── api/                   # Vercel serverless function backing the Mini App
-│   ├── common.py          # Shared helpers (Upstash, initData verification)
-│   └── dashboard.py        # POST /api/dashboard
-│
-├── docker-compose.yml     # Full local dev stack: bot API server + bot
-├── vercel.json            # Vercel routing for miniapp/ + api/
-├── .env.example
-└── requirements are split per-component (bot/requirements.txt, api/requirements.txt)
+┌──────────────────────────────┐        ┌──────────────────────────────┐
+│  Bot daemon (long-polling)   │        │  Mini App (static + API)     │
+│  Docker / Railway            │        │  Vercel                      │
+│  - Telegram Bot API server   │   ┌──▶ │  - React dashboard           │
+│  - Python security bot       │   │    │  - /api/dashboard            │
+└──────────────┬───────────────┘   │    └──────────────┬───────────────┘
+               │  writes reports   │                   │ reads reports
+               ▼                   │                   ▼
+        ┌──────────────────────────┴──────────────────────────┐
+        │                  Upstash Redis                      │
+        └─────────────────────────────────────────────────────┘
 ```
 
-Two independent things get deployed:
+1. **The bot** (`bot/` + `telegram-bot-api/`) runs continuously and long-polls
+   Telegram for updates. It never needs a public URL. A self-hosted
+   `telegram-bot-api` server removes the 20 MB file-download cap imposed by
+   `api.telegram.org`.
+2. **The Mini App** (`miniapp/` + `api/`) is a static dashboard plus one
+   serverless function on Vercel. It needs a public HTTPS URL so Telegram can
+   open it as a `web_app` button.
 
-1. **The bot** (`bot/` + `telegram-bot-api/`) — runs continuously (e.g. via
-   `docker-compose`, a VPS, or any container host). It never needs a public
-   URL: it long-polls Telegram for updates.
-2. **The Mini App** (`miniapp/` + `api/`) — a static dashboard plus one
-   serverless function, deployed to Vercel. It needs a public HTTPS URL so
-   Telegram can open it as a `web_app` button.
+Both read and write the same Upstash Redis: the bot stores scan reports and
+settings, and the Vercel API reads them back for the dashboard.
 
-Both share the same Upstash Redis database: the bot writes daily scan
-reports, and the Vercel API reads them back for the dashboard.
+---
 
-## 1. Prerequisites
+## Features
+
+- **Link & file scanning** via VirusTotal, with Redis-backed caching.
+- **Automatic threat removal** — confirmed threats are deleted immediately.
+- **Suspicious warnings** — with an engine-consensus breakdown
+  (`Safe / Suspicious / Undetected` percentages + raw counts).
+- **Engine consensus** for suspicious verdicts: public groups see the
+  percentage, admins see the full breakdown.
+- **Link destination preview** — resolves redirect chains so members see the
+  real domain behind short links before clicking.
+- **Graduated strike system** — 3 strikes mute 1h, 5 mute 8h, 10 mute 24h.
+- **Trust & reputation** — per-user badge (🟢 Verified / 🟡 New / 🔴 Flagged)
+  driven by strikes, account age, and group-join age.
+- **New-member verification gate** — optional per-group restriction of new
+  joiners until they verify (button / admin approval).
+- **Group-isolated whitelist** — approve a false positive in one group without
+  affecting others.
+- **Personal scanning** — users can DM the bot links/files for private scans.
+- **Bilingual** — Khmer, English, or both, configurable per group.
+- **Daily dashboard** — per-group scan statistics in the Mini App.
+
+---
+
+## How Scanning Works
+
+- **URLs** are extracted from message text/captions. Known-safe domains are
+  skipped; shorteners, suspicious TLDs, and raw IPs are always scanned.
+  A hybrid lookup reuses VirusTotal's last verdict when it is fresh (≤ 30 min)
+  before submitting a fresh scan.
+- **Files** are pre-filtered: high-risk extensions (`.exe`, `.js`, `.apk`,
+  archives, macro Office docs, etc.) are always scanned; common safe media is
+  skipped unless its raw bytes look like an executable/archive. Files over
+  `MAX_FILE_SIZE_MB` are never downloaded — the bot posts a safety warning.
+- **Caching** — URL verdicts are cached 1 hour, file verdicts 24 hours
+  (keyed by SHA-256). Re-scanning the same target within the window is free.
+- **Rate limiting** — every VirusTotal call is throttled
+  (`VT_MIN_INTERVAL_SECONDS`) and 429 responses are retried with
+  `Retry-After`/backoff, so the free tier (4 req/min, 500 req/day) is respected.
+- Daily counters per group (`scanned`, `files`, `urls`, `malicious`,
+  `deleted`, `suspicious`, `errors`, `oversize`) power the dashboard.
+
+---
+
+## Prerequisites
 
 | What you need | Where to get it |
 |---|---|
 | Bot token | [@BotFather](https://t.me/BotFather) → `/newbot` |
-| `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` | [my.telegram.org](https://my.telegram.org) → "API development tools" (needed to run the self-hosted Bot API server) |
-| VirusTotal API key | [virustotal.com](https://www.virustotal.com/gui/join-us) → your profile → API key |
-| Upstash Redis REST URL/token | [console.upstash.com](https://console.upstash.com/) → create a Redis database → REST API section |
+| `TELEGRAM_API_ID` / `TELEGRAM_API_HASH` | [my.telegram.org](https://my.telegram.org) → API development tools |
+| VirusTotal API key | [virustotal.com](https://www.virustotal.com/gui/join-us) → profile → API key |
+| Upstash Redis REST URL/token | [console.upstash.com](https://console.upstash.com/) → Redis → REST API |
 
-Copy `.env.example` to `.env` and fill in the values:
+---
+
+## Configuration
+
+Copy `.env.example` to `.env` and fill in the values. See
+[DEPLOYMENT.md](DEPLOYMENT.md) for the full variable reference.
 
 ```bash
 cp .env.example .env
 ```
 
-## 2. Run the bot locally with Docker
+The most important variables:
+
+| Variable | Purpose |
+|---|---|
+| `BOT_TOKEN` | Telegram bot token |
+| `VT_API_KEY` | VirusTotal API key |
+| `UPSTASH_REDIS_REST_URL` / `_TOKEN` | Shared persistence |
+| `ALLOWED_GROUP_IDS` | Groups the bot may act in |
+| `WHITELIST_USER_IDS` | Users allowed to view the dashboard |
+| `USE_LOCAL_BOT_API` | Use self-hosted Bot API server (removes 20 MB cap) |
+
+---
+
+## Run Locally with Docker
 
 ```bash
+cp .env.example .env   # then fill in the values
 docker compose up --build
 ```
 
 This starts two containers:
 
-- `telegram-bot-api` — the official self-hosted Bot API server, built from
-  source ([tdlib/telegram-bot-api](https://github.com/tdlib/telegram-bot-api)).
-  Using your own server removes the 20MB download cap that
-  `api.telegram.org` imposes, so larger attachments can be scanned.
-- `bot` — the Python security bot, talking to `telegram-bot-api` over the
-  Docker network and long-polling Telegram for updates.
+- `telegram-bot-api` — self-hosted Bot API server (built from source).
+- `bot` — the Python security bot, long-polling via that server.
 
-No inbound port needs to be exposed publicly for the bot to work.
+No inbound port needs to be exposed for the bot to work. Set
+`USE_LOCAL_BOT_API=false` to talk to `api.telegram.org` directly (files capped
+at 20 MB).
 
-If you'd rather not self-host the Bot API server, set `USE_LOCAL_BOT_API=false`
-in `.env` — the bot will then talk to `api.telegram.org` directly (file
-downloads are capped at 20MB in that mode).
+Add the bot to a group as **administrator** (needs "Delete messages" and
+"Restrict users"), then put the group's numeric ID in `ALLOWED_GROUP_IDS`.
 
-Add the bot to your Telegram group as an **administrator** with permission
-to delete messages, then put the group's numeric ID in `ALLOWED_GROUP_IDS`
-(negative numbers for groups/supergroups — you can get this from
-`@userinfobot` or by adding `@RawDataBot` temporarily).
+---
 
-## 3. Deploy the bot to Railway (instead of / in addition to Docker locally)
+## Deploy to Railway
 
-Railway hosts each Dockerfile in this repo as its own service, and gives
-services in the same project a private network so the bot can reach the
-Bot API server without exposing it publicly. Create **two services** from
-the same GitHub repo:
+Create **two services** from the same GitHub repo.
 
 **Service 1 — `telegram-bot-api`**
-1. New Service → Deploy from GitHub repo → pick this repo.
-2. Settings → Root Directory: `telegram-bot-api`
-   (Dockerfile Path stays the default `Dockerfile`).
-3. Variables: add `TELEGRAM_API_ID` and `TELEGRAM_API_HASH`.
-4. Add a Volume mounted at `/var/lib/telegram-bot-api` (Settings → Volumes)
-   so the server's local file cache survives redeploys.
-5. Deploy. Note the service's name (shown in the dashboard) — Railway
-   private networking makes it reachable at
-   `http://<service-name>.railway.internal:8081` from other services in
-   the same project.
+
+1. Root Directory: `telegram-bot-api`.
+2. Variables: `TELEGRAM_API_ID`, `TELEGRAM_API_HASH`.
+3. Add a Volume at `/var/lib/telegram-bot-api`.
 
 **Service 2 — `bot`**
-1. New Service → Deploy from GitHub repo → same repo.
-2. Settings → Root Directory: `/` (repo root), Dockerfile Path: `bot/Dockerfile`.
-3. Variables: copy everything from `.env.example`, plus:
-   - `TELEGRAM_LOCAL_API_URL=http://telegram-bot-api.railway.internal:8081`
-     (use the actual service name from step 1 if you renamed it)
-   - `USE_LOCAL_BOT_API=true`
-4. Deploy. This service has no public port — it long-polls Telegram, so
-   you don't need to expose or configure any domain for it.
 
-Because both services read `TELEGRAM_API_ID`/`TELEGRAM_API_HASH` and
-`UPSTASH_REDIS_REST_URL`/`TOKEN` the same way locally and on Railway, you
-can move between `docker-compose` and Railway without touching code —
-only the `TELEGRAM_LOCAL_API_URL` value changes (Docker network name vs.
-Railway internal DNS name).
+1. Root Directory: `/`, Dockerfile Path: `bot/Dockerfile`.
+2. Variables: everything from `.env.example`, plus
+   `TELEGRAM_LOCAL_API_URL=http://telegram-bot-api.railway.internal:8081`
+   and `USE_LOCAL_BOT_API=true`.
 
-## 4. Deploy the Mini App to Vercel
+---
 
-The Mini App only needs the `miniapp/`, `api/`, and `vercel.json` files.
+## Deploy the Mini App to Vercel
+
+Deploy only `miniapp/`, `api/`, and `vercel.json`:
 
 ```bash
-npm i -g vercel   # if you don't already have it
+npm i -g vercel
 vercel
 ```
 
-In the Vercel project's environment variables, set at minimum:
-`BOT_TOKEN`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`,
-`ALLOWED_GROUP_IDS`, `WHITELIST_USER_IDS`, and optionally
-`GROUP_HANDLERS_JSON` / `MAX_DASHBOARD_GROUPS` / `REPORT_TIMEZONE`.
-
-Once deployed, copy the resulting `https://your-project.vercel.app` URL into
-`WEB_APP_URL` in the bot's `.env`, then register it as the bot's menu
-button:
+Set the Vercel environment variables (see [DEPLOYMENT.md](DEPLOYMENT.md)),
+then register the web app URL:
 
 ```bash
 BOT_TOKEN=... WEB_APP_URL=https://your-project.vercel.app python setup_webapp.py
 ```
 
-Now `/start` in a private chat with the bot offers a button that opens the
-Mini App, and whitelisted user IDs (`WHITELIST_USER_IDS`) see their groups'
-daily security dashboard.
+---
 
-## 5. How scanning works
+## Commands
 
-- **URLs**: extracted from message text/captions. Known-safe domains are
-  skipped; URL shorteners, suspicious TLDs, and raw IPs are always sent to
-  VirusTotal. Malicious results delete the message and post a threat alert
-  (plus an optional private admin copy). Suspicious-only results post a
-  warning that auto-deletes after 15 seconds.
-- **Files**: obviously risky extensions (`.exe`, `.js`, `.apk`, archives,
-  macro-enabled Office docs, etc.) are always scanned. Common safe media
-  files are skipped unless their raw bytes look like an executable/archive
-  (catches simple extension spoofing). Files over `MAX_FILE_SIZE_MB` are
-  never downloaded — the bot instead posts a safety warning.
-- Every VirusTotal verdict is cached in Upstash Redis (24h TTL) by URL or
-  SHA-256 so the same link/file isn't re-scanned repeatedly.
-- Daily counters per group (`scanned`, `files`, `urls`, `malicious`,
-  `deleted`, `suspicious`, `errors`, `oversize`) are stored for 45 days and
-  power the Mini App dashboard.
+No `/start` command — the Mini App is opened via the Telegram **Menu** button
+(left of the message box). The bot sets this automatically on startup.
 
-## 6. Configuration reference
+| Command | Scope | Function |
+|---|---|---|
+| `/whois` | Group | Show a user's trust badge + strike count |
 
-See `.env.example` for the full list of environment variables and their
-defaults, including VirusTotal thresholds/poll timing, access control
-(`ALLOWED_GROUP_IDS`, `WHITELIST_USER_IDS`, `GROUP_HANDLERS_JSON`), and
-report timezone.
+All administration (group linking, language, safe-message timer, plan
+assignment, plan pricing) happens inside the Mini App, gated by a 6-digit PIN.
 
-## Notes on this v2 (Upstash) rewrite
+---
 
-This version replaces the earlier single Vercel-webhook deployment with a
-long-running polling bot backed by a self-hosted Telegram Bot API server
-(for large-file scanning), while keeping the Mini App dashboard on Vercel.
-Upstash Redis is the shared persistence layer between the two.
+## Plans & Quotas
+
+V1 uses **manual plan assignment** by the super admin (`ADMIN_CHAT_ID`) from
+the Mini App **Manage** tab (no automatic payment). PayWay self-serve is
+planned for later.
+
+| Plan | Price | Scans/month | Groups | History |
+|---|---|---|---|---|
+| Personal Free | $0 | 3/day | — | — |
+| Personal Pro | $5.99 | 200 | — | — |
+| Personal Premium | $9.99 | 400 | — | — |
+| Group Starter | $8 | 400 | 2 | 7 days |
+| Group Pro | $18.99 | 1,000 | 5 | 30 days |
+| Group Premium | $35.99 | 2,000 | 10 | 90 days |
+
+Plans expire after `PLAN_EXPIRY_DAYS` (30 days) and revert to Free.
+
+---
+
+## Project Structure
+
+```
+PED_Telegram_Security_Bot/
+├── bot/                  # Python bot — long-polls Telegram, runs 24/7
+│   ├── main.py           # Entry point: polling loop
+│   ├── config.py         # Environment configuration
+│   ├── telegram_api.py   # Telegram Bot API client
+│   ├── handlers.py       # Message/update processing, threat responses
+│   ├── file_handler.py   # File download + validation
+│   ├── scanner.py        # VirusTotal scanning (throttled + cached)
+│   ├── redis_client.py   # Upstash Redis (cache, reports, plans, quota)
+│   ├── reports.py        # Daily per-group statistics
+│   └── utils.py          # URL/file heuristics, link preview, trust
+├── telegram-bot-api/     # Self-hosted Telegram Bot API server
+├── miniapp/              # Telegram Mini App (React, deployed to Vercel)
+├── api/                  # Vercel serverless function (dashboard + config)
+├── docker-compose.yml    # Full local stack
+├── vercel.json           # Vercel routing
+├── DEPLOYMENT.md         # Railway + Vercel setup and ENV reference
+└── .env.example
+```
+
+---
+
+## License
+
+Proprietary — Songket Security Team. See the in-app Terms of Service.

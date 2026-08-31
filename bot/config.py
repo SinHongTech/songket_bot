@@ -107,6 +107,62 @@ DEFAULT_LANGUAGE: str = os.environ.get("DEFAULT_LANGUAGE", "both").strip().lower
 DEFAULT_SAFE_TIMEOUT: int = max(0, _int_env("DEFAULT_SAFE_TIMEOUT", 10))
 ENABLE_SAFE_MESSAGES: bool = _bool_env("ENABLE_SAFE_MESSAGES", True)
 
+# ── VirusTotal throttle / retry / hybrid lookup ──────────────────────────────
+# Free tier: 4 requests/minute, 500/day. VT_MIN_INTERVAL_SECONDS spaces out
+# every VT call so bursts from the worker pool never trip the 4/min limit.
+VT_MIN_INTERVAL_SECONDS: float = max(0.0, float(os.environ.get("VT_MIN_INTERVAL_SECONDS", "15")))
+VT_RETRY_ATTEMPTS: int = max(0, _int_env("VT_RETRY_ATTEMPTS", 3))
+VT_RETRY_BASE_DELAY: float = max(0.0, float(os.environ.get("VT_RETRY_BASE_DELAY", "5")))
+# Hybrid URL lookup: read VT's last verdict before submitting a fresh scan.
+URL_LOOKUP_ENABLED: bool = _bool_env("URL_LOOKUP_ENABLED", True)
+URL_LOOKUP_MAX_AGE_SECONDS: int = max(0, _int_env("URL_LOOKUP_MAX_AGE_SECONDS", 1800))
+
+# ── Cache TTL split (URL vs file) ────────────────────────────────────────────
+# URLs can redirect to a new target, so their cache is short. File verdicts are
+# keyed by immutable SHA-256, so they can be cached much longer.
+URL_CACHE_TTL_SECONDS: int = max(60, _int_env("URL_CACHE_TTL_SECONDS", 3600))
+FILE_CACHE_TTL_SECONDS: int = max(3600, _int_env("FILE_CACHE_TTL_SECONDS", 24 * 3600))
+
+# ── Trust & reputation (per-user) ────────────────────────────────────────────
+TRUST_SCORE_ENABLED: bool = _bool_env("TRUST_SCORE_ENABLED", True)
+TRUST_NEW_ACCOUNT_DAYS: int = max(0, _int_env("TRUST_NEW_ACCOUNT_DAYS", 7))
+TRUST_NEW_MEMBER_DAYS: int = max(0, _int_env("TRUST_NEW_MEMBER_DAYS", 7))
+TRUST_NEW_MATCH_MODE: str = os.environ.get("TRUST_NEW_MATCH_MODE", "any").strip().lower()  # 'any' | 'all'
+TRUST_FLAGGED_STRIKES: int = max(1, _int_env("TRUST_FLAGGED_STRIKES", 3))
+
+# ── Link destination preview ─────────────────────────────────────────────────
+LINK_PREVIEW_ENABLED: bool = _bool_env("LINK_PREVIEW_ENABLED", True)
+LINK_PREVIEW_TIMEOUT: int = max(1, _int_env("LINK_PREVIEW_TIMEOUT", 8))
+LINK_PREVIEW_MAX_REDIRECTS: int = max(1, _int_env("LINK_PREVIEW_MAX_REDIRECTS", 5))
+
+# ── New-member verification gate ─────────────────────────────────────────────
+VERIFY_NEW_MEMBERS_DEFAULT: bool = _bool_env("VERIFY_NEW_MEMBERS_DEFAULT", False)
+VERIFY_METHOD: str = os.environ.get("VERIFY_METHOD", "button").strip().lower()  # 'button' | 'approve' | 'age'
+VERIFY_AGE_DAYS: int = max(0, _int_env("VERIFY_AGE_DAYS", 7))
+VERIFY_TIMEOUT_MINUTES: int = max(0, _int_env("VERIFY_TIMEOUT_MINUTES", 10))
+
+# ── Plans / quotas ───────────────────────────────────────────────────────────
+PLAN_EXPIRY_DAYS: int = max(1, _int_env("PLAN_EXPIRY_DAYS", 30))
+QUOTA_ENABLED: bool = _bool_env("QUOTA_ENABLED", True)
+
+# Plan catalog follows the Business Plan. price in USD, scans/month, groups, history_days.
+PLAN_CATALOG: dict = {
+    "personal_free": {"name": "Personal Free", "price": 0.0, "scans": 0, "groups": 0, "history_days": 0},
+    "personal_pro": {"name": "Personal Pro", "price": 5.99, "scans": 200, "groups": 0, "history_days": 0},
+    "personal_premium": {"name": "Personal Premium", "price": 9.99, "scans": 400, "groups": 0, "history_days": 0},
+    "group_starter": {"name": "Group Starter", "price": 8.0, "scans": 400, "groups": 2, "history_days": 7},
+    "group_pro": {"name": "Group Pro", "price": 18.99, "scans": 1000, "groups": 5, "history_days": 30},
+    "group_premium": {"name": "Group Premium", "price": 35.99, "scans": 2000, "groups": 10, "history_days": 90},
+}
+
+# ── Payment (ABA PayWay — later self-serve) ──────────────────────────────────
+PAYWAY_ENABLED: bool = _bool_env("PAYWAY_ENABLED", False)
+PAYWAY_MERCHANT_ID: str = os.environ.get("PAYWAY_MERCHANT_ID", "").strip()
+PAYWAY_API_KEY: str = os.environ.get("PAYWAY_API_KEY", "").strip()
+PAYWAY_API_URL: str = os.environ.get(
+    "PAYWAY_API_URL", "https://checkout-sandbox.payway.com.kh"
+).rstrip("/")
+
 
 def validate() -> None:
     """Log (not raise) about missing critical configuration at startup."""

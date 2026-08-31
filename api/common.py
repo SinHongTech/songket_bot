@@ -13,6 +13,7 @@ import hmac
 import json
 import logging
 import os
+import secrets
 import time
 from datetime import datetime
 from typing import Optional
@@ -132,6 +133,155 @@ def save_system_config(whitelist: list[int], allowed_groups: list[int], group_ha
     clean_handlers = {str(k): [int(g) for g in v] for k, v in group_handlers.items()}
     ok3 = kv_set("config:group_handlers", json.dumps(clean_handlers))
     return bool(ok1 and ok2 and ok3)
+
+
+# ── Plans & subscriptions ────────────────────────────────────────────────────
+
+DEFAULT_PLAN_CATALOG: dict = {
+    "personal_free": {"name": "Personal Free", "price": 0.0, "scans": 0, "groups": 0, "history_days": 0},
+    "personal_pro": {"name": "Personal Pro", "price": 5.99, "scans": 200, "groups": 0, "history_days": 0},
+    "personal_premium": {"name": "Personal Premium", "price": 9.99, "scans": 400, "groups": 0, "history_days": 0},
+    "group_starter": {"name": "Group Starter", "price": 8.0, "scans": 400, "groups": 2, "history_days": 7},
+    "group_pro": {"name": "Group Pro", "price": 18.99, "scans": 1000, "groups": 5, "history_days": 30},
+    "group_premium": {"name": "Group Premium", "price": 35.99, "scans": 2000, "groups": 10, "history_days": 90},
+}
+
+
+def get_plan_catalog() -> dict:
+    data = kv_json_get("config:plan_catalog")
+    if data and isinstance(data, dict) and data:
+        return data
+    return dict(DEFAULT_PLAN_CATALOG)
+
+
+def save_plan_catalog(catalog: dict) -> bool:
+    clean = {str(k): v for k, v in catalog.items()}
+    return kv_set("config:plan_catalog", json.dumps(clean))
+
+
+def _sub_index() -> list[int]:
+    index = kv_get("subs:index")
+    ids: list[int] = []
+    if index:
+        for x in str(index).split(","):
+            x = x.strip()
+            if x:
+                try:
+                    ids.append(int(x))
+                except ValueError:
+                    pass
+    return ids
+
+
+def set_subscription(user_id: int, plan: str, expiry: int) -> bool:
+    ok = kv_set(f"sub:{user_id}", json.dumps({"plan": plan, "expiry": expiry}))
+    ids = _sub_index()
+    if user_id not in ids:
+        ids.append(user_id)
+        kv_set("subs:index", ",".join(str(x) for x in ids))
+    return ok
+
+
+def list_subscriptions() -> list[dict]:
+    subs = []
+    for uid in _sub_index():
+        sub = kv_json_get(f"sub:{uid}")
+        if sub and isinstance(sub, dict):
+            subs.append({"user_id": uid, "plan": sub.get("plan", "personal_free"), "expiry": int(sub.get("expiry", 0) or 0)})
+    return subs
+
+
+# ── PIN authentication (admin dashboard second factor) ───────────────────────
+
+PIN_AUTH_ENABLED = os.environ.get("PIN_AUTH_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+PIN_SESSION_TTL_SECONDS = int(os.environ.get("PIN_SESSION_TTL_DAYS", "30")) * 86400
+
+_PIN_ATTEMPTS_LOCKOUTS = {3: 5 * 60, 5: 60 * 60, 10: 24 * 3600}
+
+
+def pin_exists(user_id: int) -> bool:
+    return kv_json_get(f"pin:{user_id}") is not None
+
+
+def setup_pin(user_id: int, pin: str, confirm: str) -> tuple[bool, str]:
+    if not pin.isdigit() or len(pin) != 6:
+        return False, "PIN must be exactly 6 digits"
+    if pin != confirm:
+        return False, "PINs do not match"
+    if pin_exists(user_id):
+        return False, "PIN already set"
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", pin.encode(), salt.encode(), 100_000).hex()
+    kv_set(f"pin:{user_id}", json.dumps({"salt": salt, "hash": digest}))
+    return True, ""
+
+
+def verify_pin(user_id: int, pin: str) -> bool:
+    data = kv_json_get(f"pin:{user_id}")
+    if not data or not isinstance(data, dict):
+        return False
+    salt = data.get("salt", "")
+    digest = hashlib.pbkdf2_hmac("sha256", pin.encode(), salt.encode(), 100_000).hex()
+    return hmac.compare_digest(digest, data.get("hash", ""))
+
+
+def pin_lock_seconds(user_id: int) -> int:
+    fails = kv_json_get(f"pin:fail:{user_id}") or {}
+    until = float(fails.get("lock_until", 0) or 0)
+    return max(0, int(until - time.time()))
+
+
+def pin_fail_count(user_id: int) -> int:
+    fails = kv_json_get(f"pin:fail:{user_id}") or {}
+    return int(fails.get("count", 0) or 0)
+
+
+def record_pin_fail(user_id: int) -> dict:
+    fails = kv_json_get(f"pin:fail:{user_id}") or {}
+    count = int(fails.get("count", 0) or 0) + 1
+    lock_until = int(fails.get("lock_until", 0) or 0)
+    if count in _PIN_ATTEMPTS_LOCKOUTS:
+        lock_until = int(time.time()) + _PIN_ATTEMPTS_LOCKOUTS[count]
+    if count == 10:
+        alert_super_admin(
+            f"🔒 Security alert: user {user_id} reached 10 failed PIN attempts. "
+            f"Account locked for 24h. Approve, remove, or contact the user."
+        )
+    fails["count"] = count
+    fails["lock_until"] = lock_until
+    kv_set(f"pin:fail:{user_id}", json.dumps(fails))
+    return fails
+
+
+def reset_pin_fail(user_id: int) -> None:
+    kv_set(f"pin:fail:{user_id}", json.dumps({"count": 0, "lock_until": 0}))
+
+
+def create_session(user_id: int) -> str:
+    token = secrets.token_urlsafe(32)
+    kv_set(f"pin:session:{token}", str(user_id), ttl=PIN_SESSION_TTL_SECONDS)
+    return token
+
+
+def validate_session(token: str) -> Optional[int]:
+    if not token:
+        return None
+    value = kv_get(f"pin:session:{token}")
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def alert_super_admin(text: str) -> None:
+    raw = os.environ.get("ADMIN_CHAT_ID", "")
+    for item in raw.split(","):
+        item = item.strip()
+        if item:
+            try:
+                telegram_post("sendMessage", {"chat_id": int(item), "text": text})
+            except Exception as exc:
+                logger.warning("alert super admin failed: %s", exc)
 
 
 def verify_telegram_init_data(init_data: str, max_age_seconds: int = 86400) -> Optional[dict]:

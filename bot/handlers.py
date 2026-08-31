@@ -20,6 +20,16 @@ from bot.file_handler import fetch_and_validate
 from bot.redis_client import (
     get_group_lang,
     get_group_settings,
+    get_scan_usage,
+    get_daily_scan_usage,
+    get_join_time,
+    get_strikes,
+    get_subscription,
+    increment_daily_scan_usage,
+    increment_scan_usage,
+    plan_scan_limit_runtime,
+    record_first_seen,
+    record_join_time,
     set_group_lang,
     set_group_settings,
 )
@@ -27,6 +37,7 @@ from bot.reports import record_report
 from bot.scanner import vt_scan_file, vt_scan_url
 from bot.telegram_api import TelegramAPI
 from bot.utils import (
+    compute_trust,
     extract_domain,
     extract_urls,
     get_allowed_groups,
@@ -35,6 +46,7 @@ from bot.utils import (
     is_super_admin,
     is_whitelisted,
     mask_domain,
+    resolve_redirect,
 )
 
 logger = logging.getLogger("BeydaBot.handlers")
@@ -202,6 +214,129 @@ MSG_TOO_LARGE = (
 )
 
 
+def engine_consensus(result: dict) -> str:
+    """Engine-agreement breakdown for suspicious verdicts (percentage + raw count)."""
+    total = sum(result.get(k, 0) for k in ("malicious", "suspicious", "harmless", "undetected")) or 1
+    safe = result.get("harmless", 0)
+    susp = result.get("suspicious", 0)
+    undet = result.get("undetected", 0)
+    pct = lambda n: round(100 * n / total)
+    return (
+        f"🟢 Safe = {pct(safe)}% ({safe}/{total})\n"
+        f"🟡 Suspicious = {pct(susp)}% ({susp}/{total})\n"
+        f"⚪ Undetected = {pct(undet)}% ({undet}/{total})"
+    )
+
+
+def trust_label(chat_id: int, user_id: int, settings: dict) -> str:
+    if not (config.TRUST_SCORE_ENABLED and settings.get("trust_score", True)):
+        return ""
+    first = record_first_seen(user_id)
+    join = get_join_time(chat_id, user_id)
+    return " " + compute_trust(chat_id, user_id, first, join)["label"]
+
+
+def _personal_allowed(user_id: int) -> tuple[bool, str]:
+    if not config.QUOTA_ENABLED:
+        return True, ""
+    sub = get_subscription(user_id)
+    plan = sub.get("plan", "personal_free")
+    expiry = int(sub.get("expiry", 0) or 0)
+    if plan in ("personal_pro", "personal_premium") and (not expiry or expiry > time.time()):
+        limit = plan_scan_limit_runtime(plan)
+        used = get_scan_usage(user_id)
+        if used >= limit:
+            return False, f"Monthly scan limit reached ({used}/{limit}). Upgrade to continue."
+        return True, ""
+    used_today = get_daily_scan_usage(user_id)
+    if used_today >= 3:
+        return False, "Free limit reached (3 scans/day). Upgrade to Pro/Premium."
+    return True, ""
+
+
+def _record_personal_usage(user_id: int) -> None:
+    increment_scan_usage(user_id)
+    increment_daily_scan_usage(user_id)
+
+
+def _handle_personal_scan(api: TelegramAPI, chat_id: int, message: dict, user_id: int) -> None:
+    content = (message.get("text") or "") + " " + (message.get("caption") or "")
+    urls = extract_urls(content)
+    doc = message.get("document") or {}
+    file_id = doc.get("file_id", "")
+    has_file = bool(file_id)
+
+    allowed, reason = _personal_allowed(user_id)
+    if not allowed:
+        api.send_message(chat_id, f"⛔ {reason}")
+        return
+
+    results = []
+    scanned = 0
+
+    for url in urls:
+        if is_whitelisted(url):
+            continue
+        results.append(("link", extract_domain(url), vt_scan_url(url)))
+        scanned += 1
+
+    if has_file:
+        filename = doc.get("file_name", "")
+        filesize = doc.get("file_size", 0)
+        mime = doc.get("mime_type", "")
+        decision = fetch_and_validate(api, file_id, filename, filesize, mime)
+        if decision.oversize:
+            results.append(("file", filename, {"error": "File too large to scan"}))
+        elif decision.ok:
+            results.append(("file", filename, vt_scan_file(decision.file_bytes, filename)))
+        else:
+            results.append(("file", filename, {"error": "File skipped (safe prefilter)"}))
+        scanned += 1
+
+    if scanned:
+        _record_personal_usage(user_id)
+
+    if not results:
+        api.send_message(chat_id, "🔍 Send me a link or file and I'll scan it for threats.")
+        return
+
+    for kind, target, r in results:
+        if "error" in r:
+            api.send_message(chat_id, f"⚠️ Could not scan <code>{target}</code>: {r['error']}")
+            continue
+        mal = r.get("malicious", 0)
+        susp = r.get("suspicious", 0)
+        display = mask_domain(target) if kind == "link" else target
+        if mal >= config.VT_MALICIOUS_THRESHOLD:
+            api.send_message(chat_id, f"🚨 <b>Threat detected</b>\nTarget: <code>{display}</code>\n{engine_consensus(r)}")
+        elif susp >= config.VT_SUSPICIOUS_THRESHOLD:
+            api.send_message(chat_id, f"⚠️ <b>Suspicious</b>\nTarget: <code>{display}</code>\n{engine_consensus(r)}")
+        else:
+            api.send_message(chat_id, f"✅ <b>Clean</b>\nTarget: <code>{display}</code>\n{engine_consensus(r)}")
+
+
+def _handle_new_members(api: TelegramAPI, chat_id: int, new_members: list, settings: dict) -> None:
+    for member in new_members:
+        uid = int(member.get("id", 0) or 0)
+        if not uid or member.get("is_bot"):
+            continue
+        record_join_time(chat_id, uid)
+        record_first_seen(uid)
+        if settings.get("verify_mode"):
+            _gate_new_member(api, chat_id, uid)
+
+
+def _gate_new_member(api: TelegramAPI, chat_id: int, uid: int) -> None:
+    if config.VERIFY_METHOD == "age":
+        return  # account age is not exposed by the Bot API; can't auto-pass
+    api.restrict_chat_member(chat_id, uid)
+    if config.VERIFY_METHOD == "approve":
+        api.send_message(chat_id, f"👤 New member <code>{uid}</code> restricted — admin approval required.")
+    else:  # button
+        kb = {"inline_keyboard": [[{"text": "✅ Verify — I'm human", "callback_data": f"verify:{chat_id}:{uid}"}]]}
+        api.send_message(chat_id, f"👤 New member <code>{uid}</code> — tap to verify and unlock chat.", reply_markup=kb)
+
+
 def _send_threat_alert(
     api: TelegramAPI,
     chat_id: int,
@@ -209,10 +344,11 @@ def _send_threat_alert(
     flag: str,
     deleted: bool,
     lang: str = "both",
+    extra: str = "",
 ) -> None:
     action_kh = "សារត្រូវបានលុបចោលភ្លាមៗ" if deleted else "មិនអាចលុបសារ, ពិនិត្យសិទ្ធិ Admin របស់ Bot"
     action_en = "Message deleted immediately" if deleted else "Could not delete message, check Bot admin rights"
-    text = get_msg_threat(lang, user_display, flag, action_kh, action_en)
+    text = get_msg_threat(lang, user_display, flag, action_kh, action_en) + extra
 
     reply_markup = {
         "inline_keyboard": [
@@ -290,41 +426,12 @@ def _build_group_settings_view(api: TelegramAPI, group_id: int) -> tuple[str, di
 
 
 def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
-    text = (message.get("text") or "").strip()
-    command = text.split()[0].split("@", 1)[0] if text else ""
+    # No slash commands anymore — the Mini App is opened via the Menu button.
+    # Private chats only handle personal scanning of links/files.
+    content = (message.get("text") or "") + " " + (message.get("caption") or "")
     user_id = (message.get("from") or {}).get("id", 0)
-
-    if command not in {"/start", "/settings", "/config", "/app", "/help"}:
-        return
-
-    managed_groups = get_managed_groups_for_user(api, user_id)
-
-    # 1. Non-admin / Regular users -> only show Welcome & Mini App preview
-    if not managed_groups:
-        welcome_text = (
-            "🛡️ <b>ប្រព័ន្ធសុវត្ថិភាព Telegram | Telegram Security Bot</b>\n\n"
-            "ប្រព័ន្ធស្កែន និងការពារសុវត្ថិភាពដោយស្វ័យប្រវត្តិសម្រាប់ក្រុម Telegram "
-            "(Automated security bot protecting groups against malicious links, phishing scams, and infected files).\n\n"
-            "ចុចប៊ូតុងខាងក្រោមដើម្បីបើកផ្ទាំងព័ត៌មានគម្រោង (Mini App)៖"
-        )
-        markup = None
-        if config.WEB_APP_URL:
-            markup = {
-                "inline_keyboard": [
-                    [{"text": "🛡️ Open Security Mini App", "web_app": {"url": config.WEB_APP_URL}}]
-                ]
-            }
-        api.send_message(chat_id, welcome_text, reply_markup=markup)
-        return
-
-    # 2. Authorized Group Handlers / Admins -> show Group Management Panel
-    admin_text = (
-        "⚙️ <b>ផ្ទាំងគ្រប់គ្រងរចនាសម្ព័ន្ធសុវត្ថិភាព | Admin Control Panel</b>\n\n"
-        "សូមជ្រើសរើសក្រុមដែលអ្នកគ្រប់គ្រងដើម្បីកំណត់ <b>ភាសា (Language)</b> និង <b>សារសុវត្ថិភាព (Safe Message Timer)</b>៖\n"
-        "<i>(Select a managed group below to configure):</i>"
-    )
-    markup = _build_admin_menu_keyboard(managed_groups)
-    api.send_message(chat_id, admin_text, reply_markup=markup)
+    if extract_urls(content) or (message.get("document") or {}).get("file_id"):
+        _handle_personal_scan(api, chat_id, message, user_id)
 
 
 # ── In-Group Command Handling ───────────────────────────────────────────────
@@ -337,52 +444,29 @@ def _handle_group_commands(api: TelegramAPI, chat_id: int, message: dict, sender
     command_part = text.split()[0].lower().split("@", 1)[0]
     args = text.split()[1:] if len(text.split()) > 1 else []
 
-    if command_part in {"/lang", "/language"}:
-        if not (is_super_admin(sender_id) or api.is_group_admin(sender_id, chat_id)):
+    if command_part == "/whois":
+        target_id = sender_id
+        reply = message.get("reply_to_message")
+        if reply and (reply.get("from") or {}).get("id"):
+            target_id = reply["from"]["id"]
+        elif args:
+            try:
+                target_id = int(args[0].lstrip("@"))
+            except ValueError:
+                pass
+        if not (is_super_admin(sender_id) or api.is_group_admin(sender_id, chat_id) or target_id == sender_id):
             return True
-
-        if args:
-            sub = args[0].lower()
-            if sub in {"kh", "khmer", "ខ្មែរ"}:
-                set_group_lang(chat_id, "kh")
-                api.send_message(chat_id, "🇰🇭 ភាសាសម្រាប់ក្រុមនេះត្រូវបានប្តូរទៅ <b>ភាសាខ្មែរ</b>។")
-                return True
-            if sub in {"en", "english"}:
-                set_group_lang(chat_id, "en")
-                api.send_message(chat_id, "🇬🇧 Group language has been set to <b>English</b>.")
-                return True
-            if sub in {"both", "all", " bilingual"}:
-                set_group_lang(chat_id, "both")
-                api.send_message(chat_id, "🌐 ភាសាត្រូវបានប្តូរទៅ <b>Bilingual (ភាសាខ្មែរ + English)</b>។")
-                return True
-
-        current_lang = get_group_lang(chat_id)
-        keyboard = {
-            "inline_keyboard": [
-                [
-                    {"text": f"{'✅ ' if current_lang == 'both' else ''}🌐 ទាំងពីរ (Both)", "callback_data": f"grp_lang:{chat_id}:both"},
-                    {"text": f"{'✅ ' if current_lang == 'kh' else ''}🇰🇭 ខ្មែរ", "callback_data": f"grp_lang:{chat_id}:kh"},
-                    {"text": f"{'✅ ' if current_lang == 'en' else ''}🇬🇧 English", "callback_data": f"grp_lang:{chat_id}:en"},
-                ]
-            ]
-        }
+        settings = get_group_settings(chat_id)
+        strikes = get_strikes(chat_id, target_id)
+        label = trust_label(chat_id, target_id, settings)
+        member = api.get_chat_member(chat_id, target_id)
+        user = (member or {}).get("user") or {"first_name": str(target_id)}
         api.send_message(
             chat_id,
-            "🌐 <b>ជ្រើសរើសភាសាសម្រាប់ក្រុមនេះ | Select Group Language:</b>",
-            reply_markup=keyboard,
+            f"👤 <b>{get_user_display(user)}</b>{label}\n"
+            f"🆔 ID: <code>{target_id}</code>\n"
+            f"⚖️ Strikes: {strikes}",
         )
-        return True
-
-    if command_part == "/kh":
-        if is_super_admin(sender_id) or api.is_group_admin(sender_id, chat_id):
-            set_group_lang(chat_id, "kh")
-            api.send_message(chat_id, "🇰🇭 ភាសាសម្រាប់ក្រុមនេះត្រូវបានប្តូរទៅ <b>ភាសាខ្មែរ</b>។")
-        return True
-
-    if command_part == "/en":
-        if is_super_admin(sender_id) or api.is_group_admin(sender_id, chat_id):
-            set_group_lang(chat_id, "en")
-            api.send_message(chat_id, "🇬🇧 Group language has been set to <b>English</b>.")
         return True
 
     return False
@@ -399,6 +483,19 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
     chat = msg.get("chat", {})
     chat_id = chat.get("id", 0)
     msg_id = msg.get("message_id", 0)
+
+    # 0. New-member verification button
+    if data.startswith("verify:"):
+        parts = data.split(":")
+        if len(parts) == 3:
+            gid = int(parts[1])
+            uid = int(parts[2])
+            if user_id == uid or is_super_admin(user_id) or api.is_group_admin(user_id, gid):
+                api.unrestrict_chat_member(gid, uid)
+                api.answer_callback_query(query_id, text="✅ Verified — chat unlocked.")
+            else:
+                api.answer_callback_query(query_id, text="❌ You cannot verify someone else.", show_alert=True)
+            return
 
     # 1. Non-technical explanation modal
     if data in {"explain_threat", "explain_suspicious"}:
@@ -542,7 +639,12 @@ def process_update(api: TelegramAPI, update: dict) -> None:
         logger.info("Unauthorized group %d — ignored", chat_id)
         return
 
-    # 4. Handle In-Group Admin Commands (/lang, /kh, /en)
+    # 3.5 New members (verification gate + join tracking)
+    new_members = message.get("new_chat_members") or []
+    if new_members:
+        _handle_new_members(api, chat_id, new_members, get_group_settings(chat_id))
+
+    # 4. Handle In-Group Admin Commands
     if _handle_group_commands(api, chat_id, message, sender_id):
         return
 
@@ -569,6 +671,7 @@ def process_update(api: TelegramAPI, update: dict) -> None:
     lang = group_settings.get("lang", config.DEFAULT_LANGUAGE)
     safe_timeout = group_settings.get("safe_timeout", config.DEFAULT_SAFE_TIMEOUT)
     show_safe = group_settings.get("show_safe", config.ENABLE_SAFE_MESSAGES) and safe_timeout > 0
+    sender_label = user_display + trust_label(chat_id, sender_id, group_settings)
 
     notice_id = api.send_message(chat_id, get_msg_scanning(lang))
 
@@ -578,7 +681,7 @@ def process_update(api: TelegramAPI, update: dict) -> None:
 
     def display_safe_feedback(target_name: str) -> None:
         if show_safe and notice_id:
-            safe_text = get_msg_safe(lang, user_display, target_name, safe_timeout)
+            safe_text = get_msg_safe(lang, sender_label, target_name, safe_timeout)
             api.edit_message_text(chat_id, notice_id, safe_text)
             time.sleep(safe_timeout)
             api.delete_message(chat_id, notice_id)
@@ -606,22 +709,34 @@ def process_update(api: TelegramAPI, update: dict) -> None:
         suspicious = result.get("suspicious", 0)
         record_report(chat_id, chat_title, "scanned")
         record_report(chat_id, chat_title, "urls")
-        if malicious > 0:
+        if malicious >= config.VT_MALICIOUS_THRESHOLD:
             record_report(chat_id, chat_title, "malicious")
-        if suspicious > 0:
+        if suspicious >= config.VT_SUSPICIOUS_THRESHOLD:
             record_report(chat_id, chat_title, "suspicious")
 
-        if malicious == 0 and suspicious == 0:
+        if malicious < config.VT_MALICIOUS_THRESHOLD and suspicious < config.VT_SUSPICIOUS_THRESHOLD:
             logger.info("URL clean | domain=%s", domain)
             scanned_clean_targets.append(domain)
             continue
 
-        if malicious == 0 and suspicious > 0:
+        sender_label = user_display + trust_label(chat_id, sender_id, group_settings)
+
+        redirect_note = ""
+        if config.LINK_PREVIEW_ENABLED and group_settings.get("link_preview", True):
+            final_domain = extract_domain(resolve_redirect(url))
+            if final_domain and final_domain != domain:
+                redirect_note = f"\n🔀 Real destination: {mask_domain(final_domain)}"
+
+        consensus = "\n\n" + engine_consensus(result)
+
+        if malicious < config.VT_MALICIOUS_THRESHOLD and suspicious >= config.VT_SUSPICIOUS_THRESHOLD:
             delete_notice()
-            warn_id = api.send_message(
-                chat_id,
-                get_msg_suspicious_url(lang, user_display, mask_domain(domain), timeout=15),
+            warn_text = (
+                get_msg_suspicious_url(lang, sender_label, mask_domain(domain), timeout=15)
+                + redirect_note
+                + consensus
             )
+            warn_id = api.send_message(chat_id, warn_text)
             logger.info("Suspicious URL | domain=%s | suspicious=%d", domain, suspicious)
             if warn_id:
                 time.sleep(15)
@@ -632,7 +747,10 @@ def process_update(api: TelegramAPI, update: dict) -> None:
         deleted = api.delete_message(chat_id, msg_id)
         if deleted:
             record_report(chat_id, chat_title, "deleted")
-        _send_threat_alert(api, chat_id, user_display, mask_domain(domain), deleted, lang=lang)
+        _send_threat_alert(
+            api, chat_id, sender_label, mask_domain(domain), deleted, lang=lang,
+            extra=redirect_note + consensus,
+        )
         logger.warning("URL THREAT | domain=%s | malicious=%d | deleted=%s", domain, malicious, deleted)
         return
 
@@ -650,7 +768,7 @@ def process_update(api: TelegramAPI, update: dict) -> None:
     if decision.oversize:
         record_report(chat_id, chat_title, "oversize")
         delete_notice()
-        api.send_message(chat_id, MSG_TOO_LARGE.format(user=user_display, filename=filename, size_mb=decision.size_mb))
+        api.send_message(chat_id, MSG_TOO_LARGE.format(user=sender_label, filename=filename, size_mb=decision.size_mb))
         return
 
     if not decision.ok:
@@ -671,9 +789,9 @@ def process_update(api: TelegramAPI, update: dict) -> None:
     suspicious = result.get("suspicious", 0)
     record_report(chat_id, chat_title, "scanned")
     record_report(chat_id, chat_title, "files")
-    if malicious > 0:
+    if malicious >= config.VT_MALICIOUS_THRESHOLD:
         record_report(chat_id, chat_title, "malicious")
-    if suspicious > 0:
+    if suspicious >= config.VT_SUSPICIOUS_THRESHOLD:
         record_report(chat_id, chat_title, "suspicious")
 
     if malicious >= config.VT_MALICIOUS_THRESHOLD:
@@ -681,13 +799,17 @@ def process_update(api: TelegramAPI, update: dict) -> None:
         deleted = api.delete_message(chat_id, msg_id)
         if deleted:
             record_report(chat_id, chat_title, "deleted")
-        _send_threat_alert(api, chat_id, user_display, filename, deleted, lang=lang)
+        _send_threat_alert(
+            api, chat_id, sender_label, filename, deleted, lang=lang,
+            extra="\n\n" + engine_consensus(result),
+        )
         logger.warning("FILE THREAT | %s | malicious=%d | suspicious=%d | deleted=%s", filename, malicious, suspicious, deleted)
         return
 
     if suspicious >= config.VT_SUSPICIOUS_THRESHOLD:
         delete_notice()
-        api.send_message(chat_id, get_msg_suspicious_file(lang, user_display, filename))
+        warn_text = get_msg_suspicious_file(lang, sender_label, filename) + "\n\n" + engine_consensus(result)
+        api.send_message(chat_id, warn_text)
         logger.warning("FILE SUSPICIOUS | %s | malicious=%d | suspicious=%d", filename, malicious, suspicious)
         return
 

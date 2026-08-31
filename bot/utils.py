@@ -5,7 +5,11 @@ import json
 import logging
 import os
 import re
-from urllib.parse import urlparse
+import time
+from typing import Optional
+from urllib.parse import urljoin, urlparse
+
+import requests
 
 from bot import config
 from bot.redis_client import kv_get, kv_json_get
@@ -192,6 +196,54 @@ def looks_dangerous_bytes(file_bytes: bytes) -> bool:
 
 def mask_domain(domain: str) -> str:
     return domain.replace(".", "[.]")
+
+
+def resolve_redirect(url: str, max_redirects: int = None, timeout: int = None) -> str:
+    """Resolve a URL's redirect chain to its final destination without reading the body."""
+    max_redirects = config.LINK_PREVIEW_MAX_REDIRECTS if max_redirects is None else max_redirects
+    timeout = config.LINK_PREVIEW_TIMEOUT if timeout is None else timeout
+    current = url if url.startswith("http") else "https://" + url
+    for _ in range(max_redirects + 1):
+        try:
+            r = requests.get(
+                current,
+                timeout=timeout,
+                allow_redirects=False,
+                stream=True,
+                headers={"User-Agent": "Mozilla/5.0 (SongketBot)"},
+            )
+        except Exception:
+            return current
+        try:
+            r.close()
+        except Exception:
+            pass
+        if r.status_code in (301, 302, 303, 307, 308) and r.headers.get("location"):
+            current = urljoin(current, r.headers["location"])
+            continue
+        return current
+    return current
+
+
+def compute_trust(chat_id: int, user_id: int, first_seen: float, join_ts: Optional[float]) -> dict:
+    """Compute a per-user trust badge from strikes + account/join age signals.
+
+    `join_ts` may be None when the member joined before the bot was added (no
+    new_chat_members event) — in that case the join-age signal is skipped.
+    """
+    from bot.redis_client import get_strikes
+
+    strikes = get_strikes(chat_id, user_id)
+    if strikes >= config.TRUST_FLAGGED_STRIKES:
+        return {"level": "flagged", "label": "🔴 Flagged"}
+
+    now = time.time()
+    account_new = (now - first_seen) / 86400 < config.TRUST_NEW_ACCOUNT_DAYS
+    member_new = join_ts is not None and (now - join_ts) / 86400 < config.TRUST_NEW_MEMBER_DAYS
+    is_new = account_new and member_new if config.TRUST_NEW_MATCH_MODE == "all" else account_new or member_new
+    if is_new:
+        return {"level": "new", "label": "🟡 New"}
+    return {"level": "verified", "label": "🟢 Verified"}
 
 
 def get_user_display(sender: dict) -> str:
