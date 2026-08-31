@@ -199,6 +199,48 @@ class TelegramAPI:
         member = self.get_chat_member(chat_id, user_id)
         return bool(member) and member.get("status") in {"creator", "administrator"}
 
+    def restrict_chat_member(
+        self,
+        chat_id: int,
+        user_id: int,
+        can_send_messages: bool = False,
+        can_send_other_messages: bool = False,
+        can_add_web_page_previews: bool = False,
+    ) -> bool:
+        data = self._post(
+            "restrictChatMember",
+            {
+                "chat_id": chat_id,
+                "user_id": user_id,
+                "permissions": {
+                    "can_send_messages": can_send_messages,
+                    "can_send_other_messages": can_send_other_messages,
+                    "can_add_web_page_previews": can_add_web_page_previews,
+                },
+            },
+        )
+        return data.get("ok", False)
+
+    def unrestrict_chat_member(self, chat_id: int, user_id: int) -> bool:
+        data = self._post(
+            "restrictChatMember",
+            {
+                "chat_id": chat_id,
+                "user_id": user_id,
+                "permissions": {
+                    "can_send_messages": True,
+                    "can_send_other_messages": True,
+                    "can_add_web_page_previews": True,
+                    "can_send_media_messages": True,
+                    "can_send_polls": True,
+                },
+            },
+        )
+        return data.get("ok", False)
+
+    def ban_chat_member(self, chat_id: int, user_id: int) -> bool:
+        return self._post("banChatMember", {"chat_id": chat_id, "user_id": user_id}).get("ok", False)
+
     def set_chat_menu_button(self, web_app_url: str, text: str = "Security Dashboard") -> dict:
         return self._post(
             "setChatMenuButton",
