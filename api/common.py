@@ -61,29 +61,32 @@ def kv_get(key: str):
     return None
 
 
-def kv_set(key: str, value: str, ttl: Optional[int] = None) -> bool:
+def kv_set(key: str, value, ttl: Optional[int] = None) -> bool:
+    raw = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+    _mem[key] = (time.time(), value)
+
     if REDIS_CONFIGURED:
         try:
-            url = f"{UPSTASH_REDIS_REST_URL}/set/{key}"
-            if ttl:
-                url += f"?EX={ttl}"
+            params = {"EX": ttl} if ttl else None
             r = requests.post(
-                url,
+                f"{UPSTASH_REDIS_REST_URL}/set/{key}",
                 headers={"Authorization": f"Bearer {UPSTASH_REDIS_REST_TOKEN}"},
-                data=value,
+                params=params,
+                data=raw.encode("utf-8") if isinstance(raw, str) else raw,
                 timeout=5,
             )
             return r.status_code == 200
         except Exception as exc:
             logger.warning("KV SET %s failed: %s", key, exc)
-    _mem[key] = (time.time(), value)
+            return False
     return True
 
 
 def kv_delete(key: str) -> bool:
+    _mem.pop(key, None)
     if REDIS_CONFIGURED:
         try:
-            r = requests.get(
+            r = requests.post(
                 f"{UPSTASH_REDIS_REST_URL}/del/{key}",
                 headers={"Authorization": f"Bearer {UPSTASH_REDIS_REST_TOKEN}"},
                 timeout=5,
@@ -91,7 +94,7 @@ def kv_delete(key: str) -> bool:
             return r.status_code == 200
         except Exception as exc:
             logger.warning("KV DEL %s failed: %s", key, exc)
-    _mem.pop(key, None)
+            return False
     return True
 
 
