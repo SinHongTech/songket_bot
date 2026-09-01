@@ -15,7 +15,7 @@ from urllib.parse import urljoin, urlparse
 import requests
 
 from bot import config
-from bot.redis_client import kv_get, kv_json_get
+from bot.redis_client import get_known_groups, kv_get, kv_json_get, kv_set
 
 logger = logging.getLogger("BeydaBot.utils")
 
@@ -405,9 +405,51 @@ def get_managed_groups_for_user(api, user_id: int) -> list[dict]:
                 if len(group_ids) >= config.MAX_DASHBOARD_GROUPS:
                     break
 
+    known = get_known_groups()
     groups: list[dict] = []
     for gid in group_ids:
-        chat = api.get_chat(gid)
-        title = (chat or {}).get("title") or f"Group {gid}"
+        # 1. Check Redis cache / known groups first
+        cached_title = None
+        try:
+            cached_title = kv_get(f"cache:chat_title:{gid}")
+        except Exception:
+            pass
+        if not cached_title and str(gid) in known:
+            cached_title = known[str(gid)]
+
+        if cached_title:
+            groups.append({"id": gid, "title": str(cached_title)})
+            continue
+
+        # 2. Try Telegram API with all candidate supergroup formats
+        candidates = [gid]
+        if str(gid).startswith("-100"):
+            try:
+                candidates.append(int(str(gid)[4:]))
+            except ValueError:
+                pass
+        elif gid > 0:
+            candidates.insert(0, -int(f"100{gid}"))
+            candidates.append(-gid)
+        else:  # negative but not starting with -100
+            candidates.insert(0, -int(f"100{abs(gid)}"))
+            candidates.append(abs(gid))
+
+        found_title = None
+        for try_id in candidates:
+            if str(try_id) in known:
+                found_title = known[str(try_id)]
+                break
+            chat = api.get_chat(try_id)
+            if chat and chat.get("title"):
+                found_title = chat["title"]
+                try:
+                    kv_set(f"cache:chat_title:{gid}", found_title, ttl=86400)
+                    kv_set(f"cache:chat_title:{try_id}", found_title, ttl=86400)
+                except Exception:
+                    pass
+                break
+
+        title = found_title or "ក្រុម (Group)"
         groups.append({"id": gid, "title": title})
     return groups

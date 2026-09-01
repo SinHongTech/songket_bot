@@ -21,8 +21,9 @@ import {
 import LogoMark from "@/shared/components/LogoMark";
 import { G, type Nav, type Lang } from "@/admin/palette";
 import { t as T, kh } from "@/admin/i18n";
-import { fetchDashboardData, setupPin, loginPin, setSessionToken } from "@/admin/api";
+import { fetchDashboardData, setupPin, loginPin, setSessionToken, openTelegramDirect, getTelegramUser, getTelegramWebApp } from "@/admin/api";
 import type { DashboardApiResponse } from "@/admin/types";
+import { mockUser } from "@/admin/data";
 import HomeView from "@/admin/components/HomeView";
 import GroupsView from "@/admin/components/GroupsView";
 import ThreatsView from "@/admin/components/ThreatsView";
@@ -132,7 +133,10 @@ function UpgradeModal({ onClose, lang }: { onClose: () => void; lang: Lang }) {
                   ))}
                 </div>
                 <button
-                  onClick={() => setSelected(plan.id)}
+                  onClick={() => {
+                    setSelected(plan.id);
+                    openTelegramDirect("Sin_Hong");
+                  }}
                   style={{
                     width: "100%",
                     padding: "10px 0",
@@ -150,19 +154,34 @@ function UpgradeModal({ onClose, lang }: { onClose: () => void; lang: Lang }) {
                   }}
                 >
                   <span className={kh(lang)}>
-                    {selected === plan.id ? (
-                      <>
-                        <Check size={12} style={{ marginRight: 4 }} /> Selected
-                      </>
-                    ) : (
-                      plan.cta
-                    )}
+                    {plan.cta} — DM @Sin_Hong
                   </span>
-                  {!selected && plan.highlight && <ArrowRight size={13} />}
+                  <ArrowRight size={13} />
                 </button>
               </div>
             ))}
           </div>
+          <button
+            onClick={() => openTelegramDirect("Sin_Hong")}
+            style={{
+              background: G.gold,
+              color: "#1a1200",
+              border: "none",
+              borderRadius: 10,
+              padding: "12px 0",
+              fontWeight: 800,
+              cursor: "pointer",
+              fontSize: 13,
+              width: "100%",
+              marginTop: 12,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+            }}
+          >
+            💬 Contact @Sin_Hong to Upgrade
+          </button>
           <button
             onClick={onClose}
             style={{
@@ -175,7 +194,7 @@ function UpgradeModal({ onClose, lang }: { onClose: () => void; lang: Lang }) {
               cursor: "pointer",
               fontSize: 13,
               width: "100%",
-              marginTop: 14,
+              marginTop: 8,
             }}
           >
             <span className={kh(lang)}>{tx.maybeLater}</span>
@@ -204,7 +223,7 @@ function PinGate({ mode, locked, lang, onSuccess }: { mode: "setup" | "login"; l
 
   const fmt = (s: number) => `${Math.floor(s / 60)}m ${s % 60}s`;
   const inputProps = {
-    type: "text",
+    type: "password",
     inputMode: "numeric" as const,
     pattern: "[0-9]*",
     maxLength: 6,
@@ -424,6 +443,8 @@ export default function AdminApp() {
     loadData(false, days);
   };
 
+  const tg = getTelegramWebApp();
+  const user = apiData?.user || getTelegramUser() || tg?.initDataUnsafe?.user || mockUser;
   const isSuperAdmin = apiData?.is_super_admin ?? false;
 
   const NAV_ITEMS: { id: Nav; icon: React.ReactElement; label: string }[] = [
@@ -431,21 +452,78 @@ export default function AdminApp() {
     { id: "groups", icon: <MessageSquare size={20} />, label: tx.groups },
     { id: "threats", icon: <AlertTriangle size={20} />, label: tx.threats },
     { id: "history", icon: <Clock size={20} />, label: tx.history },
-    ...(isSuperAdmin || apiData?.authorized ? [{ id: "manage" as Nav, icon: <Sliders size={20} />, label: tx.manage }] : []),
+    { id: "manage", icon: <Sliders size={20} />, label: tx.manage },
     { id: "account", icon: <User size={20} />, label: tx.account },
   ];
 
   const currentLabel = NAV_ITEMS.find(n => n.id === nav)?.label ?? "";
   const dashboard = apiData?.dashboard || null;
-  const user = apiData?.user;
-  const isMock = apiData?.isMock ?? false;
+  const isMock = apiData?.isMock ?? (!apiData?.authorized);
 
   const views: Record<Nav, React.ReactElement> = {
     dashboard: <HomeView dashboard={dashboard} lang={lang} isMock={isMock} homeDays={homeDays} onHomeDaysChange={handleHomeDaysChange} onNavigate={(tab) => setNav(tab)} />,
     groups: <GroupsView dashboard={dashboard} lang={lang} />,
     threats: <ThreatsView dashboard={dashboard} lang={lang} days={days} onDaysChange={handleDaysChange} />,
     history: <HistoryView dashboard={dashboard} lang={lang} days={days} onDaysChange={handleDaysChange} />,
-    manage: !manageUnlocked ? (
+    manage: !apiData?.authorized ? (
+      <div style={{ background: G.surface, border: `1px solid ${G.goldBorder}`, borderRadius: 16, padding: "28px 20px", textAlign: "center", margin: "20px auto", maxWidth: 400 }}>
+        <ShieldAlert size={40} color={G.warn} style={{ marginBottom: 14 }} />
+        <div style={{ fontSize: 17, fontWeight: 800, color: G.text, marginBottom: 8 }}>
+          <span className={kh(lang)}>{tx.unauthorizedTitle}</span>
+        </div>
+        <div style={{ fontSize: 13, color: G.textSec, lineHeight: 1.5, marginBottom: 20 }}>
+          <span className={kh(lang)}>{tx.unauthorizedDesc}</span>
+        </div>
+
+        {user?.id && (
+          <div style={{ background: G.surface2, border: `1px solid ${G.border}`, borderRadius: 10, padding: "14px", marginBottom: 20, textAlign: "left" }}>
+            <div style={{ fontSize: 11, color: G.muted, marginBottom: 6 }}>
+              <span className={kh(lang)}>{tx.whitelistPrompt}</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+              <span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 14, fontWeight: 700, color: G.gold }}>
+                {user.id}
+              </span>
+              <button
+                onClick={() => handleCopyId(user.id)}
+                style={{
+                  background: "transparent",
+                  border: `1px solid ${G.goldBorder}`,
+                  color: G.gold,
+                  borderRadius: 6,
+                  padding: "4px 8px",
+                  fontSize: 11,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                }}
+              >
+                {copied ? <Check size={12} /> : <Copy size={12} />}
+                {copied ? "Copied" : "Copy"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        <button
+          onClick={() => openTelegramDirect("Sin_Hong")}
+          style={{
+            background: G.gold,
+            color: "#1a1200",
+            border: "none",
+            borderRadius: 8,
+            padding: "12px 20px",
+            fontWeight: 800,
+            fontSize: 13,
+            cursor: "pointer",
+            width: "100%",
+          }}
+        >
+          💬 Contact @Sin_Hong to Unlock
+        </button>
+      </div>
+    ) : !manageUnlocked ? (
       <PinGate
         mode={apiData?.pin_exists ? "login" : "setup"}
         locked={apiData?.locked || 0}
@@ -480,49 +558,21 @@ export default function AdminApp() {
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ fontWeight: 800, fontSize: 13, color: G.gold }}>SongKet</span>
-              {isSuperAdmin && (
-                <span
-                  style={{
-                    fontSize: 9,
-                    fontWeight: 800,
-                    padding: "1px 6px",
-                    borderRadius: 4,
-                    background: "rgba(212,167,44,0.25)",
-                    color: G.gold,
-                    border: `1px solid ${G.goldBorder}`,
-                  }}
-                >
-                  {tx.superAdmin.toUpperCase()}
-                </span>
-              )}
-              <span
-                style={{
-                  fontSize: 9,
-                  fontWeight: 700,
-                  padding: "1px 5px",
-                  borderRadius: 4,
-                  background: isMock ? "rgba(212,167,44,0.15)" : "rgba(42,170,90,0.15)",
-                  color: isMock ? G.gold : G.safe,
-                  border: `1px solid ${isMock ? G.goldBorder : "rgba(42,170,90,0.3)"}`,
-                }}
-              >
-                {isMock ? tx.previewBadge : tx.liveBadge}
+              <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: isMock ? "rgba(224,160,32,0.18)" : "rgba(34,197,94,0.15)", color: isMock ? G.warn : G.safe, fontWeight: 700, letterSpacing: "0.04em" }}>
+                {isMock ? "PREVIEW" : "LIVE"}
               </span>
             </div>
-            <div style={{ fontSize: 9, color: G.muted, letterSpacing: "0.06em" }}>
-              <span className={kh(lang)}>{tx.admin}</span> · {currentLabel.toUpperCase()}
-            </div>
+            <div style={{ fontSize: 10, color: G.muted, letterSpacing: "0.06em", fontWeight: 600 }}>{currentLabel}</div>
           </div>
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <button
             onClick={() => loadData(true, days)}
-            disabled={refreshing || loading}
             style={{
               background: "transparent",
               border: `1px solid ${G.border}`,
-              color: refreshing ? G.gold : G.muted,
+              color: G.muted,
               borderRadius: 8,
               width: 32,
               height: 32,
@@ -533,16 +583,16 @@ export default function AdminApp() {
             }}
             title={tx.refresh}
           >
-            <RefreshCw size={14} className={refreshing ? "spin-animation" : ""} />
+            <RefreshCw size={13} className={refreshing || loading ? "spin-animation" : ""} />
           </button>
 
-          {apiData?.authorized && (
+          {manageUnlocked && (
             <button
               onClick={handleLogout}
               style={{
                 background: "transparent",
                 border: `1px solid ${G.border}`,
-                color: G.muted,
+                color: G.danger,
                 borderRadius: 8,
                 width: 32,
                 height: 32,
@@ -576,6 +626,26 @@ export default function AdminApp() {
         </div>
       </header>
 
+      {apiData && !apiData.authorized && (
+        <div style={{ background: "rgba(212,167,44,0.12)", borderBottom: `1px solid ${G.goldBorder}`, padding: "10px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <ShieldAlert size={16} color={G.warn} />
+            <div style={{ fontSize: 12, color: G.text }}>
+              <strong style={{ color: G.gold }}>Preview Mode</strong> — Send ID <code style={{ color: G.gold, background: G.surface2, padding: "2px 6px", borderRadius: 4, fontFamily: "monospace" }}>{user?.id}</code> to <strong>@Sin_Hong</strong> for live protection.
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <button onClick={() => handleCopyId(user?.id || 0)} style={{ background: G.gold, color: "#1a1200", border: "none", borderRadius: 6, padding: "5px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+              {copied ? <Check size={12} /> : <Copy size={12} />}
+              {copied ? "Copied" : "Copy ID"}
+            </button>
+            <button onClick={() => openTelegramDirect("Sin_Hong")} style={{ background: "transparent", border: `1px solid ${G.goldBorder}`, color: G.gold, borderRadius: 6, padding: "5px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+              DM @Sin_Hong
+            </button>
+          </div>
+        </div>
+      )}
+
       <main style={{ flex: 1, overflowY: "auto", padding: "16px 16px 24px" }}>
         {loading ? (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "60%", gap: 14, color: G.muted }}>
@@ -599,63 +669,6 @@ export default function AdminApp() {
                 border: "none",
                 borderRadius: 8,
                 padding: "8px 18px",
-                fontWeight: 700,
-                fontSize: 12,
-                cursor: "pointer",
-              }}
-            >
-              <span className={kh(lang)}>{tx.retry}</span>
-            </button>
-          </div>
-        ) : apiData && !apiData.authorized ? (
-          <div style={{ background: G.surface, border: `1px solid ${G.goldBorder}`, borderRadius: 16, padding: "28px 20px", textAlign: "center" }}>
-            <ShieldAlert size={40} color={G.warn} style={{ marginBottom: 14 }} />
-            <div style={{ fontSize: 17, fontWeight: 800, color: G.text, marginBottom: 8 }}>
-              <span className={kh(lang)}>{tx.unauthorizedTitle}</span>
-            </div>
-            <div style={{ fontSize: 13, color: G.textSec, lineHeight: 1.5, marginBottom: 20 }}>
-              <span className={kh(lang)}>{tx.unauthorizedDesc}</span>
-            </div>
-
-            {user?.id && (
-              <div style={{ background: G.surface2, border: `1px solid ${G.border}`, borderRadius: 10, padding: "14px", marginBottom: 20, textAlign: "left" }}>
-                <div style={{ fontSize: 11, color: G.muted, marginBottom: 6 }}>
-                  <span className={kh(lang)}>{tx.whitelistPrompt}</span>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                  <span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 14, fontWeight: 700, color: G.gold }}>
-                    {user.id}
-                  </span>
-                  <button
-                    onClick={() => handleCopyId(user.id)}
-                    style={{
-                      background: "transparent",
-                      border: `1px solid ${G.goldBorder}`,
-                      color: G.gold,
-                      borderRadius: 6,
-                      padding: "4px 8px",
-                      fontSize: 11,
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 4,
-                    }}
-                  >
-                    {copied ? <Check size={12} /> : <Copy size={12} />}
-                    {copied ? "Copied" : "Copy"}
-                  </button>
-                </div>
-              </div>
-            )}
-
-            <button
-              onClick={() => loadData(false, days)}
-              style={{
-                background: G.gold,
-                color: "#1a1200",
-                border: "none",
-                borderRadius: 8,
-                padding: "9px 20px",
                 fontWeight: 700,
                 fontSize: 12,
                 cursor: "pointer",

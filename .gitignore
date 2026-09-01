@@ -11,3 +11,4 @@ telegram-bot-api-data/
 update.py
 setup_webapp.py
 DEPLOYMENT.md
+gen_test_url.py
