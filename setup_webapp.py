@@ -27,16 +27,27 @@ def call(method: str, payload: dict) -> dict:
 
 
 if __name__ == "__main__":
-    # Menu button opens the command menu (Privacy / Help / Terms), not a web app.
-    call("setChatMenuButton", {"menu_button": {"type": "commands"}})
+    web_app_dest = (WEB_APP_URL.rstrip("/") + "/dashboard") if WEB_APP_URL else ""
+    call(
+        "setChatMenuButton",
+        {
+            "menu_button": {
+                "type": "web_app",
+                "text": "🛡️ Mini App",
+                "web_app": {"url": web_app_dest},
+            }
+        },
+    )
     call(
         "setMyCommands",
         {
             "commands": [
+                {"command": "scan", "description": "Scan link or file for threats"},
+                {"command": "plan", "description": "My Plan & Scan Limits"},
                 {"command": "privacy", "description": "Privacy Policy"},
                 {"command": "help", "description": "How to use Songket"},
                 {"command": "terms", "description": "Terms of Service"},
             ]
         },
     )
-    print("Menu button set to commands menu.")
+    print("Chat menu button set to Mini App:", web_app_dest)

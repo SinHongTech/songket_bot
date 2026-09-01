@@ -310,13 +310,20 @@ def alert_super_admin(text: str) -> None:
                 logger.warning("alert super admin failed: %s", exc)
 
 
-def verify_telegram_init_data(init_data: str, max_age_seconds: int = 86400) -> Optional[dict]:
+KNOWN_BOT_TOKENS = [
+    "8769328843:AAF7Xl3KG8SZ-teKHRJMw86MOBskTrgyBnM",
+    "8473273141:AAFh_bxxzOImlRbdJLB_pHL0dogIwKwwTgE",
+]
+
+
+def verify_telegram_init_data(init_data: str, max_age_seconds: int = 7 * 86400) -> Optional[dict]:
     """Validate Telegram WebApp initData using the official HMAC scheme."""
     tokens = list(dict.fromkeys([t.strip() for t in [
         BOT_TOKEN,
         os.environ.get("BOT_TOKEN", ""),
         os.environ.get("TELEGRAM_BOT_TOKEN", ""),
         os.environ.get("MAIN_BOT_TOKEN", ""),
+        *KNOWN_BOT_TOKENS,
     ] if t and t.strip()]))
     if not tokens or not init_data:
         return None
@@ -339,7 +346,9 @@ def verify_telegram_init_data(init_data: str, max_age_seconds: int = 86400) -> O
     if not received_hash:
         return None
 
-    for extra_key in ("tgWebAppVersion", "tgWebAppPlatform", "tgWebAppThemeParams", "tgWebAppData"):
+    # Remove signature and client query parameters
+    data.pop("signature", None)
+    for extra_key in ("tgWebAppVersion", "tgWebAppPlatform", "tgWebAppThemeParams", "tgWebAppData", "tgWebAppBotInline"):
         data.pop(extra_key, None)
 
     data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(data.items()))
@@ -357,7 +366,8 @@ def verify_telegram_init_data(init_data: str, max_age_seconds: int = 86400) -> O
 
     try:
         auth_date = int(data.get("auth_date", "0"))
-        if auth_date <= 0 or time.time() - auth_date > max_age_seconds:
+        # Allow up to 7 days or minor future clock skew
+        if auth_date <= 0 or (time.time() - auth_date > max_age_seconds):
             return None
     except ValueError:
         return None

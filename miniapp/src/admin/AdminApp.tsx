@@ -261,7 +261,7 @@ function PinGate({ mode: initialMode, locked, lang, onSuccess }: { mode: "setup"
     setErr(null);
     setInfo(null);
     if (pin.length !== 6) {
-      setErr(tx.pinIncorrect);
+      setErr(lang === "km" ? "PIN ត្រូវតែមាន ៦ ខ្ទង់" : "PIN must be exactly 6 digits");
       return;
     }
     if (currentMode === "setup" && pin !== confirm) {
@@ -271,15 +271,15 @@ function PinGate({ mode: initialMode, locked, lang, onSuccess }: { mode: "setup"
     setBusy(true);
     try {
       const res = currentMode === "setup" ? await setupPin(pin, confirm) : await loginPin(pin);
-      if (res.session) {
+      if (res && res.session) {
         setSessionToken(res.session);
         onSuccess();
         return;
       }
-      if (res.locked) setRemaining(res.locked);
-      setErr(res.error || tx.pinIncorrect);
+      if (res && res.locked) setRemaining(res.locked);
+      setErr(res?.error || (currentMode === "setup" ? (lang === "km" ? "ការកំណត់ PIN បរាជ័យ" : "Failed to set PIN") : tx.pinIncorrect));
     } catch (e: any) {
-      setErr(e?.message || tx.pinIncorrect);
+      setErr(e?.message || (currentMode === "setup" ? "Failed to set PIN" : tx.pinIncorrect));
     } finally {
       setBusy(false);
     }
