@@ -8,7 +8,7 @@ interface PricingProps {
 }
 
 export default function Pricing({ t, isKm, bodyFont }: PricingProps) {
-  const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
+  const [, setSelectedPlan] = useState<string | null>(null);
   const [tab, setTab] = useState<"business" | "personal">("business");
 
   const plans = tab === "business" ? t.businessPlans : t.personalPlans;

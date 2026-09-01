@@ -400,8 +400,11 @@ terms: [
     content:
       "If you have questions, concerns, or requests regarding these Terms or Songket's services, please contact the Songket team at team@songket.app.",
   },
-],
+  ],
+
+  contactEmail: "For any questions or requests, please contact us at",
 };
+
 
 
 const km = {

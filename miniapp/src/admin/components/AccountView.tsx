@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Moon, Sun, UserCheck, LogOut } from "lucide-react";
+import { Moon, Sun, LogOut } from "lucide-react";
 import { G, type Lang } from "../palette";
 import { t as T, kh } from "../i18n";
 import type { DashboardData, TelegramUser } from "../types";

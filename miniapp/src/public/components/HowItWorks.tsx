@@ -1,6 +1,6 @@
 
 import { useState } from "react";
-import {ChevronLeft,ChevronRight,Shield, AlertTriangle, Trash2,RefreshCw,LogOut,Search,FileText,Link2,LayoutGrid, MessageSquare, History,User,} from "lucide-react";
+import {ChevronLeft,ChevronRight,Shield, AlertTriangle,RefreshCw,LogOut,Search,FileText,Link2,LayoutGrid, MessageSquare, History,User,} from "lucide-react";
 import logoImg from "../../shared/assets/Logo.svg";
 
 interface HowItWorksProps {

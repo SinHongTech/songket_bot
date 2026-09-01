@@ -32,7 +32,7 @@ import { getThreatsListFromDashboard } from "@/admin/data";
 
 function UpgradeModal({ onClose, lang }: { onClose: () => void; lang: Lang }) {
   const tx = T(lang);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected] = useState<string | null>(null);
 
   return (
     <div
@@ -315,7 +315,7 @@ export default function AdminApp() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [apiData, setApiData] = useState<DashboardApiResponse | null>(null);
-  const [days, setDays] = useState(7);
+  const [days] = useState(7);
   const [dateFrom, setDateFrom] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() - 7);
@@ -375,9 +375,7 @@ export default function AdminApp() {
     loadData(false, days);
   }, [days, loadData]);
 
-  const handleDaysChange = (newDays: number) => {
-    setDays(newDays);
-  };
+
 
   const loadHomeData = useCallback(async (isRefresh = false, from = dateFrom, to = dateTo) => {
     if (isRefresh) {
