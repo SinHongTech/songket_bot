@@ -24,6 +24,7 @@ try:
         pin_lock_seconds,
         record_pin_fail,
         reset_pin_fail,
+        save_allowed_groups,
         save_plan_catalog,
         save_system_config,
         set_subscription,
@@ -50,6 +51,7 @@ except ImportError:
         pin_lock_seconds,
         record_pin_fail,
         reset_pin_fail,
+        save_allowed_groups,
         save_plan_catalog,
         save_system_config,
         set_subscription,
@@ -116,46 +118,50 @@ class handler(BaseHTTPRequestHandler):
             super_admin = is_super_admin(uid)
             is_admin = super_admin or uid in whitelist_ids()
 
-            # ── PIN gate (admin dashboard second factor) ──────────────────
-            if PIN_AUTH_ENABLED and is_admin:
+            # ── PIN Actions (Dedicated for Manage Tab) ────────────────────
+            action = body.get("action", "")
+            if action == "check_pin":
+                return self._json(
+                    200,
+                    {
+                        "ok": True,
+                        "pin_exists": pin_exists(uid),
+                        "locked": pin_lock_seconds(uid),
+                    },
+                )
+
+            if action == "setup_pin":
+                ok, err = setup_pin(uid, body.get("pin", ""), body.get("confirm", ""))
+                if not ok:
+                    return self._json(400, {"ok": False, "error": err})
+                reset_pin_fail(uid)
+                token = create_session(uid)
+                return self._json(200, {"ok": True, "session": token})
+
+            if action == "login_pin":
+                lock = pin_lock_seconds(uid)
+                if lock > 0:
+                    return self._json(200, {"ok": False, "locked": lock, "error": f"Locked. Try again in {lock}s"})
+                if verify_pin(uid, body.get("pin", "")):
+                    reset_pin_fail(uid)
+                    token = create_session(uid)
+                    return self._json(200, {"ok": True, "session": token})
+                fails = record_pin_fail(uid)
+                return self._json(
+                    200,
+                    {
+                        "ok": False,
+                        "locked": pin_lock_seconds(uid),
+                        "attempts": fails.get("count", 0),
+                        "error": "Incorrect PIN",
+                    },
+                )
+
+            # Check PIN session for all sensitive management mutations
+            if action in {"save_config", "save_groups", "save_plans", "assign_plan", "remove_plan"}:
                 session_uid = validate_session(body.get("session", ""))
                 if session_uid != uid:
-                    action = body.get("action", "")
-
-                    if action == "setup_pin":
-                        ok, err = setup_pin(uid, body.get("pin", ""), body.get("confirm", ""))
-                        if not ok:
-                            return self._json(400, {"authorized": False, "pin_status": "setup", "error": err})
-                        reset_pin_fail(uid)
-                        token = create_session(uid)
-                        return self._json(200, self._full_payload(uid, user, super_admin, body, token))
-
-                    if action == "login_pin":
-                        lock = pin_lock_seconds(uid)
-                        if lock > 0:
-                            return self._json(200, {"authorized": False, "pin_status": "login", "locked": lock})
-                        if verify_pin(uid, body.get("pin", "")):
-                            reset_pin_fail(uid)
-                            token = create_session(uid)
-                            return self._json(200, self._full_payload(uid, user, super_admin, body, token))
-                        fails = record_pin_fail(uid)
-                        return self._json(
-                            200,
-                            {
-                                "authorized": False,
-                                "pin_status": "login",
-                                "locked": pin_lock_seconds(uid),
-                                "attempts": fails.get("count", 0),
-                                "error": "Incorrect PIN",
-                            },
-                        )
-
-                    if not pin_exists(uid):
-                        return self._json(200, {"authorized": False, "pin_status": "setup"})
-                    lock = pin_lock_seconds(uid)
-                    if lock > 0:
-                        return self._json(200, {"authorized": False, "pin_status": "login", "locked": lock})
-                    return self._json(200, {"authorized": False, "pin_status": "login"})
+                    return self._json(403, {"ok": False, "error": "PIN verification required for management changes."})
 
             # Action: Save System Configuration (Super Admin only)
             if body.get("action") == "save_config":
@@ -165,6 +171,14 @@ class handler(BaseHTTPRequestHandler):
                 allowed_groups = [int(x) for x in body.get("allowed_groups", []) if str(x).strip()]
                 group_handlers = body.get("group_handlers", {})
                 ok = save_system_config(whitelist, allowed_groups, group_handlers)
+                return self._json(200, {"ok": ok, "config": get_system_config()})
+
+            # Action: Save monitored groups (any authorized admin)
+            if body.get("action") == "save_groups":
+                if not (super_admin or uid in whitelist_ids()):
+                    return self._json(403, {"ok": False, "error": "Unauthorized"})
+                groups = [int(x) for x in body.get("allowed_groups", []) if str(x).strip()]
+                ok = save_allowed_groups(groups)
                 return self._json(200, {"ok": ok, "config": get_system_config()})
 
             # Action: Save plan catalog (Super Admin only)
@@ -226,6 +240,7 @@ class handler(BaseHTTPRequestHandler):
             "config": get_system_config() if super_admin else None,
             "plans": get_plan_catalog() if super_admin else None,
             "subscriptions": list_subscriptions() if super_admin else None,
+            "pin_exists": pin_exists(uid),
         }
         if session:
             payload["session"] = session

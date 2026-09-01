@@ -53,11 +53,12 @@ def main() -> None:
     # Menu button opens the command menu (Privacy / Help / Terms by default).
     api.set_chat_menu_button("commands")
     api.set_my_commands([
-        {"command": "privacy", "description": "Privacy Policy"},
-        {"command": "help", "description": "How to use Songket"},
-        {"command": "terms", "description": "Terms of Service"},
-        {"command": "lang", "description": "My chat language"},
         {"command": "app", "description": "Open Mini App"},
+        {"command": "guide", "description": "How to use"},
+        {"command": "lang", "description": "My chat language"},
+        {"command": "help", "description": "Safety guide"},
+        {"command": "privacy", "description": "Privacy Policy"},
+        {"command": "terms", "description": "Terms of Service"},
     ])
 
     signal.signal(signal.SIGINT, _handle_shutdown)

@@ -135,6 +135,10 @@ def save_system_config(whitelist: list[int], allowed_groups: list[int], group_ha
     return bool(ok1 and ok2 and ok3)
 
 
+def save_allowed_groups(groups: list[int]) -> bool:
+    return kv_set("config:allowed_groups", ",".join(str(x) for x in groups))
+
+
 # ── Plans & subscriptions ────────────────────────────────────────────────────
 
 DEFAULT_PLAN_CATALOG: dict = {
@@ -415,8 +419,26 @@ def telegram_post(endpoint: str, payload: dict) -> dict:
 
 
 def get_chat(chat_id: int) -> Optional[dict]:
+    # 1. Try Redis cache
+    try:
+        cached_title = kv_get(f"cache:chat_title:{chat_id}")
+        if cached_title:
+            return {"id": chat_id, "title": str(cached_title)}
+        known = kv_json_get("config:known_groups")
+        if known and isinstance(known, dict) and str(chat_id) in known:
+            return {"id": chat_id, "title": str(known[str(chat_id)])}
+    except Exception:
+        pass
+
+    # 2. Telegram API fallback
     d = telegram_post("getChat", {"chat_id": chat_id})
-    return d.get("result") if d.get("ok") else None
+    res = d.get("result") if d.get("ok") else None
+    if res and res.get("title"):
+        try:
+            kv_set(f"cache:chat_title:{chat_id}", res["title"], ttl=86400)
+        except Exception:
+            pass
+    return res
 
 
 def is_group_admin(user_id: int, chat_id: int) -> bool:
@@ -427,20 +449,21 @@ def is_group_admin(user_id: int, chat_id: int) -> bool:
 
 
 def groups_for_user(user_id: int, allowed_groups: set[int]) -> list[int]:
-    """Prefer explicit ownership; otherwise discover admin rights in allowed groups."""
+    """Prefer explicit ownership; otherwise discover admin rights or allow for super/whitelisted admins."""
+    # 1. Super admin sees all allowed groups immediately
+    if is_super_admin(user_id):
+        return list(sorted(allowed_groups))[:MAX_DASHBOARD_GROUPS]
+
+    # 2. Explicit handler mapping
     explicit = explicit_group_map().get(user_id)
     if explicit is not None:
         return [g for g in explicit if not allowed_groups or g in allowed_groups][:MAX_DASHBOARD_GROUPS]
-    groups = []
-    for gid in sorted(allowed_groups):
-        if is_group_admin(user_id, gid):
-            groups.append(gid)
-            if len(groups) >= MAX_DASHBOARD_GROUPS:
-                break
-    # Fallback: if is_group_admin check fails but user is whitelisted and allowed_groups exist, return allowed_groups
-    if not groups and allowed_groups:
+
+    # 3. If whitelisted and allowed groups exist, return allowed groups
+    if allowed_groups:
         return list(sorted(allowed_groups))[:MAX_DASHBOARD_GROUPS]
-    return groups
+
+    return []
 
 
 def local_date() -> str:

@@ -1,4 +1,5 @@
 import { useState, useLayoutEffect, useRef } from "react";
+import { Link } from "react-router";
 import { Sun, Moon, Globe, ChevronDown, LayoutDashboard } from "lucide-react";
 import LogoMark from "@/shared/components/LogoMark";
 import { T, type Lang } from "@/public/i18n";
@@ -49,10 +50,10 @@ export default function PublicApp() {
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <a href="/dashboard" style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 12px", borderRadius: 8, border: "1.5px solid var(--border-gold)", background: "rgba(212,167,44,0.06)", color: "var(--gold)", fontSize: 11, fontWeight: 700, textDecoration: "none", letterSpacing: "0.04em" }}>
+          <Link to="/dashboard" style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 12px", borderRadius: 8, border: "1.5px solid var(--border-gold)", background: "rgba(212,167,44,0.06)", color: "var(--gold)", fontSize: 11, fontWeight: 700, textDecoration: "none", letterSpacing: "0.04em" }}>
             <LayoutDashboard size={12} />
             Admin
-          </a>
+          </Link>
           <div ref={settingsRef} style={{ position: "relative" }}>
             <button onClick={() => setSettingsOpen(o => !o)} style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: 8, border: "1.5px solid var(--border-gold)", background: settingsOpen ? "rgba(212,167,44,0.12)" : "rgba(212,167,44,0.06)", cursor: "pointer", color: "var(--gold)" }}>
               <Globe size={13} />

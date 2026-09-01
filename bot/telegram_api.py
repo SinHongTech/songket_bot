@@ -62,7 +62,7 @@ class TelegramAPI:
             params={
                 "offset": offset,
                 "timeout": timeout,
-                "allowed_updates": json.dumps(["message", "edited_message", "callback_query"]),
+                "allowed_updates": json.dumps(["message", "edited_message", "callback_query", "my_chat_member"]),
             },
             timeout=timeout + 10,
         )
@@ -206,20 +206,20 @@ class TelegramAPI:
         can_send_messages: bool = False,
         can_send_other_messages: bool = False,
         can_add_web_page_previews: bool = False,
+        until_date: Optional[int] = None,
     ) -> bool:
-        data = self._post(
-            "restrictChatMember",
-            {
-                "chat_id": chat_id,
-                "user_id": user_id,
-                "permissions": {
-                    "can_send_messages": can_send_messages,
-                    "can_send_other_messages": can_send_other_messages,
-                    "can_add_web_page_previews": can_add_web_page_previews,
-                },
+        payload: dict = {
+            "chat_id": chat_id,
+            "user_id": user_id,
+            "permissions": {
+                "can_send_messages": can_send_messages,
+                "can_send_other_messages": can_send_other_messages,
+                "can_add_web_page_previews": can_add_web_page_previews,
             },
-        )
-        return data.get("ok", False)
+        }
+        if until_date:
+            payload["until_date"] = until_date
+        return self._post("restrictChatMember", payload).get("ok", False)
 
     def unrestrict_chat_member(self, chat_id: int, user_id: int) -> bool:
         data = self._post(

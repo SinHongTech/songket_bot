@@ -81,10 +81,17 @@ MAX_DASHBOARD_GROUPS: int = max(1, min(5, _int_env("MAX_DASHBOARD_GROUPS", 5)))
 # ── VirusTotal ───────────────────────────────────────────────────────────────
 VT_API_KEY: str = os.environ.get("VT_API_KEY", "")
 VT_BASE_URL: str = "https://www.virustotal.com/api/v3"
+# Dual-band detection (doc 2.1/2.2):
+#   critical  : malicious >= VT_CRITICAL_THRESHOLD
+#   suspicious: (1 <= malicious < CRITICAL) OR suspicious >= VT_SUSPICIOUS_THRESHOLD
+VT_CRITICAL_THRESHOLD: int = max(1, _int_env("VT_CRITICAL_THRESHOLD", 3))
 VT_MALICIOUS_THRESHOLD: int = max(1, _int_env("VT_MALICIOUS_THRESHOLD", 1))
-VT_SUSPICIOUS_THRESHOLD: int = max(1, _int_env("VT_SUSPICIOUS_THRESHOLD", 1))
+VT_SUSPICIOUS_THRESHOLD: int = max(1, _int_env("VT_SUSPICIOUS_THRESHOLD", 2))
 VT_POLL_INTERVAL: int = max(1, _int_env("VT_POLL_INTERVAL", 3))
 VT_POLL_ATTEMPTS: int = max(1, _int_env("VT_POLL_ATTEMPTS", 10))
+
+# Strike penalties (doc section 3): strikes -> mute duration (seconds)
+STRIKE_MUTE_RULES: dict = {3: 3600, 5: 28800, 10: 86400}
 
 # With a local Bot API server files up to ~2000MB can be downloaded; without
 # it, api.telegram.org caps downloads at 20MB regardless of this setting.

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useCallback } from "react";
+import { Link } from "react-router";
 import {
   LayoutDashboard,
   MessageSquare,
@@ -315,6 +316,7 @@ export default function AdminApp() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [apiData, setApiData] = useState<DashboardApiResponse | null>(null);
+  const [manageUnlocked, setManageUnlocked] = useState(false);
   const [days, setDays] = useState(7);
   const [homeDays, setHomeDays] = useState(7);
 
@@ -418,6 +420,7 @@ export default function AdminApp() {
 
   const handleLogout = () => {
     setSessionToken("");
+    setManageUnlocked(false);
     loadData(false, days);
   };
 
@@ -428,7 +431,7 @@ export default function AdminApp() {
     { id: "groups", icon: <MessageSquare size={20} />, label: tx.groups },
     { id: "threats", icon: <AlertTriangle size={20} />, label: tx.threats },
     { id: "history", icon: <Clock size={20} />, label: tx.history },
-    ...(isSuperAdmin ? [{ id: "manage" as Nav, icon: <Sliders size={20} />, label: tx.manage }] : []),
+    ...(isSuperAdmin || apiData?.authorized ? [{ id: "manage" as Nav, icon: <Sliders size={20} />, label: tx.manage }] : []),
     { id: "account", icon: <User size={20} />, label: tx.account },
   ];
 
@@ -442,7 +445,25 @@ export default function AdminApp() {
     groups: <GroupsView dashboard={dashboard} lang={lang} />,
     threats: <ThreatsView dashboard={dashboard} lang={lang} days={days} onDaysChange={handleDaysChange} />,
     history: <HistoryView dashboard={dashboard} lang={lang} days={days} onDaysChange={handleDaysChange} />,
-    manage: <ManageView config={apiData?.config} plans={apiData?.plans} subscriptions={apiData?.subscriptions} lang={lang} onRefresh={() => loadData(true, days)} />,
+    manage: !manageUnlocked ? (
+      <PinGate
+        mode={apiData?.pin_exists ? "login" : "setup"}
+        locked={apiData?.locked || 0}
+        lang={lang}
+        onSuccess={() => {
+          setManageUnlocked(true);
+        }}
+      />
+    ) : (
+      <ManageView
+        config={apiData?.config}
+        plans={apiData?.plans}
+        subscriptions={apiData?.subscriptions}
+        lang={lang}
+        isSuperAdmin={isSuperAdmin}
+        onRefresh={() => loadData(true, days)}
+      />
+    ),
     account: <AccountView user={user} dashboard={dashboard} dark={dark} setDark={setDark} lang={lang} setLang={setLang} />,
   };
 
@@ -452,9 +473,9 @@ export default function AdminApp() {
 
       <header style={{ padding: "12px 16px", borderBottom: `1px solid ${G.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: G.surface, flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <a href="/" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 7, border: `1px solid ${G.border}`, color: G.muted, textDecoration: "none" }}>
+          <Link to="/" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 7, border: `1px solid ${G.border}`, color: G.muted, textDecoration: "none" }}>
             <ArrowLeft size={13} />
-          </a>
+          </Link>
           <LogoMark size={34} />
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -586,8 +607,6 @@ export default function AdminApp() {
               <span className={kh(lang)}>{tx.retry}</span>
             </button>
           </div>
-        ) : apiData?.pin_status ? (
-          <PinGate mode={apiData.pin_status} locked={apiData.locked || 0} lang={lang} onSuccess={() => loadData(false, days)} />
         ) : apiData && !apiData.authorized ? (
           <div style={{ background: G.surface, border: `1px solid ${G.goldBorder}`, borderRadius: 16, padding: "28px 20px", textAlign: "center" }}>
             <ShieldAlert size={40} color={G.warn} style={{ marginBottom: 14 }} />
