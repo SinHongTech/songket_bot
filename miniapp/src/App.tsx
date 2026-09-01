@@ -30,7 +30,7 @@ function RootEntry() {
         if (data && data.authorized) {
           // Whitelisted admin or super admin: navigate straight to dashboard on initial open!
           if (location.pathname === "/" && !isManualLanding) {
-            navigate("/dashboard", { replace: true });
+            navigate({ pathname: "/dashboard", search: location.search, hash: window.location.hash }, { replace: true });
           }
         }
       })

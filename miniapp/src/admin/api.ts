@@ -41,6 +41,7 @@ export function getInitData(): string {
   const tg = getTelegramWebApp();
   if (tg?.initData) {
     _cachedInitData = tg.initData;
+    try { sessionStorage.setItem("songket_init_data", tg.initData); } catch {}
     return tg.initData;
   }
 
@@ -52,6 +53,7 @@ export function getInitData(): string {
       const raw = params.get("tgWebAppData");
       if (raw) {
         _cachedInitData = raw;
+        try { sessionStorage.setItem("songket_init_data", raw); } catch {}
         return raw;
       }
     }
@@ -62,12 +64,31 @@ export function getInitData(): string {
       const raw = params.get("tgWebAppData");
       if (raw) {
         _cachedInitData = raw;
+        try { sessionStorage.setItem("songket_init_data", raw); } catch {}
         return raw;
       }
     }
+    // 3. Fallback from current browser session
+    try {
+      const saved = sessionStorage.getItem("songket_init_data");
+      if (saved) {
+        _cachedInitData = saved;
+        return saved;
+      }
+    } catch {}
   }
 
   return _cachedInitData || "";
+}
+
+export async function waitForTelegramInitData(timeoutMs: number = 800): Promise<string> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const data = getInitData();
+    if (data) return data;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+  return getInitData();
 }
 
 export function getTelegramUser() {
@@ -124,7 +145,7 @@ export async function fetchDashboardData(days: number = 7): Promise<DashboardApi
     }
   }
 
-  const initData = getInitData();
+  const initData = await waitForTelegramInitData(800);
 
   // If outside Telegram or no initData available:
   if (!initData) {
@@ -174,7 +195,7 @@ export async function fetchDashboardData(days: number = 7): Promise<DashboardApi
 }
 
 export async function resetPin(): Promise<{ ok: boolean; pin_exists?: boolean; error?: string; message?: string }> {
-  const initData = getInitData();
+  const initData = await waitForTelegramInitData(500);
   if (!initData) return { ok: false, error: "Telegram initData required" };
   try {
     const response = await fetch("/api/dashboard", {
@@ -204,7 +225,7 @@ export function openTelegramDirect(username: string = "Sin_Hong") {
 }
 
 async function postAction(payload: Record<string, unknown>) {
-  const initData = getInitData();
+  const initData = await waitForTelegramInitData(500);
   if (!initData) {
     // Local dev preview mode
     return { ok: true, session: "preview_session_token", ...payload };
@@ -228,7 +249,7 @@ async function postAction(payload: Record<string, unknown>) {
 }
 
 export async function checkPinStatus() {
-  const initData = getInitData();
+  const initData = await waitForTelegramInitData(500);
   if (!initData) {
     return { ok: true, pin_exists: false, locked: 0 };
   }
@@ -245,7 +266,7 @@ export async function checkPinStatus() {
 }
 
 export async function setupPin(pin: string, confirm: string) {
-  const initData = getInitData();
+  const initData = await waitForTelegramInitData(500);
   if (!initData) {
     if (pin !== confirm) {
       return { ok: false, error: "PINs do not match" };
@@ -259,13 +280,13 @@ export async function setupPin(pin: string, confirm: string) {
       body: JSON.stringify({ initData, action: "setup_pin", pin, confirm }),
     });
     return await response.json();
-  } catch {
-    return { ok: true, session: "preview_session_token" };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || "Setup failed" };
   }
 }
 
 export async function loginPin(pin: string) {
-  const initData = getInitData();
+  const initData = await waitForTelegramInitData(500);
   if (!initData) {
     return { ok: true, session: "preview_session_token" };
   }
@@ -276,8 +297,8 @@ export async function loginPin(pin: string) {
       body: JSON.stringify({ initData, action: "login_pin", pin }),
     });
     return await response.json();
-  } catch {
-    return { ok: true, session: "preview_session_token" };
+  } catch (err: any) {
+    return { ok: false, error: err?.message || "Login failed" };
   }
 }
 
