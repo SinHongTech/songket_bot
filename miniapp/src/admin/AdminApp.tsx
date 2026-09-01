@@ -405,7 +405,7 @@ export default function AdminApp() {
     }
   }, [lang]);
 
-  const loadData = useCallback(async (isRefresh = false, queryDays = days) => {
+  const loadData = useCallback(async (isRefresh = false, queryDays = homeDays) => {
     if (isRefresh) {
       setRefreshing(true);
     } else {
@@ -415,6 +415,9 @@ export default function AdminApp() {
 
     try {
       const data = await fetchDashboardData(queryDays);
+      if (data && data.dashboard) {
+        data.dashboard.days = queryDays;
+      }
       setApiData(data);
     } catch (err: any) {
       console.error("Dashboard fetch error:", err);
@@ -423,45 +426,22 @@ export default function AdminApp() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [days]);
-
-  useEffect(() => {
-    loadData(false, days);
-  }, [days, loadData]);
-
-  const handleDaysChange = (newDays: number) => {
-    setDays(newDays);
-  };
-
-  const loadHomeData = useCallback(async (isRefresh = false, queryDays = homeDays) => {
-    if (isRefresh) {
-      setRefreshing(true);
-    } else {
-      setLoading(true);
-    }
-    setError(null);
-
-    try {
-      const data = await fetchDashboardData(queryDays);
-      if (data.dashboard) {
-        data.dashboard.days = queryDays;
-      }
-      setApiData(data);
-    } catch (err: any) {
-      console.error("Home graph fetch error:", err);
-      setError(err?.message || "Failed to load dashboard data");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
   }, [homeDays]);
 
   useEffect(() => {
-    loadHomeData(false, homeDays);
-  }, [homeDays, loadHomeData]);
+    loadData(false, homeDays);
+  }, [homeDays, loadData]);
+
+  const handleDaysChange = (newDays: number) => {
+    setDays(newDays);
+    setHomeDays(newDays);
+    loadData(true, newDays);
+  };
 
   const handleHomeDaysChange = (newDays: number) => {
     setHomeDays(newDays);
+    setDays(newDays);
+    loadData(true, newDays);
   };
 
   const handleCopyId = (id: number) => {
