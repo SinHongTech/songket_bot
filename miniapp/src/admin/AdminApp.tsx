@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useCallback } from "react";
+import { Link } from "react-router";
 import {
   LayoutDashboard,
   MessageSquare,
@@ -452,9 +453,9 @@ export default function AdminApp() {
 
       <header style={{ padding: "12px 16px", borderBottom: `1px solid ${G.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: G.surface, flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <a href="/" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 7, border: `1px solid ${G.border}`, color: G.muted, textDecoration: "none" }}>
+          <Link to="/" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 7, border: `1px solid ${G.border}`, color: G.muted, textDecoration: "none" }}>
             <ArrowLeft size={13} />
-          </a>
+          </Link>
           <LogoMark size={34} />
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
