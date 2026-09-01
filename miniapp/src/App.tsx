@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { createBrowserRouter, RouterProvider, useNavigate, useLocation } from "react-router";
 import PublicApp from "./public/PublicApp";
 import AdminApp from "./admin/AdminApp";
-import { getInitData, fetchDashboardData } from "./admin/api";
+import { getInitData, waitForTelegramInitData, fetchDashboardData } from "./admin/api";
 
 function RootEntry() {
   const navigate = useNavigate();
@@ -17,29 +17,25 @@ function RootEntry() {
       return;
     }
 
-    const initData = getInitData();
-    // If not inside Telegram, stay on public landing page
-    if (!initData) {
-      setChecking(false);
-      return;
-    }
+    waitForTelegramInitData(1000).then((initData: string) => {
+      if (!initData) {
+        setChecking(false);
+        return;
+      }
 
-    // Inside Telegram on initial launch: check authorization
-    fetchDashboardData(7)
-      .then((data) => {
+      return fetchDashboardData(7).then((data) => {
         if (data && data.authorized) {
           // Whitelisted admin or super admin: navigate straight to dashboard on initial open!
           if (location.pathname === "/" && !isManualLanding) {
             navigate({ pathname: "/dashboard", search: location.search, hash: window.location.hash }, { replace: true });
           }
         }
-      })
-      .catch((err) => {
-        console.warn("Auto-route check error:", err);
-      })
-      .finally(() => {
-        setChecking(false);
       });
+    }).catch((err: any) => {
+      console.warn("Auto-route check error:", err);
+    }).finally(() => {
+      setChecking(false);
+    });
   }, [navigate, location.pathname, isManualLanding]);
 
   if (checking && getInitData() && location.pathname === "/" && !isManualLanding) {
