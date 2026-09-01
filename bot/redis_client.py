@@ -64,6 +64,22 @@ def kv_set(key: str, value, ttl: Optional[int] = None) -> bool:
     return True
 
 
+def kv_delete(key: str) -> bool:
+    _mem.pop(key, None)
+    if config.REDIS_CONFIGURED:
+        try:
+            r = requests.post(
+                f"{config.UPSTASH_REDIS_REST_URL}/del/{key}",
+                headers={"Authorization": f"Bearer {config.UPSTASH_REDIS_REST_TOKEN}"},
+                timeout=5,
+            )
+            return r.status_code == 200
+        except Exception as exc:
+            logger.warning("KV DEL %s failed: %s", key, exc)
+            return False
+    return True
+
+
 def kv_json_get(key: str) -> Optional[dict]:
     value = kv_get(key)
     if value is None:
