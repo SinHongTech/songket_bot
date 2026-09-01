@@ -111,11 +111,8 @@ def kv_json_get(key: str) -> Optional[dict]:
         return None
 
 
-DEFAULT_SUPER_ADMIN_IDS: set[int] = {1221693150}
-
-
 def super_admin_ids() -> set[int]:
-    result = set(DEFAULT_SUPER_ADMIN_IDS)
+    result = set()
     raw = os.environ.get("ADMIN_CHAT_ID", "")
     for item in raw.split(","):
         item = item.strip()
@@ -402,7 +399,7 @@ def verify_telegram_init_data(init_data: str, max_age_seconds: int = 7 * 86400) 
 
 
 def whitelist_ids() -> set[int]:
-    result = set(DEFAULT_SUPER_ADMIN_IDS)
+    result = set()
     # 1. Environment variable
     raw = os.environ.get("WHITELIST_USER_IDS", "")
     for item in raw.split(","):
