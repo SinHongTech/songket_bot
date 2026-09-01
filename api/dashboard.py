@@ -112,48 +112,65 @@ class handler(BaseHTTPRequestHandler):
         try:
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length) or b"{}")
+            action = body.get("action", "")
+            init_len = len(body.get("initData", ""))
+            logger.info("[Dashboard API] POST incoming action='%s', initData length=%d", action or "fetch_dashboard", init_len)
+
             user = verify_telegram_init_data(body.get("initData", ""))
             if not user:
+                logger.warning("[Dashboard API] Rejected POST request: unauthorized initData (len=%d)", init_len)
                 return self._json(401, {"authorized": False, "error": "Invalid or expired Telegram session"})
 
             uid = int(user["id"])
             super_admin = is_super_admin(uid)
             is_admin = super_admin or uid in whitelist_ids()
+            logger.info("[Dashboard API] User uid=%d (super_admin=%s, is_admin=%s)", uid, super_admin, is_admin)
 
             # ── PIN Actions (Dedicated for Manage Tab) ────────────────────
-            action = body.get("action", "")
             if action == "check_pin":
+                exists = pin_exists(uid)
+                locked = pin_lock_seconds(uid)
+                logger.info("[PIN] check_pin uid=%d exists=%s locked=%ds", uid, exists, locked)
                 return self._json(
                     200,
                     {
                         "ok": True,
-                        "pin_exists": pin_exists(uid),
-                        "locked": pin_lock_seconds(uid),
+                        "pin_exists": exists,
+                        "locked": locked,
                     },
                 )
 
             if action == "reset_pin":
+                logger.info("[PIN] reset_pin requested for uid=%d", uid)
                 reset_user_pin(uid)
                 reset_pin_fail(uid)
+                logger.info("[PIN] reset_pin SUCCESS for uid=%d", uid)
                 return self._json(200, {"ok": True, "pin_exists": False, "message": "PIN reset. Please setup a new PIN."})
 
             if action == "setup_pin":
+                pin_len = len(body.get("pin", ""))
+                logger.info("[PIN] setup_pin requested for uid=%d (digits=%d)", uid, pin_len)
                 ok, err = setup_pin(uid, body.get("pin", ""), body.get("confirm", ""))
                 if not ok:
+                    logger.warning("[PIN] setup_pin FAILED for uid=%d: %s", uid, err)
                     return self._json(400, {"ok": False, "error": err})
                 reset_pin_fail(uid)
                 token = create_session(uid)
+                logger.info("[PIN] setup_pin SUCCESS for uid=%d", uid)
                 return self._json(200, {"ok": True, "session": token})
 
             if action == "login_pin":
                 lock = pin_lock_seconds(uid)
                 if lock > 0:
+                    logger.warning("[PIN] login_pin REJECTED for uid=%d (locked for %ds)", uid, lock)
                     return self._json(200, {"ok": False, "locked": lock, "error": f"Locked. Try again in {lock}s"})
                 if verify_pin(uid, body.get("pin", "")):
                     reset_pin_fail(uid)
                     token = create_session(uid)
+                    logger.info("[PIN] login_pin SUCCESS for uid=%d", uid)
                     return self._json(200, {"ok": True, "session": token})
                 fails = record_pin_fail(uid)
+                logger.warning("[PIN] login_pin INCORRECT for uid=%d (attempt=%s)", uid, fails.get("count", 0))
                 return self._json(
                     200,
                     {

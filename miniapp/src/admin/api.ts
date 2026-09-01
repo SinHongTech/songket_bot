@@ -146,9 +146,11 @@ export async function fetchDashboardData(days: number = 7): Promise<DashboardApi
   }
 
   const initData = await waitForTelegramInitData(800);
+  console.log("[MiniApp] fetchDashboardData initData present:", Boolean(initData), "length:", initData.length);
 
   // If outside Telegram or no initData available:
   if (!initData) {
+    console.log("[MiniApp] fetchDashboardData: No initData available, loading preview mock data");
     return {
       authorized: false,
       user: mockUser,
@@ -167,8 +169,11 @@ export async function fetchDashboardData(days: number = 7): Promise<DashboardApi
       body: JSON.stringify({ initData, days, session: getSessionToken() }),
     });
 
+    console.log("[MiniApp] fetchDashboardData HTTP status:", response.status);
+
     if (response.ok || response.status === 401) {
       const data: DashboardApiResponse = await response.json();
+      console.log("[MiniApp] fetchDashboardData received payload:", data);
       if (data && !data.authorized) {
         return {
           authorized: false,
@@ -183,7 +188,7 @@ export async function fetchDashboardData(days: number = 7): Promise<DashboardApi
 
     throw new Error(`Failed to fetch dashboard data (HTTP ${response.status})`);
   } catch (err: any) {
-    console.warn("Dashboard API request error:", err);
+    console.warn("[MiniApp] Dashboard API request error:", err);
     return {
       authorized: false,
       user: getTelegramUser() || mockUser,
@@ -196,6 +201,7 @@ export async function fetchDashboardData(days: number = 7): Promise<DashboardApi
 
 export async function resetPin(): Promise<{ ok: boolean; pin_exists?: boolean; error?: string; message?: string }> {
   const initData = await waitForTelegramInitData(500);
+  console.log("[MiniApp] resetPin initData present:", Boolean(initData));
   if (!initData) return { ok: false, error: "Telegram initData required" };
   try {
     const response = await fetch("/api/dashboard", {
@@ -203,8 +209,11 @@ export async function resetPin(): Promise<{ ok: boolean; pin_exists?: boolean; e
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ initData, action: "reset_pin" }),
     });
-    return await response.json();
+    const res = await response.json();
+    console.log("[MiniApp] resetPin response:", res);
+    return res;
   } catch (err: any) {
+    console.warn("[MiniApp] resetPin error:", err);
     return { ok: false, error: err?.message || "Reset failed" };
   }
 }
@@ -259,7 +268,9 @@ export async function checkPinStatus() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ initData, action: "check_pin" }),
     });
-    return await response.json();
+    const res = await response.json();
+    console.log("[MiniApp] checkPinStatus response:", res);
+    return res;
   } catch {
     return { ok: true, pin_exists: false, locked: 0 };
   }
@@ -267,6 +278,7 @@ export async function checkPinStatus() {
 
 export async function setupPin(pin: string, confirm: string) {
   const initData = await waitForTelegramInitData(500);
+  console.log("[MiniApp] setupPin calling, initData present:", Boolean(initData));
   if (!initData) {
     if (pin !== confirm) {
       return { ok: false, error: "PINs do not match" };
@@ -279,14 +291,18 @@ export async function setupPin(pin: string, confirm: string) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ initData, action: "setup_pin", pin, confirm }),
     });
-    return await response.json();
+    const res = await response.json();
+    console.log("[MiniApp] setupPin response (HTTP " + response.status + "):", res);
+    return res;
   } catch (err: any) {
+    console.warn("[MiniApp] setupPin error:", err);
     return { ok: false, error: err?.message || "Setup failed" };
   }
 }
 
 export async function loginPin(pin: string) {
   const initData = await waitForTelegramInitData(500);
+  console.log("[MiniApp] loginPin calling, initData present:", Boolean(initData));
   if (!initData) {
     return { ok: true, session: "preview_session_token" };
   }
@@ -296,8 +312,11 @@ export async function loginPin(pin: string) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ initData, action: "login_pin", pin }),
     });
-    return await response.json();
+    const res = await response.json();
+    console.log("[MiniApp] loginPin response (HTTP " + response.status + "):", res);
+    return res;
   } catch (err: any) {
+    console.warn("[MiniApp] loginPin error:", err);
     return { ok: false, error: err?.message || "Login failed" };
   }
 }
