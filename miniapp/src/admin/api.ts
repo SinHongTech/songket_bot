@@ -46,43 +46,7 @@ export function getInitData(): string {
   }
 
   if (typeof window !== "undefined") {
-    // 1. Hash param fallback (e.g. #tgWebAppData=... or #query_id=...&user=...&hash=...)
-    const hash = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash;
-    if (hash) {
-      if (hash.includes("tgWebAppData=")) {
-        const params = new URLSearchParams(hash);
-        const raw = params.get("tgWebAppData");
-        if (raw) {
-          _cachedInitData = raw;
-          try { sessionStorage.setItem("songket_init_data", raw); } catch {}
-          return raw;
-        }
-      } else if (hash.includes("hash=") && (hash.includes("user=") || hash.includes("query_id=") || hash.includes("auth_date="))) {
-        _cachedInitData = hash;
-        try { sessionStorage.setItem("songket_init_data", hash); } catch {}
-        return hash;
-      }
-    }
-
-    // 2. Search param fallback (e.g. ?tgWebAppData=... or ?query_id=...&hash=...)
-    const search = window.location.search.startsWith("?") ? window.location.search.slice(1) : window.location.search;
-    if (search) {
-      if (search.includes("tgWebAppData=")) {
-        const params = new URLSearchParams(search);
-        const raw = params.get("tgWebAppData");
-        if (raw) {
-          _cachedInitData = raw;
-          try { sessionStorage.setItem("songket_init_data", raw); } catch {}
-          return raw;
-        }
-      } else if (search.includes("hash=") && (search.includes("user=") || search.includes("query_id=") || search.includes("auth_date="))) {
-        _cachedInitData = search;
-        try { sessionStorage.setItem("songket_init_data", search); } catch {}
-        return search;
-      }
-    }
-
-    // 3. Fallback from current browser session
+    // 1. Fallback from cached decoded session
     try {
       const saved = sessionStorage.getItem("songket_init_data");
       if (saved) {
@@ -90,6 +54,32 @@ export function getInitData(): string {
         return saved;
       }
     } catch {}
+
+    // 2. Fallback from raw URL hash / search / boot storage
+    const candidates = [
+      window.location.hash,
+      window.location.search,
+      sessionStorage.getItem("songket_init_raw") || "",
+    ];
+
+    for (const rawCandidate of candidates) {
+      if (!rawCandidate) continue;
+      const clean = rawCandidate.startsWith("#") || rawCandidate.startsWith("?") ? rawCandidate.slice(1) : rawCandidate;
+      if (clean.includes("tgWebAppData=")) {
+        const params = new URLSearchParams(clean);
+        const rawVal = params.get("tgWebAppData");
+        if (rawVal) {
+          _cachedInitData = rawVal;
+          try { sessionStorage.setItem("songket_init_data", rawVal); } catch {}
+          return rawVal;
+        }
+      }
+      if (clean.includes("hash=") && (clean.includes("user=") || clean.includes("query_id=") || clean.includes("auth_date="))) {
+        _cachedInitData = clean;
+        try { sessionStorage.setItem("songket_init_data", clean); } catch {}
+        return clean;
+      }
+    }
   }
 
   return _cachedInitData || "";
