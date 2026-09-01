@@ -331,7 +331,11 @@ def verify_telegram_init_data(init_data: str, max_age_seconds: int = 7 * 86400) 
         os.environ.get("MAIN_BOT_TOKEN", ""),
         *KNOWN_BOT_TOKENS,
     ] if t and t.strip()]))
-    if not tokens or not init_data:
+    if not tokens:
+        logger.error("[Auth] No bot tokens configured for Telegram HMAC verification.")
+        return None
+    if not init_data:
+        logger.warning("[Auth] Empty initData received.")
         return None
 
     clean_init = init_data.lstrip("#?").strip()
@@ -350,6 +354,7 @@ def verify_telegram_init_data(init_data: str, max_age_seconds: int = 7 * 86400) 
     data = dict(pairs)
     received_hash = data.pop("hash", None)
     if not received_hash:
+        logger.warning("[Auth] No hash found in initData payload.")
         return None
 
     # Remove signature and client query parameters
@@ -368,24 +373,31 @@ def verify_telegram_init_data(init_data: str, max_age_seconds: int = 7 * 86400) 
             break
 
     if not verified:
+        logger.warning("[Auth] HMAC verification mismatch against candidate bot tokens.")
         return None
 
     try:
         auth_date = int(data.get("auth_date", "0"))
-        # Allow up to 7 days or minor future clock skew
+        if auth_date > 100_000_000_000:
+            auth_date = auth_date // 1000
         if auth_date <= 0 or (time.time() - auth_date > max_age_seconds):
+            logger.warning("[Auth] auth_date expired or out of bounds: %s", auth_date)
             return None
     except ValueError:
+        logger.warning("[Auth] auth_date unparseable: %s", data.get("auth_date"))
         return None
 
     try:
         user = json.loads(data.get("user", "{}"))
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
+        logger.warning("[Auth] user JSON parse error: %s", exc)
         return None
 
     if not isinstance(user, dict) or not user.get("id"):
+        logger.warning("[Auth] user dict missing id: %s", user)
         return None
 
+    logger.info("[Auth] Telegram session verified: user_id=%s username=%s", user.get("id"), user.get("username"))
     return user
 
 
