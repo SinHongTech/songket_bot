@@ -41,6 +41,7 @@ export function getInitData(): string {
   const tg = getTelegramWebApp();
   if (tg?.initData) {
     _cachedInitData = tg.initData;
+    try { sessionStorage.setItem("songket_init_data", tg.initData); } catch {}
     return tg.initData;
   }
 
@@ -50,37 +51,23 @@ export function getInitData(): string {
     // 1. Hash param fallback (e.g. #tgWebAppData=...)
     const hash = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash;
     if (hash.includes("tgWebAppData=")) {
-      const idx = hash.indexOf("tgWebAppData=");
-      const raw = hash.slice(idx + "tgWebAppData=".length);
+      const params = new URLSearchParams(hash);
+      const raw = params.get("tgWebAppData");
       if (raw) {
-        try {
-          const decoded = decodeURIComponent(raw);
-          _cachedInitData = decoded;
-          try { sessionStorage.setItem("songket_init_data", decoded); } catch {}
-          return decoded;
-        } catch {
-          _cachedInitData = raw;
-          try { sessionStorage.setItem("songket_init_data", raw); } catch {}
-          return raw;
-        }
+        _cachedInitData = raw;
+        try { sessionStorage.setItem("songket_init_data", raw); } catch {}
+        return raw;
       }
     }
     // 2. Search param fallback (e.g. ?tgWebAppData=...)
     const search = window.location.search.startsWith("?") ? window.location.search.slice(1) : window.location.search;
     if (search.includes("tgWebAppData=")) {
-      const idx = search.indexOf("tgWebAppData=");
-      const raw = search.slice(idx + "tgWebAppData=".length);
+      const params = new URLSearchParams(search);
+      const raw = params.get("tgWebAppData");
       if (raw) {
-        try {
-          const decoded = decodeURIComponent(raw);
-          _cachedInitData = decoded;
-          try { sessionStorage.setItem("songket_init_data", decoded); } catch {}
-          return decoded;
-        } catch {
-          _cachedInitData = raw;
-          try { sessionStorage.setItem("songket_init_data", raw); } catch {}
-          return raw;
-        }
+        _cachedInitData = raw;
+        try { sessionStorage.setItem("songket_init_data", raw); } catch {}
+        return raw;
       }
     }
 
@@ -179,11 +166,11 @@ export async function fetchDashboardData(days: number = 7): Promise<DashboardApi
           authorized: false,
           user: data.user || getTelegramUser() || mockUser,
           dashboard: mockDashboardData(days),
-          isMock: true,
-          pin_exists: false,
+          isMock: false,
+          pin_exists: data.pin_exists ?? false,
         };
       }
-      return data;
+      return { ...data, isMock: false };
     }
 
     throw new Error(`Failed to fetch dashboard data (HTTP ${response.status})`);
@@ -193,9 +180,24 @@ export async function fetchDashboardData(days: number = 7): Promise<DashboardApi
       authorized: false,
       user: getTelegramUser() || mockUser,
       dashboard: mockDashboardData(days),
-      isMock: true,
+      isMock: false,
       pin_exists: false,
     };
+  }
+}
+
+export async function resetPin(): Promise<{ ok: boolean; pin_exists?: boolean; error?: string; message?: string }> {
+  const initData = getInitData();
+  if (!initData) return { ok: false, error: "Telegram initData required" };
+  try {
+    const response = await fetch("/api/dashboard", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ initData, action: "reset_pin" }),
+    });
+    return await response.json();
+  } catch (err: any) {
+    return { ok: false, error: err?.message || "Reset failed" };
   }
 }
 

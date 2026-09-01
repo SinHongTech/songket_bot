@@ -24,6 +24,7 @@ try:
         pin_lock_seconds,
         record_pin_fail,
         reset_pin_fail,
+        reset_user_pin,
         save_allowed_groups,
         save_plan_catalog,
         save_system_config,
@@ -51,6 +52,7 @@ except ImportError:
         pin_lock_seconds,
         record_pin_fail,
         reset_pin_fail,
+        reset_user_pin,
         save_allowed_groups,
         save_plan_catalog,
         save_system_config,
@@ -129,6 +131,11 @@ class handler(BaseHTTPRequestHandler):
                         "locked": pin_lock_seconds(uid),
                     },
                 )
+
+            if action == "reset_pin":
+                reset_user_pin(uid)
+                reset_pin_fail(uid)
+                return self._json(200, {"ok": True, "pin_exists": False, "message": "PIN reset. Please setup a new PIN."})
 
             if action == "setup_pin":
                 ok, err = setup_pin(uid, body.get("pin", ""), body.get("confirm", ""))

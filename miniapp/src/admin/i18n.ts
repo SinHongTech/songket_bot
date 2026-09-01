@@ -134,6 +134,9 @@ const en = {
   pinMismatch: "PINs do not match",
   pinIncorrect: "Incorrect PIN",
   pinLocked: "Too many attempts — locked",
+  forgotPin: "Forgot / Reset PIN?",
+  resetPinBtn: "Reset PIN & Set New",
+  resetPinSuccess: "PIN reset successfully! Please create your new 6-digit PIN.",
   logout: "Logout",
   plans: [
     {
@@ -323,6 +326,9 @@ const km: typeof en = {
   pinMismatch: "PIN មិនដូចគ្នា",
   pinIncorrect: "PIN មិនត្រឹមត្រូវ",
   pinLocked: "ព្យាយាមច្រើនដងពេក — ត្រូវបានចាក់សោ",
+  forgotPin: "ភ្លេច / កំណត់ PIN ឡើងវិញ?",
+  resetPinBtn: "កំណត់ PIN ឡើងវិញ & បង្កើតថ្មី",
+  resetPinSuccess: "បានកំណត់ PIN ឡើងវិញជោគជ័យ! សូមបង្កើត PIN ៦ ខ្ទង់ថ្មីរបស់អ្នក។",
   logout: "ចេញ",
   plans: [
     {
