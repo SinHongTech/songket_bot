@@ -18,6 +18,9 @@ interface ManageViewProps {
 export default function ManageView({ config, plans, subscriptions, lang, isSuperAdmin, onRefresh }: ManageViewProps) {
   const tx = T(lang);
 
+  type ManageTab = "super" | "whitelist";
+  const [manageTab, setManageTab] = useState<ManageTab>("super");
+
   const [whitelist, setWhitelist] = useState<number[]>([]);
   const [allowedGroups, setAllowedGroups] = useState<number[]>([]);
   const [groupHandlers, setGroupHandlers] = useState<Record<string, number[]>>({});
@@ -224,8 +227,61 @@ export default function ManageView({ config, plans, subscriptions, lang, isSuper
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-        <SectionHeader title={tx.systemManagement} sub={tx.systemManagementSub} lang={lang} />
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        <SectionHeader
+          title={isSuperAdmin && manageTab === "super" ? tx.systemManagement : tx.groupManagement}
+          sub={isSuperAdmin && manageTab === "super" ? tx.systemManagementSub : tx.whitelistUserSub}
+          lang={lang}
+        />
+
+        {isSuperAdmin && (
+          <div style={{ display: "flex", width: "100%", background: G.surface2, padding: 4, borderRadius: 10, border: `1px solid ${G.border}`, gap: 4 }}>
+            <button
+              onClick={() => setManageTab("super")}
+              style={{
+                flex: 1,
+                padding: "8px 12px",
+                borderRadius: 7,
+                border: "none",
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: "pointer",
+                background: manageTab === "super" ? G.gold : "transparent",
+                color: manageTab === "super" ? "#1a1200" : G.text,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+                transition: "all 0.2s ease"
+              }}
+            >
+              <ShieldCheck size={14} />
+              <span className={kh(lang)}>{tx.superAdminTab}</span>
+            </button>
+            <button
+              onClick={() => setManageTab("whitelist")}
+              style={{
+                flex: 1,
+                padding: "8px 12px",
+                borderRadius: 7,
+                border: "none",
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: "pointer",
+                background: manageTab === "whitelist" ? G.gold : "transparent",
+                color: manageTab === "whitelist" ? "#1a1200" : G.text,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+                transition: "all 0.2s ease"
+              }}
+            >
+              <Users size={14} />
+              <span className={kh(lang)}>{tx.whitelistUserTab}</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {savedToast && (
@@ -242,7 +298,7 @@ export default function ManageView({ config, plans, subscriptions, lang, isSuper
       )}
 
       {/* 1. Whitelist Management */}
-      {isSuperAdmin && (<>
+      {isSuperAdmin && manageTab === "super" && (
       <div style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 14, padding: "18px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
           <Users size={16} color={G.gold} />
@@ -296,7 +352,7 @@ export default function ManageView({ config, plans, subscriptions, lang, isSuper
           </button>
         </div>
       </div>
-      </>)}
+      )}
 
       {/* 2. Monitored Groups Management */}
       <div style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 14, padding: "18px" }}>
@@ -354,7 +410,7 @@ export default function ManageView({ config, plans, subscriptions, lang, isSuper
       </div>
 
       {/* 3. Group Handler Mappings */}
-      {isSuperAdmin && (<>
+      {isSuperAdmin && manageTab === "super" && (<>
       <div style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 14, padding: "18px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
           <ShieldCheck size={16} color={G.gold} />

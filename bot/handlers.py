@@ -448,33 +448,48 @@ def _build_admin_menu_keyboard(managed_groups: list[dict]) -> dict:
 
 def _resolve_chat_id_and_info(api: TelegramAPI, gid: int) -> tuple[int, dict]:
     candidates = []
-    if gid > 0:
-        # 1. Standard Telegram supergroup format (-100{gid})
+    if str(gid).startswith("-100"):
+        candidates.append(gid)
+        try:
+            candidates.append(int(str(gid)[4:]))
+        except ValueError:
+            pass
+    elif gid > 0:
         try:
             candidates.append(-int(f"100{gid}"))
         except ValueError:
             pass
-        # 2. Legacy basic group format (-gid)
         candidates.append(-gid)
-        # 3. Direct positive ID
         candidates.append(gid)
-    else:
+    else:  # negative but not starting with -100 (e.g. -5328393805)
+        try:
+            candidates.append(-int(f"100{abs(gid)}"))
+        except ValueError:
+            pass
         candidates.append(gid)
-        if not str(gid).startswith("-100"):
-            try:
-                candidates.append(-int(f"100{abs(gid)}"))
-            except ValueError:
-                pass
+        candidates.append(abs(gid))
+
+    # Check cache first
+    known = get_known_groups()
+    for try_id in candidates:
+        try:
+            cached_title = kv_get(f"cache:chat_title:{try_id}")
+            if cached_title:
+                return try_id, {"id": try_id, "title": str(cached_title)}
+        except Exception:
+            pass
+        if str(try_id) in known:
+            return try_id, {"id": try_id, "title": known[str(try_id)]}
 
     for try_id in candidates:
         info = api.get_chat(try_id)
         if info and info.get("title"):
+            try:
+                kv_set(f"cache:chat_title:{gid}", info["title"], ttl=86400)
+                kv_set(f"cache:chat_title:{try_id}", info["title"], ttl=86400)
+            except Exception:
+                pass
             return try_id, info
-
-    known = get_known_groups()
-    for try_id in candidates:
-        if str(try_id) in known:
-            return try_id, {"id": try_id, "title": known[str(try_id)]}
 
     best_id = candidates[0] if candidates else gid
     return best_id, {}
@@ -485,9 +500,9 @@ def _prompt_select_group(api: TelegramAPI, chat_id: int, user_id: int) -> None:
     lang = get_user_lang(user_id)
     if not whitelisted:
         unauth_msg = {
-            "kh": "⛔ <b>គ្មានសិទ្ធិអនុញ្ញាត (Unauthorized)</b>\nសូមទាក់ទង Super Admin (@sinhong) ដើម្បីទទួលបានសិទ្ធិភ្ជាប់ក្រុម។",
-            "en": "⛔ <b>Unauthorized</b>\nPlease contact the Super Admin (@sinhong) to request group protection access.",
-            "both": "⛔ <b>គ្មានសិទ្ធិអនុញ្ញាត | Unauthorized</b>\nសូមទាក់ទង Super Admin (@sinhong) ដើម្បីទទួលបានសិទ្ធិភ្ជាប់ក្រុម (Please contact @sinhong for access)."
+            "kh": "⛔ <b>គ្មានសិទ្ធិអនុញ្ញាត (Unauthorized)</b>\nសូមទាក់ទង Super Admin (@Sin_Hong) ដើម្បីទទួលបានសិទ្ធិភ្ជាប់ក្រុម។",
+            "en": "⛔ <b>Unauthorized</b>\nPlease contact the Super Admin (@Sin_Hong) to request group protection access.",
+            "both": "⛔ <b>គ្មានសិទ្ធិអនុញ្ញាត | Unauthorized</b>\nសូមទាក់ទង Super Admin (@Sin_Hong) ដើម្បីទទួលបានសិទ្ធិភ្ជាប់ក្រុម (Please contact @Sin_Hong for access)."
         }.get(lang, "⛔ <b>Unauthorized</b>")
         api.send_message(chat_id, unauth_msg)
         return
@@ -553,28 +568,22 @@ def _prompt_select_group(api: TelegramAPI, chat_id: int, user_id: int) -> None:
 
     prompt_text = {
         "kh": (
-            "👥 <b>ភ្ជាប់ក្រុមថ្មីដើម្បីការពារ</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "👥 <b>ភ្ជាប់ក្រុមថ្មីដើម្បីការពារ</b>\n\n"
             "1️⃣ សូមចុចប៊ូតុង <b>[ 👥 ជ្រើសរើសក្រុមពី Telegram ]</b> ខាងក្រោម\n"
             "2️⃣ ជ្រើសរើសក្រុមដែលអ្នកជា Admin ហើយបាន Add Bot រួច\n"
-            "3️⃣ Bot នឹងចាប់យកក្រុមដោយស្វ័យប្រវត្ត (មិនបាច់ Copy ID ឡើយ!)\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            "3️⃣ Bot នឹងចាប់យកក្រុមដោយស្វ័យប្រវត្ត (មិនបាច់ Copy ID ឡើយ!)"
         ),
         "en": (
-            "👥 <b>Link & Protect New Group</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "👥 <b>Link & Protect New Group</b>\n\n"
             "1️⃣ Tap <b>[ 👥 Select Group from Telegram ]</b> below\n"
             "2️⃣ Select a group where you are Admin and Bot is added\n"
-            "3️⃣ The bot will link the group automatically (No ID needed!)\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            "3️⃣ The bot will link the group automatically (No ID needed!)"
         ),
         "both": (
-            "👥 <b>ភ្ជាប់ក្រុមថ្មីដើម្បីការពារ | Link & Protect Group</b>\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "👥 <b>ភ្ជាប់ក្រុមថ្មីដើម្បីការពារ | Link & Protect Group</b>\n\n"
             "1️⃣ សូមចុចប៊ូតុង <b>[ 👥 ជ្រើសរើសក្រុម | Select Group ]</b> ខាងក្រោម\n"
             "2️⃣ ជ្រើសរើសក្រុមដែលអ្នកជា Admin ហើយបាន Add Bot រួច\n"
-            "3️⃣ Bot នឹងចាប់យកក្រុមដោយស្វ័យប្រវត្ត (Automated zero-ID linking!)\n"
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            "3️⃣ Bot នឹងចាប់យកក្រុមដោយស្វ័យប្រវត្ត (Automated zero-ID linking!)"
         )
     }.get(lang, "Link & Protect Group")
 
@@ -609,9 +618,9 @@ def _handle_group_selected_for_linking(api: TelegramAPI, chat_id: int, user_id: 
         "both": "⏳ កំពុងដំណើរការ | Processing..."
     }.get(lang, "⏳ Processing...")
 
-    ack_res = api.send_message(chat_id, ack_text, reply_markup={"remove_keyboard": True})
-    if ack_res and ack_res.get("result") and ack_res["result"].get("message_id"):
-        kv_set(f"temp_link_msg:{chat_id}", str(ack_res["result"]["message_id"]), ttl=300)
+    ack_mid = api.send_message(chat_id, ack_text, reply_markup={"remove_keyboard": True})
+    if ack_mid:
+        kv_set(f"temp_link_msg:{chat_id}", str(ack_mid), ttl=300)
 
     # If the bot is not yet added to the group and get_chat could not find it:
     if not title:
@@ -674,26 +683,20 @@ def _handle_group_selected_for_linking(api: TelegramAPI, chat_id: int, user_id: 
 
     confirm_prompt = {
         "kh": (
-            f"🛡️ <b>បញ្ជាក់ការភ្ជាប់ក្រុម</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🛡️ <b>បញ្ជាក់ការភ្ជាប់ក្រុម</b>\n\n"
             f"👥 ក្រុម : {group_label}\n\n"
-            f"តើអ្នកពិតជាចង់បើកការការពារ ២៤/៧ សម្រាប់ក្រុមនេះមែនទេ?\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            f"តើអ្នកពិតជាចង់បើកការការពារ ២៤/៧ សម្រាប់ក្រុមនេះមែនទេ?"
         ),
         "en": (
-            f"🛡️ <b>Confirm Group Protection</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🛡️ <b>Confirm Group Protection</b>\n\n"
             f"👥 Group : {group_label}\n\n"
-            f"Are you sure you want to activate 24/7 protection for this group?\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            f"Are you sure you want to activate 24/7 protection for this group?"
         ),
         "both": (
-            f"🛡️ <b>បញ្ជាក់ការភ្ជាប់ក្រុម | Confirm Group Protection</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🛡️ <b>បញ្ជាក់ការភ្ជាប់ក្រុម | Confirm Group Protection</b>\n\n"
             f"👥 ក្រុម (Group) : {group_label}\n\n"
             f"តើអ្នកពិតជាចង់បើកការការពារ ២៤/៧ សម្រាប់ក្រុមនេះមែនទេ?\n"
-            f"<i>(Are you sure you want to activate 24/7 protection for this group?)</i>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            f"<i>(Are you sure you want to activate 24/7 protection for this group?)</i>"
         )
     }.get(lang, "Confirm Group Protection")
 
@@ -701,8 +704,8 @@ def _handle_group_selected_for_linking(api: TelegramAPI, chat_id: int, user_id: 
 
 
 def _build_group_settings_view(api: TelegramAPI, group_id: int) -> tuple[str, dict]:
-    chat = api.get_chat(group_id)
-    title = (chat or {}).get("title") or f"Group {group_id}"
+    real_gid, chat = _resolve_chat_id_and_info(api, group_id)
+    title = (chat or {}).get("title") or "ក្រុម (Group)"
 
     settings = get_group_settings(group_id)
     lang = settings.get("lang", config.DEFAULT_LANGUAGE)
@@ -719,9 +722,9 @@ def _build_group_settings_view(api: TelegramAPI, group_id: int) -> tuple[str, di
 
     text = (
         f"⚙️ <b>ការកំណត់សុវត្ថិភាពសម្រាប់ក្រុម / Group Settings:</b>\n"
-        f"📌 <b>{title}</b>\n\n"
+        f"📌 <b>{title}</b>\n"
         f"🔹 <b>ភាសា (Language):</b> {lang_display}\n"
-        f"🔹 <b>សារសុវត្ថិភាព (Safe Message):</b> {timer_display}\n\n"
+        f"🔹 <b>សារសុវត្ថិភាព (Safe Message):</b> {timer_display}\n"
         f"<i>ចុចប៊ូតុងខាងក្រោមដើម្បីកែប្រែការកំណត់ភ្លាមៗ៖</i>"
     )
 
@@ -758,8 +761,7 @@ ADMIN_COMMANDS = [
 INFO_TEXTS = {
     "terms": {
         "both": (
-            "📜 <b>លក្ខខណ្ឌនៃការប្រើប្រាស់ | Terms of Service</b>\n"
-            "\n"
+            "📜 <b>លក្ខខណ្ឌនៃការប្រើប្រាស់ | Terms of Service</b>\n\n"
             "សូមស្វាគមន៍មកកាន់ Songket (សង្កេត)។ ការប្រើប្រាស់ Bot នេះមានន័យថាអ្នកបានយល់ព្រមលើលក្ខខណ្ឌដូចខាងក្រោម៖\n"
             "1️⃣ គោលបំណង (Purpose):\n"
             "• Songket គឺជាជំនួយការស្វ័យប្រវត្តសម្រាប់ត្រួតពិនិត្យ និងវិភាគសុវត្ថិភាពតំណភ្ជាប់ (Links) និងឯកសារ (Files) ក្នុង Telegram។\n"
@@ -768,34 +770,31 @@ INFO_TEXTS = {
             "3️⃣ ការការពារទិន្នន័យ (Data Privacy):\n"
             "• ឯកសារទាំងអស់ដំណើរការជាបណ្ដោះអាសន្នក្នុង RAM និងលុបចេញភ្លាមៗ។ គ្មានឯកសារណារក្សាទុកជាអចិន្ត្រៃយ៍ឡើយ។\n"
             "4️⃣ បម្រាម (Prohibited Use):\n"
-            "• ហាមឃាត់ការប្រើប្រាស់សម្រាប់ធ្វើតេស្តគេចវេះមេរោគ (Evasion Testing) ឬសកម្មភាពបំពានច្បាប់។\n"
-            "\n🤖 Songket Security Team | ក្រុមការងារសង្កេត\n"
+            "• ហាមឃាត់ការប្រើប្រាស់សម្រាប់ធ្វើតេស្តគេចវេះមេរោគ (Evasion Testing) ឬសកម្មភាពបំពានច្បាប់។\n\n"
+            "🤖 Songket Security Team | ក្រុមការងារសង្កេត"
         ),
         "kh": (
-            "📜 <b>លក្ខខណ្ឌនៃការប្រើប្រាស់</b>\n"
-            "\n"
+            "📜 <b>លក្ខខណ្ឌនៃការប្រើប្រាស់</b>\n\n"
             "សូមស្វាគមន៍មកកាន់ Songket (សង្កេត)។ ការប្រើប្រាស់ Bot នេះមានន័យថាអ្នកបានយល់ព្រមលើលក្ខខណ្ឌដូចខាងក្រោម៖\n"
             "1️⃣ គោលបំណង: Songket ជួយត្រួតពិនិត្យ និងវិភាគសុវត្ថិភាពតំណភ្ជាប់ និងឯកសារក្នុង Telegram។\n"
             "2️⃣ ការកំណត់ការទទួលខុសត្រូវ: គ្មានប្រព័ន្ធណាធានាសុវត្ថិភាព ១០០% បានឡើយ។\n"
             "3️⃣ ការការពារទិន្នន័យ: ឯកសារដំណើរការជាបណ្ដោះអាសន្នក្នុង RAM ហើយលុបចេញភ្លាមៗ។\n"
-            "4️⃣ បម្រាម: ហាមប្រើសម្រាប់ធ្វើតេស្តគេចវេះមេរោគ ឬបំពានច្បាប់។\n"
-            "\n🤖 Songket Security Team | ក្រុមការងារសង្កេត"
+            "4️⃣ បម្រាម: ហាមប្រើសម្រាប់ធ្វើតេស្តគេចវេះមេរោគ ឬបំពានច្បាប់។\n\n"
+            "🤖 Songket Security Team | ក្រុមការងារសង្កេត"
         ),
         "en": (
-            "📜 <b>Terms of Service</b>\n"
-            "\n"
+            "📜 <b>Terms of Service</b>\n\n"
             "Welcome to Songket. By using this bot you agree to:\n"
             "1️⃣ Purpose: Songket is an automated assistant that scans links and files in Telegram.\n"
             "2️⃣ Disclaimer: No system guarantees 100% protection against new (zero-day) threats. We are not liable for damages or data loss.\n"
             "3️⃣ Data Privacy: Files are processed temporarily in RAM and deleted immediately. Nothing is stored permanently.\n"
-            "4️⃣ Prohibited Use: Evasion testing or illegal abuse is forbidden.\n"
-            "\n🤖 Songket Security Team"
+            "4️⃣ Prohibited Use: Evasion testing or illegal abuse is forbidden.\n\n"
+            "🤖 Songket Security Team"
         ),
     },
     "privacy": {
         "both": (
-            "🔒 <b>គោលការណ៍ភាពឯកជន | Privacy Policy</b>\n"
-            "\n"
+            "🔒 <b>គោលការណ៍ភាពឯកជន | Privacy Policy</b>\n\n"
             "ការការពារភាពឯកជនរបស់អ្នកគឺជាអាទិភាពចម្បងរបស់យើង៖\n"
             "🛡️ 1. ដំណើរការបណ្ដោះអាសន្ន (Ephemeral Processing):\n"
             "• ឯកសារ/តំណភ្ជាប់ត្រូវបានអានក្នុង RAM តែពេលស្កេន ហើយលុបភ្លាមៗក្រោយស្កេនចប់។\n"
@@ -804,33 +803,30 @@ INFO_TEXTS = {
             "📊 3. ទិន្នន័យស្ថិតិ (Anonymous Statistics):\n"
             "• កត់ត្រាតែចំនួនស្កេន, ចំនួនមេរោគទប់ស្កាត់, និង SHA-256 Hash សម្រាប់ Cache។\n"
             "🔐 4. ការសម្ងាត់គណនី (Identity Protection):\n"
-            "• Telegram ID មិនបង្ហាញជាសាធារណៈទេ (បង្ហាញតែ @username)។\n"
-            "\n🤖 Songket Security Team | ក្រុមការងារសង្កេត\n"
+            "• Telegram ID មិនបង្ហាញជាសាធារណៈទេ (បង្ហាញតែ @username)។\n\n"
+            "🤖 Songket Security Team | ក្រុមការងារសង្កេត"
         ),
         "kh": (
-            "🔒 <b>គោលការណ៍ភាពឯកជន</b>\n"
-            "\n"
+            "🔒 <b>គោលការណ៍ភាពឯកជន</b>\n\n"
             "1️⃣ ដំណើរការបណ្ដោះអាសន្ន: ឯកសារ/តំណភ្ជាប់អានក្នុង RAM តែពេលស្កេន រួចលុបភ្លាមៗ។\n"
             "2️⃣ គ្មានការរក្សាទុកឯកសារ: យើងមិនរក្សាទុកឯកសារ ឬសាររបស់អ្នកឡើយ។\n"
             "3️⃣ ទិន្នន័យស្ថិតិ: កត់ត្រាតែចំនួនស្កេន និង SHA-256 Hash សម្រាប់ Cache។\n"
-            "4️⃣ ការសម្ងាត់គណនី: Telegram ID មិនបង្ហាញជាសាធារណៈទេ។\n"
-            "\n🤖 Songket Security Team | ក្រុមការងារសង្កេត"
+            "4️⃣ ការសម្ងាត់គណនី: Telegram ID មិនបង្ហាញជាសាធារណៈទេ។\n\n"
+            "🤖 Songket Security Team | ក្រុមការងារសង្កេត"
         ),
         "en": (
-            "🔒 <b>Privacy Policy</b>\n"
-            "\n"
+            "🔒 <b>Privacy Policy</b>\n\n"
             "Your privacy is our priority:\n"
             "1️⃣ Ephemeral Processing: Files/links are read in RAM only during scanning, then deleted.\n"
             "2️⃣ Zero Permanent Storage: We never store your files or messages.\n"
             "3️⃣ Anonymous Statistics: Only scan counts and SHA-256 hashes (for cache) are kept.\n"
-            "4️⃣ Identity Protection: Your Telegram ID is never shown publicly (only @username).\n"
-            "\n🤖 Songket Security Team"
+            "4️⃣ Identity Protection: Your Telegram ID is never shown publicly (only @username).\n\n"
+            "🤖 Songket Security Team"
         ),
     },
     "help": {
         "both": (
-            "💡 <b>មគ្គុទ្ទេសក៍សុវត្ថិភាពសាយប័រ | Cyber Safety Guide</b>\n"
-            "\n"
+            "💡 <b>មគ្គុទ្ទេសក៍សុវត្ថិភាពសាយប័រ | Cyber Safety Guide</b>\n\n"
             "អនុសាសន៍ដើម្បីការពារខ្លួនពីការវាយប្រហារតាម Telegram៖\n"
             "⚠️ 1. ឯកសារ (File Safety):\n"
             "• កុំបើកឯកសារសង្ស័យ .exe, .bat, .scr, .zip, .rar, .apk, .js, .docm។\n"
@@ -839,25 +835,23 @@ INFO_TEXTS = {
             "🚨 3. បើបានចុចរួចហើយ (Incident Response):\n"
             "1️⃣ ផ្ដាច់ Internet ភ្លាមៗ\n"
             "2️⃣ ប្តូរពាក្យសម្ងាត់ពីឧបករណ៍ផ្សេង\n"
-            "3️⃣ Scan ដោយ Antivirus\n"
-            "\n🤖 Songket Security Team | ក្រុមការងារសង្កេត\n"
+            "3️⃣ Scan ដោយ Antivirus\n\n"
+            "🤖 Songket Security Team | ក្រុមការងារសង្កេត"
         ),
         "kh": (
-            "💡 <b>មគ្គុទ្ទេសក៍សុវត្ថិភាពសាយប័រ</b>\n"
-            "\n"
+            "💡 <b>មគ្គុទ្ទេសក៍សុវត្ថិភាពសាយប័រ</b>\n\n"
             "1️⃣ ឯកសារ: កុំបើកឯកសារសង្ស័យ .exe, .bat, .zip, .apk, .docm។\n"
             "2️⃣ តំណភ្ជាប់: កុំបំពេញ Password, OTP លើតំណមិនស្គាល់។\n"
-            "3️⃣ បើបានចុចរួច: ផ្ដាច់ Internet, ប្តូរពាក្យសម្ងាត់, Scan ដោយ Antivirus។\n"
-            "\n🤖 Songket Security Team | ក្រុមការងារសង្កេត"
+            "3️⃣ បើបានចុចរួច: ផ្ដាច់ Internet, ប្តូរពាក្យសម្ងាត់, Scan ដោយ Antivirus។\n\n"
+            "🤖 Songket Security Team | ក្រុមការងារសង្កេត"
         ),
         "en": (
-            "💡 <b>Cyber Safety Guide</b>\n"
-            "\n"
+            "💡 <b>Cyber Safety Guide</b>\n\n"
             "Protect yourself from Telegram attacks:\n"
             "1️⃣ Files: Don't open suspicious .exe, .bat, .zip, .apk, .docm.\n"
             "2️⃣ Links: Never enter passwords or OTP on unknown links.\n"
-            "3️⃣ If you clicked: Disconnect internet, change passwords from another device, scan with antivirus.\n"
-            "\n🤖 Songket Security Team"
+            "3️⃣ If you clicked: Disconnect internet, change passwords from another device, scan with antivirus.\n\n"
+            "🤖 Songket Security Team"
         ),
     },
     "guide": {
@@ -919,7 +913,7 @@ INFO_TEXTS = {
 }
 
 UNAUTHORIZED_TEXT = (
-    "🔒 <b>Unauthorized | គ្មានសិទ្ធិ</b>\n\n"
+    "🔒 <b>Unauthorized | គ្មានសិទ្ធិ</b>\n"
     "You are not whitelisted. Contact the admin to get access."
 )
 
@@ -1260,22 +1254,16 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
 
         success_msg = {
             "kh": (
-                f"✅ <b>ជោគជ័យ! ការការពារត្រូវបានបើកដំណើរការ</b>\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"👥 ក្រុម {group_label} ត្រូវបានភ្ជាប់ និងការពារ ២៤/៧ ដោយស្វ័យប្រវត្ត។\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                f"✅ <b>ជោគជ័យ! ការការពារត្រូវបានបើកដំណើរការ</b>\n\n"
+                f"👥 ក្រុម {group_label} ត្រូវបានភ្ជាប់ និងការពារ ២៤/៧ ដោយស្វ័យប្រវត្ត។"
             ),
             "en": (
-                f"✅ <b>Success! Protection Activated</b>\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"👥 Group {group_label} is now linked and protected 24/7.\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                f"✅ <b>Success! Protection Activated</b>\n\n"
+                f"👥 Group {group_label} is now linked and protected 24/7."
             ),
             "both": (
-                f"✅ <b>ជោគជ័យ! ការការពារត្រូវបានបើកដំណើរការ</b>\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"👥 ក្រុម {group_label} ត្រូវបានភ្ជាប់ និងការពារ ២៤/៧ ដោយស្វ័យប្រវត្ត (Protected 24/7).\n"
-                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                f"✅ <b>ជោគជ័យ! ការការពារត្រូវបានបើកដំណើរការ</b>\n\n"
+                f"👥 ក្រុម {group_label} ត្រូវបានភ្ជាប់ និងការពារ ២៤/៧ ដោយស្វ័យប្រវត្ត (Protected 24/7)."
             )
         }.get(lang, "Success! Protection Activated")
 
