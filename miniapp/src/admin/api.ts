@@ -41,11 +41,8 @@ export function getInitData(): string {
   const tg = getTelegramWebApp();
   if (tg?.initData) {
     _cachedInitData = tg.initData;
-    try { sessionStorage.setItem("songket_init_data", tg.initData); } catch {}
     return tg.initData;
   }
-
-  if (_cachedInitData) return _cachedInitData;
 
   if (typeof window !== "undefined") {
     // 1. Hash param fallback (e.g. #tgWebAppData=...)
@@ -55,7 +52,6 @@ export function getInitData(): string {
       const raw = params.get("tgWebAppData");
       if (raw) {
         _cachedInitData = raw;
-        try { sessionStorage.setItem("songket_init_data", raw); } catch {}
         return raw;
       }
     }
@@ -66,21 +62,12 @@ export function getInitData(): string {
       const raw = params.get("tgWebAppData");
       if (raw) {
         _cachedInitData = raw;
-        try { sessionStorage.setItem("songket_init_data", raw); } catch {}
         return raw;
       }
     }
-
-    // 3. Persistent across client-side route changes
-    try {
-      const saved = sessionStorage.getItem("songket_init_data");
-      if (saved) {
-        _cachedInitData = saved;
-        return saved;
-      }
-    } catch {}
   }
-  return "";
+
+  return _cachedInitData || "";
 }
 
 export function getTelegramUser() {
