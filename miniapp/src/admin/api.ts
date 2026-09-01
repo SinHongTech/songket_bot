@@ -97,17 +97,6 @@ export async function fetchDashboardData(days: number = 7): Promise<DashboardApi
   }
 
   const data: DashboardApiResponse = await response.json();
-
-  // Non-whitelisted users get preview/mock data only (no PIN, no real data).
-  if (data.preview) {
-    return {
-      authorized: true,
-      isMock: true,
-      user: data.user || mockUser,
-      dashboard: mockDashboardData(days),
-    };
-  }
-
   return data;
 }
 
@@ -162,6 +151,10 @@ export async function saveSystemConfig(config: {
 
 export async function savePlans(plans: Record<string, PlanEntry>) {
   return postAction({ action: "save_plans", plans });
+}
+
+export async function saveGroups(allowed_groups: number[]) {
+  return postAction({ action: "save_groups", allowed_groups });
 }
 
 export async function assignPlan(user_id: number, plan: string) {

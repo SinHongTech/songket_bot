@@ -24,6 +24,7 @@ try:
         pin_lock_seconds,
         record_pin_fail,
         reset_pin_fail,
+        save_allowed_groups,
         save_plan_catalog,
         save_system_config,
         set_subscription,
@@ -50,6 +51,7 @@ except ImportError:
         pin_lock_seconds,
         record_pin_fail,
         reset_pin_fail,
+        save_allowed_groups,
         save_plan_catalog,
         save_system_config,
         set_subscription,
@@ -171,6 +173,14 @@ class handler(BaseHTTPRequestHandler):
                 ok = save_system_config(whitelist, allowed_groups, group_handlers)
                 return self._json(200, {"ok": ok, "config": get_system_config()})
 
+            # Action: Save monitored groups (any authorized admin)
+            if body.get("action") == "save_groups":
+                if not (super_admin or uid in whitelist_ids()):
+                    return self._json(403, {"ok": False, "error": "Unauthorized"})
+                groups = [int(x) for x in body.get("allowed_groups", []) if str(x).strip()]
+                ok = save_allowed_groups(groups)
+                return self._json(200, {"ok": ok, "config": get_system_config()})
+
             # Action: Save plan catalog (Super Admin only)
             if body.get("action") == "save_plans":
                 if not super_admin:
@@ -211,7 +221,6 @@ class handler(BaseHTTPRequestHandler):
                     200,
                     {
                         "authorized": False,
-                        "preview": True,
                         "is_super_admin": False,
                         "user": {"id": uid, "first_name": user.get("first_name", ""), "username": user.get("username", "")},
                     },
