@@ -316,6 +316,7 @@ export default function AdminApp() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [apiData, setApiData] = useState<DashboardApiResponse | null>(null);
+  const [manageUnlocked, setManageUnlocked] = useState(false);
   const [days, setDays] = useState(7);
   const [homeDays, setHomeDays] = useState(7);
 
@@ -419,6 +420,7 @@ export default function AdminApp() {
 
   const handleLogout = () => {
     setSessionToken("");
+    setManageUnlocked(false);
     loadData(false, days);
   };
 
@@ -443,7 +445,25 @@ export default function AdminApp() {
     groups: <GroupsView dashboard={dashboard} lang={lang} />,
     threats: <ThreatsView dashboard={dashboard} lang={lang} days={days} onDaysChange={handleDaysChange} />,
     history: <HistoryView dashboard={dashboard} lang={lang} days={days} onDaysChange={handleDaysChange} />,
-    manage: <ManageView config={apiData?.config} plans={apiData?.plans} subscriptions={apiData?.subscriptions} lang={lang} isSuperAdmin={isSuperAdmin} onRefresh={() => loadData(true, days)} />,
+    manage: !manageUnlocked ? (
+      <PinGate
+        mode={apiData?.pin_exists ? "login" : "setup"}
+        locked={apiData?.locked || 0}
+        lang={lang}
+        onSuccess={() => {
+          setManageUnlocked(true);
+        }}
+      />
+    ) : (
+      <ManageView
+        config={apiData?.config}
+        plans={apiData?.plans}
+        subscriptions={apiData?.subscriptions}
+        lang={lang}
+        isSuperAdmin={isSuperAdmin}
+        onRefresh={() => loadData(true, days)}
+      />
+    ),
     account: <AccountView user={user} dashboard={dashboard} dark={dark} setDark={setDark} lang={lang} setLang={setLang} />,
   };
 
@@ -587,8 +607,6 @@ export default function AdminApp() {
               <span className={kh(lang)}>{tx.retry}</span>
             </button>
           </div>
-        ) : apiData?.pin_status ? (
-          <PinGate mode={apiData.pin_status} locked={apiData.locked || 0} lang={lang} onSuccess={() => loadData(false, days)} />
         ) : apiData && !apiData.authorized ? (
           <div style={{ background: G.surface, border: `1px solid ${G.goldBorder}`, borderRadius: 16, padding: "28px 20px", textAlign: "center" }}>
             <ShieldAlert size={40} color={G.warn} style={{ marginBottom: 14 }} />

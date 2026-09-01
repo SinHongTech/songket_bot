@@ -59,6 +59,7 @@ export interface DashboardApiResponse {
   plans?: Record<string, PlanEntry> | null;
   subscriptions?: Subscription[] | null;
   pin_status?: "setup" | "login";
+  pin_exists?: boolean;
   locked?: number;
   attempts?: number;
   session?: string;
