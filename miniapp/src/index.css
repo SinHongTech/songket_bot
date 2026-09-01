@@ -194,8 +194,16 @@ html, body, #root {
   margin: 0;
   border-radius: 16px;
   border: 1px solid rgba(212,167,44,0.3);
-  background: #0f0a02;
-  box-shadow: 0 4px 32px rgba(0,0,0,0.18);
+  background: var(--surface);
+  box-shadow: 0 4px 32px rgba(0,0,0,0.08);
+}
+[data-theme="light"] .how-vscan-line {
+  opacity: 0.3;
+}
+[data-theme="light"] .circuit-dot,
+[data-theme="light"] .circuit-dot-b,
+[data-theme="light"] .circuit-dot-c {
+  opacity: 0.15;
 }
 
 .how-phone-card {

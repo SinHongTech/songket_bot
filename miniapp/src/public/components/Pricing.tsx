@@ -9,9 +9,9 @@ interface PricingProps {
 
 export default function Pricing({ t, isKm, bodyFont }: PricingProps) {
   const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
-  const [tab, setTab] = useState<"personal" | "business">("personal");
+  const [tab, setTab] = useState<"business" | "personal">("business");
 
-  const plans = tab === "personal" ? t.personalPlans : t.businessPlans;
+  const plans = tab === "business" ? t.businessPlans : t.personalPlans;
 
   return (
     <section id="pricing" style={{ paddingBottom: 40 }}>

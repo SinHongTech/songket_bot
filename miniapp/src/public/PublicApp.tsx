@@ -1,4 +1,4 @@
-import { useState, useLayoutEffect, useRef } from "react";
+import { useState, useLayoutEffect, useEffect, useRef } from "react";
 import { Sun, Moon, Globe, ChevronDown, LayoutDashboard } from "lucide-react";
 import LogoMark from "@/shared/components/LogoMark";
 import { T, type Lang } from "@/public/i18n";
@@ -12,7 +12,12 @@ import LogoSplash from "@/public/components/LogoSplash";
 import FAQ from "@/public/components/FAQ";
 
 export default function PublicApp() {
-  const [lang, setLang] = useState<Lang>("en");
+  const [lang, setLang] = useState<Lang>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("songket.lang") === "km" ? "km" : "en";
+    }
+    return "en";
+  });
   const [dark, setDark] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsRef = useRef<HTMLDivElement>(null);
@@ -23,6 +28,10 @@ export default function PublicApp() {
   useLayoutEffect(() => {
     document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
   }, [dark]);
+
+  useEffect(() => {
+    localStorage.setItem("songket.lang", lang);
+  }, [lang]);
 
   useLayoutEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -88,7 +97,7 @@ export default function PublicApp() {
       <div style={{ maxWidth: 480, margin: "0 auto", padding: "0 18px 60px" }}>
         <Hero t={t} isKm={isKm} bodyFont={bodyFont} onScrollTo={scrollTo} />
         <Features t={t} isKm={isKm} bodyFont={bodyFont} />
-        <HowItWorks t={t} isKm={isKm} bodyFont={bodyFont} />
+        <HowItWorks t={t} isKm={isKm} bodyFont={bodyFont} dark={dark} />
         <Pricing t={t} isKm={isKm} bodyFont={bodyFont} />
         <About t={t} isKm={isKm} bodyFont={bodyFont} />
         <FAQ t={t} isKm={isKm} bodyFont={bodyFont} />

@@ -7,6 +7,7 @@ interface HowItWorksProps {
   t: any;
   isKm: boolean;
   bodyFont: string;
+  dark: boolean;
 }
 
 /* ─── Phone screen content: step 1 ─── */
@@ -680,8 +681,16 @@ const STEPS_KM = [
   { label: "ការគ្រប់គ្រង", desc: "មើលប្រវត្តិស្កែន ការគំរាម និងស្ថានភាពក្រុម ពីផ្ទាំងគ្រប់គ្រង Songket Admin។" },
 ];
 
-/* ── Decorative circuit-board background ── */
-function CircuitBg() {
+function CircuitBg({ dark }: { dark: boolean }) {
+  const c = dark ? "#D4A72C" : "#b08a20";
+  const op1 = dark ? 0.35 : 0.18;
+  const op2 = dark ? 0.2 : 0.1;
+  const op3 = dark ? 0.15 : 0.08;
+  const op4 = dark ? 0.5 : 0.25;
+  const op5 = dark ? 0.4 : 0.2;
+  const op6 = dark ? 0.3 : 0.15;
+  const op7 = dark ? 0.25 : 0.12;
+  const op8 = dark ? 0.1 : 0.05;
   return (
     <svg
       viewBox="0 0 480 560"
@@ -689,68 +698,68 @@ function CircuitBg() {
       style={{ position: "absolute", inset: 0, width: "100%", height: "100%", pointerEvents: "none" }}
     >
       {/* Top-left corner bracket */}
-      <polyline points="0,60 0,10 50,10" fill="none" stroke="#D4A72C" strokeWidth="1" opacity="0.35" />
-      <polyline points="0,90 0,10 80,10" fill="none" stroke="#D4A72C" strokeWidth="0.5" opacity="0.2" />
-      <line x1="50" y1="10" x2="80" y2="10" stroke="#D4A72C" strokeWidth="0.5" opacity="0.2" />
-      <line x1="80" y1="10" x2="80" y2="30" stroke="#D4A72C" strokeWidth="0.5" opacity="0.2" />
-      <line x1="30" y1="10" x2="30" y2="40" stroke="#D4A72C" strokeWidth="0.5" opacity="0.2" />
-      <circle cx="30" cy="40" r="2.5" fill="#D4A72C" opacity="0.5" className="circuit-dot" />
-      <circle cx="80" cy="30" r="2" fill="#D4A72C" opacity="0.4" className="circuit-dot-b" />
-      <line x1="0" y1="130" x2="40" y2="130" stroke="#D4A72C" strokeWidth="0.5" opacity="0.18" />
-      <line x1="40" y1="130" x2="40" y2="110" stroke="#D4A72C" strokeWidth="0.5" opacity="0.18" />
-      <circle cx="40" cy="110" r="2" fill="#D4A72C" opacity="0.3" className="circuit-dot-c" />
+      <polyline points="0,60 0,10 50,10" fill="none" stroke={c} strokeWidth="1" opacity={op1} />
+      <polyline points="0,90 0,10 80,10" fill="none" stroke={c} strokeWidth="0.5" opacity={op2} />
+      <line x1="50" y1="10" x2="80" y2="10" stroke={c} strokeWidth="0.5" opacity={op2} />
+      <line x1="80" y1="10" x2="80" y2="30" stroke={c} strokeWidth="0.5" opacity={op2} />
+      <line x1="30" y1="10" x2="30" y2="40" stroke={c} strokeWidth="0.5" opacity={op2} />
+      <circle cx="30" cy="40" r="2.5" fill={c} opacity={op4} className="circuit-dot" />
+      <circle cx="80" cy="30" r="2" fill={c} opacity={op5} className="circuit-dot-b" />
+      <line x1="0" y1="130" x2="40" y2="130" stroke={c} strokeWidth="0.5" opacity={op3} />
+      <line x1="40" y1="130" x2="40" y2="110" stroke={c} strokeWidth="0.5" opacity={op3} />
+      <circle cx="40" cy="110" r="2" fill={c} opacity={op6} className="circuit-dot-c" />
 
       {/* Top-right corner bracket */}
-      <polyline points="480,60 480,10 430,10" fill="none" stroke="#D4A72C" strokeWidth="1" opacity="0.35" />
-      <polyline points="480,90 480,10 400,10" fill="none" stroke="#D4A72C" strokeWidth="0.5" opacity="0.2" />
-      <line x1="400" y1="10" x2="400" y2="30" stroke="#D4A72C" strokeWidth="0.5" opacity="0.2" />
-      <line x1="450" y1="10" x2="450" y2="40" stroke="#D4A72C" strokeWidth="0.5" opacity="0.2" />
-      <circle cx="450" cy="40" r="2.5" fill="#D4A72C" opacity="0.5" className="circuit-dot-b" />
-      <circle cx="400" cy="30" r="2" fill="#D4A72C" opacity="0.4" className="circuit-dot" />
-      <line x1="480" y1="130" x2="440" y2="130" stroke="#D4A72C" strokeWidth="0.5" opacity="0.18" />
-      <line x1="440" y1="130" x2="440" y2="110" stroke="#D4A72C" strokeWidth="0.5" opacity="0.18" />
-      <circle cx="440" cy="110" r="2" fill="#D4A72C" opacity="0.3" className="circuit-dot-c" />
+      <polyline points="480,60 480,10 430,10" fill="none" stroke={c} strokeWidth="1" opacity={op1} />
+      <polyline points="480,90 480,10 400,10" fill="none" stroke={c} strokeWidth="0.5" opacity={op2} />
+      <line x1="400" y1="10" x2="400" y2="30" stroke={c} strokeWidth="0.5" opacity={op2} />
+      <line x1="450" y1="10" x2="450" y2="40" stroke={c} strokeWidth="0.5" opacity={op2} />
+      <circle cx="450" cy="40" r="2.5" fill={c} opacity={op4} className="circuit-dot-b" />
+      <circle cx="400" cy="30" r="2" fill={c} opacity={op5} className="circuit-dot" />
+      <line x1="480" y1="130" x2="440" y2="130" stroke={c} strokeWidth="0.5" opacity={op3} />
+      <line x1="440" y1="130" x2="440" y2="110" stroke={c} strokeWidth="0.5" opacity={op3} />
+      <circle cx="440" cy="110" r="2" fill={c} opacity={op6} className="circuit-dot-c" />
 
       {/* Bottom-left corner bracket */}
-      <polyline points="0,500 0,550 50,550" fill="none" stroke="#D4A72C" strokeWidth="1" opacity="0.35" />
-      <line x1="30" y1="550" x2="30" y2="520" stroke="#D4A72C" strokeWidth="0.5" opacity="0.2" />
-      <circle cx="30" cy="520" r="2.5" fill="#D4A72C" opacity="0.5" className="circuit-dot-c" />
-      <line x1="0" y1="430" x2="40" y2="430" stroke="#D4A72C" strokeWidth="0.5" opacity="0.18" />
-      <line x1="40" y1="430" x2="40" y2="450" stroke="#D4A72C" strokeWidth="0.5" opacity="0.18" />
-      <circle cx="40" cy="450" r="2" fill="#D4A72C" opacity="0.3" className="circuit-dot" />
+      <polyline points="0,500 0,550 50,550" fill="none" stroke={c} strokeWidth="1" opacity={op1} />
+      <line x1="30" y1="550" x2="30" y2="520" stroke={c} strokeWidth="0.5" opacity={op2} />
+      <circle cx="30" cy="520" r="2.5" fill={c} opacity={op6} className="circuit-dot-c" />
+      <line x1="0" y1="430" x2="40" y2="430" stroke={c} strokeWidth="0.5" opacity={op3} />
+      <line x1="40" y1="430" x2="40" y2="450" stroke={c} strokeWidth="0.5" opacity={op3} />
+      <circle cx="40" cy="450" r="2" fill={c} opacity={op6} className="circuit-dot" />
 
       {/* Bottom-right corner bracket */}
-      <polyline points="480,500 480,550 430,550" fill="none" stroke="#D4A72C" strokeWidth="1" opacity="0.35" />
-      <line x1="450" y1="550" x2="450" y2="520" stroke="#D4A72C" strokeWidth="0.5" opacity="0.2" />
-      <circle cx="450" cy="520" r="2.5" fill="#D4A72C" opacity="0.5" className="circuit-dot" />
-      <line x1="480" y1="430" x2="440" y2="430" stroke="#D4A72C" strokeWidth="0.5" opacity="0.18" />
-      <line x1="440" y1="430" x2="440" y2="450" stroke="#D4A72C" strokeWidth="0.5" opacity="0.18" />
-      <circle cx="440" cy="450" r="2" fill="#D4A72C" opacity="0.3" className="circuit-dot-b" />
+      <polyline points="480,500 480,550 430,550" fill="none" stroke={c} strokeWidth="1" opacity={op1} />
+      <line x1="450" y1="550" x2="450" y2="520" stroke={c} strokeWidth="0.5" opacity={op2} />
+      <circle cx="450" cy="520" r="2.5" fill={c} opacity={op4} className="circuit-dot" />
+      <line x1="480" y1="430" x2="440" y2="430" stroke={c} strokeWidth="0.5" opacity={op3} />
+      <line x1="440" y1="430" x2="440" y2="450" stroke={c} strokeWidth="0.5" opacity={op3} />
+      <circle cx="440" cy="450" r="2" fill={c} opacity={op6} className="circuit-dot-b" />
 
       {/* Mid-left circuit traces */}
-      <line x1="0" y1="280" x2="55" y2="280" stroke="#D4A72C" strokeWidth="0.5" opacity="0.15" />
-      <line x1="55" y1="280" x2="55" y2="260" stroke="#D4A72C" strokeWidth="0.5" opacity="0.15" />
-      <circle cx="55" cy="260" r="2" fill="#D4A72C" opacity="0.3" className="circuit-dot-b" />
-      <line x1="0" y1="310" x2="35" y2="310" stroke="#D4A72C" strokeWidth="0.5" opacity="0.1" />
+      <line x1="0" y1="280" x2="55" y2="280" stroke={c} strokeWidth="0.5" opacity={op8} />
+      <line x1="55" y1="280" x2="55" y2="260" stroke={c} strokeWidth="0.5" opacity={op8} />
+      <circle cx="55" cy="260" r="2" fill={c} opacity={op6} className="circuit-dot-b" />
+      <line x1="0" y1="310" x2="35" y2="310" stroke={c} strokeWidth="0.5" opacity={op8} />
 
       {/* Mid-right circuit traces */}
-      <line x1="480" y1="280" x2="425" y2="280" stroke="#D4A72C" strokeWidth="0.5" opacity="0.15" />
-      <line x1="425" y1="280" x2="425" y2="260" stroke="#D4A72C" strokeWidth="0.5" opacity="0.15" />
-      <circle cx="425" cy="260" r="2" fill="#D4A72C" opacity="0.3" className="circuit-dot-c" />
-      <line x1="480" y1="310" x2="445" y2="310" stroke="#D4A72C" strokeWidth="0.5" opacity="0.1" />
+      <line x1="480" y1="280" x2="425" y2="280" stroke={c} strokeWidth="0.5" opacity={op8} />
+      <line x1="425" y1="280" x2="425" y2="260" stroke={c} strokeWidth="0.5" opacity={op8} />
+      <circle cx="425" cy="260" r="2" fill={c} opacity={op6} className="circuit-dot-c" />
+      <line x1="480" y1="310" x2="445" y2="310" stroke={c} strokeWidth="0.5" opacity={op8} />
 
       {/* Scattered micro-dots */}
-      <circle cx="100" cy="50" r="1.5" fill="#D4A72C" opacity="0.25" className="circuit-dot-b" />
-      <circle cx="380" cy="50" r="1.5" fill="#D4A72C" opacity="0.25" className="circuit-dot" />
-      <circle cx="60" cy="200" r="1.5" fill="#D4A72C" opacity="0.2" className="circuit-dot-c" />
-      <circle cx="420" cy="200" r="1.5" fill="#D4A72C" opacity="0.2" className="circuit-dot-b" />
-      <circle cx="70" cy="380" r="1.5" fill="#D4A72C" opacity="0.2" className="circuit-dot" />
-      <circle cx="410" cy="380" r="1.5" fill="#D4A72C" opacity="0.2" className="circuit-dot-c" />
+      <circle cx="100" cy="50" r="1.5" fill={c} opacity={op7} className="circuit-dot-b" />
+      <circle cx="380" cy="50" r="1.5" fill={c} opacity={op7} className="circuit-dot" />
+      <circle cx="60" cy="200" r="1.5" fill={c} opacity={op7} className="circuit-dot-c" />
+      <circle cx="420" cy="200" r="1.5" fill={c} opacity={op7} className="circuit-dot-b" />
+      <circle cx="70" cy="380" r="1.5" fill={c} opacity={op7} className="circuit-dot" />
+      <circle cx="410" cy="380" r="1.5" fill={c} opacity={op7} className="circuit-dot-c" />
     </svg>
   );
 }
 
-export default function HowItWorks({ t, isKm, bodyFont }: HowItWorksProps) {
+export default function HowItWorks({ t, isKm, bodyFont, dark }: HowItWorksProps) {
   const [active, setActive] = useState(0);
   const steps = isKm ? STEPS_KM : STEPS_EN;
   const total = CONTENTS.length;
@@ -778,7 +787,7 @@ export default function HowItWorks({ t, isKm, bodyFont }: HowItWorksProps) {
       <div className="how-panel">
 
         {/* Circuit board background */}
-        <CircuitBg />
+        <CircuitBg dark={dark} />
 
         {/* Horizontal scanner line */}
         <div className="how-vscan-line" />
@@ -793,7 +802,9 @@ export default function HowItWorks({ t, isKm, bodyFont }: HowItWorksProps) {
           width: 320,
           height: 440,
           borderRadius: "50%",
-          background: "radial-gradient(ellipse at center, rgba(212,167,44,0.22) 0%, rgba(212,167,44,0.06) 45%, transparent 70%)",
+          background: dark
+            ? "radial-gradient(ellipse at center, rgba(212,167,44,0.22) 0%, rgba(212,167,44,0.06) 45%, transparent 70%)"
+            : "radial-gradient(ellipse at center, rgba(212,167,44,0.15) 0%, rgba(212,167,44,0.04) 45%, transparent 70%)",
           pointerEvents: "none",
           zIndex: 1,
         }} />
@@ -821,7 +832,9 @@ export default function HowItWorks({ t, isKm, bodyFont }: HowItWorksProps) {
                 <div style={{
                   fontSize: 9,
                   fontWeight: 700,
-                  color: isCurrent ? "#D4A72C" : "rgba(212,167,44,0.5)",
+                  color: isCurrent
+                    ? "#D4A72C"
+                    : dark ? "rgba(212,167,44,0.5)" : "rgba(180,140,30,0.4)",
                   letterSpacing: "0.1em",
                   fontFamily: bodyFont,
                   whiteSpace: "nowrap",
@@ -856,12 +869,20 @@ export default function HowItWorks({ t, isKm, bodyFont }: HowItWorksProps) {
                   width: 230,
                   borderRadius: 40,
                   border: isCurrent
-                    ? "2px solid rgba(212,167,44,0.75)"
-                    : "1.5px solid rgba(212,167,44,0.18)",
-                  background: "#060400",
+                    ? dark
+                      ? "2px solid rgba(212,167,44,0.75)"
+                      : "2px solid rgba(180,140,30,0.6)"
+                    : dark
+                      ? "1.5px solid rgba(212,167,44,0.18)"
+                      : "1.5px solid rgba(180,140,30,0.25)",
+                  background: dark ? "#060400" : "#1a1610",
                   boxShadow: isCurrent
-                    ? "0 0 0 1px rgba(212,167,44,0.15), 0 0 50px rgba(212,167,44,0.5), 0 0 100px rgba(212,167,44,0.18), 0 20px 60px rgba(0,0,0,0.6)"
-                    : "0 8px 32px rgba(0,0,0,0.7)",
+                    ? dark
+                      ? "0 0 0 1px rgba(212,167,44,0.15), 0 0 50px rgba(212,167,44,0.5), 0 0 100px rgba(212,167,44,0.18), 0 20px 60px rgba(0,0,0,0.6)"
+                      : "0 0 0 1px rgba(212,167,44,0.1), 0 0 40px rgba(212,167,44,0.2), 0 12px 40px rgba(0,0,0,0.15)"
+                    : dark
+                      ? "0 8px 32px rgba(0,0,0,0.7)"
+                      : "0 8px 24px rgba(0,0,0,0.12)",
                   opacity: pos.opacity,
                   zIndex: pos.z,
                   cursor: isCurrent ? "default" : "pointer",
@@ -892,8 +913,8 @@ export default function HowItWorks({ t, isKm, bodyFont }: HowItWorksProps) {
             onClick={() => setActive(a => (a - 1 + total) % total)}
             style={{
               width: 44, height: 44, borderRadius: "50%",
-              border: "1.5px solid rgba(212,167,44,0.5)",
-              background: "rgba(212,167,44,0.18)",
+              border: dark ? "1.5px solid rgba(212,167,44,0.5)" : "1.5px solid rgba(180,140,30,0.4)",
+              background: dark ? "rgba(212,167,44,0.18)" : "rgba(180,140,30,0.1)",
               color: "#D4A72C",
               cursor: "pointer",
               display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
@@ -907,7 +928,7 @@ export default function HowItWorks({ t, isKm, bodyFont }: HowItWorksProps) {
               <button
                 key={i}
                 onClick={() => setActive(i)}
-                style={{ width: i === active ? 22 : 7, height: 7, borderRadius: 4, border: "none", background: i === active ? "#D4A72C" : "rgba(212,167,44,0.25)", cursor: "pointer", padding: 0 }}
+                style={{ width: i === active ? 22 : 7, height: 7, borderRadius: 4, border: "none", background: i === active ? "#D4A72C" : dark ? "rgba(212,167,44,0.25)" : "rgba(180,140,30,0.25)", cursor: "pointer", padding: 0 }}
               />
             ))}
           </div>
@@ -916,8 +937,8 @@ export default function HowItWorks({ t, isKm, bodyFont }: HowItWorksProps) {
             onClick={() => setActive(a => (a + 1) % total)}
             style={{
               width: 44, height: 44, borderRadius: "50%",
-              border: "1.5px solid rgba(212,167,44,0.5)",
-              background: "rgba(212,167,44,0.18)",
+              border: dark ? "1.5px solid rgba(212,167,44,0.5)" : "1.5px solid rgba(180,140,30,0.4)",
+              background: dark ? "rgba(212,167,44,0.18)" : "rgba(180,140,30,0.1)",
               color: "#D4A72C",
               cursor: "pointer",
               display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,

@@ -72,7 +72,7 @@ const en = {
       badge: null,
       cta: "Get Started",
       groups: "2 GROUPS",
-      features: ["2 Telegram group", "Up to 400 scans / month", "File $ link scanning",  "Dashboard", "7-day scan history","Community support",],
+      features: ["2 Telegram group", "Up to 400 scans / month", "File $ link scanning",  "Dashboard", "30-day scan history","Community support",],
     },
     {
       id: "group_pro",
@@ -83,7 +83,7 @@ const en = {
       badge: "MOST POPULAR",
       cta: "Upgrade to Pro",
       groups: "5 GROUPS",
-      features: ["5 Telegram groups", "Up to 1000 scans / month", "File + link scanning", "Dashboard", "30-day scan history","Priority support"],
+      features: ["5 Telegram groups", "Up to 1000 scans / month", "File + link scanning", "Dashboard", "60-day scan history","Priority support"],
     },
     {
       id: "group_premium",
@@ -103,7 +103,7 @@ const en = {
   faq: [
     {
       q: "How accurate is Songket Bot?",
-      a: "Songket achieves over 97% detection accuracy on phishing URLs and known malware signatures, validated against Cambodia-specific threat datasets. False positives are rare and can be reported for quick review.",
+      a: "Songket achieves over 95% detection accuracy on phishing URLs and known malware signatures, validated against Cambodia-specific threat datasets. False positives are rare and can be reported for quick review.",
     },
     {
       q: "Does Songket read private messages?",
@@ -113,13 +113,16 @@ const en = {
       q: "What happens when a threat is detected?",
       a: "The malicious message or file is deleted instantly. The sender receives a warning, and the incident is logged in your admin dashboard for full audit history.",
     },
+
+    
     {
-      q: "Can I customize what Songket blocks?",
-      a: "Yes. Pro and Enterprise plans let you configure custom block rules, whitelist trusted domains, and adjust sensitivity levels per group.",
+      q: "What is a false positive, and why does Songket flag safe content?",
+      a: "A false positive happens when Songket mistakenly detects safe content as malicious. This can happen with new websites, trusted files containing suspicious code, or shortened and redirected links.",
     },
+
     {
-      q: "Is Songket compliant with Telegram's policies?",
-      a: "Absolutely. Songket uses only the official Telegram Bot API, respects all rate limits, and does not violate Telegram's Terms of Service.",
+      q: "Does Songket read and collect user group personal message ? ",
+      a: "No. Songket does not read, log, store, or profile regular user conversations, chat histories, or personal text messages.",
     },
   ],
 };
@@ -188,7 +191,7 @@ const km: typeof en = {
       badge: null, 
       cta: "ចាប់ផ្តើម", 
       groups: "២ ក្រុម", 
-      features: [ "ក្រុម Telegram ២", "ស្កែនរហូតដល់ ៤០០ ដង/ខែ", "ស្កែនឯកសារ និងតំណភ្ជាប់",  "ផ្ទាំងគ្រប់គ្រង", "ប្រវត្តិស្កែន ៧ ថ្ងៃ","ការគាំទ្រពីសហគមន៍", ], },
+      features: [ "ក្រុម Telegram ២", "ស្កែនរហូតដល់ ៤០០ ដង/ខែ", "ស្កែនឯកសារ និងតំណភ្ជាប់",  "ផ្ទាំងគ្រប់គ្រង", "ប្រវត្តិស្កែន ៣០ ថ្ងៃ","ការគាំទ្រពីសហគមន៍", ], },
     { id: "pro", 
       name: "វិជ្ជាជីវៈ", 
       price: "$18.99", 
@@ -197,7 +200,7 @@ const km: typeof en = {
       badge: "ពេញនិយមបំផុត", 
       cta: "ដំឡើងទៅ Pro", 
       groups: "រហូតដល់ ៥ ក្រុម", 
-      features: [ "ក្រុម Telegram ៥", "ស្កែនរហូតដល់ ១០០០ ដង/ខែ", "ស្កែនឯកសារ និងមេឌៀ", "ផ្ទាំងគ្រប់គ្រង","ប្រវត្តិស្កែន ៣០ ថ្ងៃ","ការគាំទ្រជាអាទិភាព", ], },
+      features: [ "ក្រុម Telegram ៥", "ស្កែនរហូតដល់ ១០០០ ដង/ខែ", "ស្កែនឯកសារ និងមេឌៀ", "ផ្ទាំងគ្រប់គ្រង","ប្រវត្តិស្កែន ៦០ ថ្ងៃ","ការគាំទ្រជាអាទិភាព", ], },
     { 
       id: "premium", 
       name: "ពិសេស", 
@@ -211,28 +214,34 @@ const km: typeof en = {
   selected: "បានជ្រើសរើស",
   pricing_privacy: "មិនត្រូវការប័ណ្ណឥណទាន · បោះបង់ពេលណាក៏បាន · សាកល្បង Pro ១៤ ថ្ងៃ",
   faq_h: "សំណួរដែលសួរញឹកញាប់",
-  faq: [
-    {
-      q: "Songket Bot មានភាពត្រឹមត្រូវប៉ុណ្ណា?",
-      a: "Songket досяга លើស ៩៧% នៃភាពត្រឹមត្រូវក្នុងការរកឃើញ URL បន្លំ និងហត្ថលេខា malware ដែលបានបញ្ជាក់ប្រឆាំងនឹងទិន្នន័យការគំរាមកំហែងពិសេសសម្រាប់កម្ពុជា។",
-    },
-    {
-      q: "តើ Songket អានសារឯកជនទេ?",
-      a: "ទេ។ Songket ដំណើរការតែសារដែលផ្ញើក្នុងក្រុមដែលវាត្រូវបានបន្ថែមជាអ្នកគ្រប់គ្រង។ វាមិនអានការជជែកឯកជន ឬរក្សាទុកមាតិកាសារ ក្រៅពីលទ្ធផលស្កែនទេ។",
-    },
-    {
-      q: "តើអ្វីកើតឡើងនៅពេលរកឃើញការគំរាមកំហែង?",
-      a: "សារ ឬឯកសារព្យាបាទត្រូវបានលុបភ្លាមៗ។ អ្នកផ្ញើទទួលការព្រមាន ហើយឧប្បត្តិហេតុត្រូវបានកត់ត្រានៅក្នុងផ្ទាំងគ្រប់គ្រងរបស់អ្នក។",
-    },
-    {
-      q: "តើខ្ញុំអាចប្ដូរអ្វីដែល Songket ទប់ស្កាត់?",
-      a: "បាន។ គម្រោង Pro និង Enterprise អនុញ្ញាតឱ្យអ្នកកំណត់ច្បាប់ block ផ្ទាល់ខ្លួន បញ្ជីស្ថានដែនដែលទុកចិត្ត និងកំណត់កម្រិតដូចគ្នាក្នុងមួយក្រុម។",
-    },
-    {
-      q: "តើ Songket អនុលោមតាមគោលការណ៍ Telegram?",
-      a: "ពិតប្រាកដ។ Songket ប្រើតែ Telegram Bot API ផ្លូវការ គោរពដែនកំណត់អត្រា និងមិនបំពានលក្ខខណ្ឌសេវាកម្ម Telegram ទេ។",
-    },
-  ],
+
+faq: [
+  {
+    q: "តើ Songket Bot មានភាពត្រឹមត្រូវកម្រិតណា?",
+    a: "Songket មានភាពត្រឹមត្រូវជាង 95% ក្នុងការរកឃើញតំណភ្ជាប់បន្លំ (Phishing) និងមេរោគដែលមានក្នុងមូលដ្ឋានទិន្នន័យ។ ប្រសិនបើមានការរកឃើញខុស អ្នកអាចរាយការណ៍ ដើម្បីឱ្យយើងពិនិត្យបានរហ័ស។",
+  },
+
+  {
+    q: "តើ Songket អានសារឯកជនរបស់ខ្ញុំទេ?",
+    a: "ទេ។ Songket ដំណើរការតែសារដែលបានផ្ញើក្នុងក្រុមដែលបានបន្ថែម Songket ជា Admin ប៉ុណ្ណោះ។ វាមិនអានសារឯកជន ឬរក្សាទុកខ្លឹមសារសាររបស់អ្នកក្រៅពីលទ្ធផលស្កែនឡើយ។",
+  },
+
+  {
+    q: "តើមានអ្វីកើតឡើងនៅពេលរកឃើញការគំរាមកំហែង?",
+    a: "សារឬឯកសារដែលមានមេរោគនឹងត្រូវបានលុបភ្លាមៗ។ អ្នកផ្ញើនឹងទទួលបានការព្រមាន ហើយព័ត៌មានអំពីហេតុការណ៍នឹងត្រូវបានកត់ត្រានៅក្នុងផ្ទាំងគ្រប់គ្រងរបស់ Admin ដើម្បីអាចពិនិត្យប្រវត្តិបាន។",
+  },
+
+  {
+    q: "តើ False Positive ជាអ្វី ហើយហេតុអ្វី Songket សម្គាល់មាតិកាដែលមានសុវត្ថិភាព?",
+    a: "False Positive គឺជាករណីដែល Songket ច្រឡំចាត់ទុកមាតិកាដែលមានសុវត្ថិភាពថាជាមេរោគ។ វាអាចកើតឡើងជាមួយគេហទំព័រថ្មី ឯកសារដែលមានកូដគួរឱ្យសង្ស័យ ឬតំណភ្ជាប់ខ្លី និងតំណភ្ជាប់ដែលបញ្ជូនបន្ត។",
+  },
+
+  {
+    q: "តើ Songket អាន និងប្រមូលសារផ្ទាល់ខ្លួនរបស់អ្នកប្រើក្នុងក្រុមទេ?",
+    a: "ទេ។ Songket មិនអាន កត់ត្រា រក្សាទុក ឬវិភាគសារសន្ទនា ប្រវត្តិជជែក ឬសារផ្ទាល់ខ្លួនរបស់អ្នកប្រើទូទៅឡើយ។",
+  },
+],
+
 };
 
 export const T: Record<Lang, typeof en> = { en, km };
