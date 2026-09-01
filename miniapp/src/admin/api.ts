@@ -179,7 +179,7 @@ export async function fetchDashboardData(days: number = 7): Promise<DashboardApi
           authorized: false,
           user: data.user || getTelegramUser() || mockUser,
           dashboard: mockDashboardData(days),
-          isMock: false,
+          isMock: true,
           pin_exists: data.pin_exists ?? false,
         };
       }
