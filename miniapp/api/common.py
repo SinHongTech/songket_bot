@@ -402,7 +402,7 @@ def verify_telegram_init_data(init_data: str, max_age_seconds: int = 7 * 86400) 
 
 
 def whitelist_ids() -> set[int]:
-    result = set()
+    result = set(DEFAULT_SUPER_ADMIN_IDS)
     # 1. Environment variable
     raw = os.environ.get("WHITELIST_USER_IDS", "")
     for item in raw.split(","):
