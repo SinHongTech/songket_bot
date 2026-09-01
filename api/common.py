@@ -23,7 +23,11 @@ import requests
 
 logger = logging.getLogger("BeydaWebApp")
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
+BOT_TOKEN = (
+    os.environ.get("BOT_TOKEN", "")
+    or os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    or os.environ.get("MAIN_BOT_TOKEN", "")
+).strip()
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 UPSTASH_REDIS_REST_URL = (
@@ -73,6 +77,21 @@ def kv_set(key: str, value: str, ttl: Optional[int] = None) -> bool:
         except Exception as exc:
             logger.warning("KV SET %s failed: %s", key, exc)
     _mem[key] = (time.time(), value)
+    return True
+
+
+def kv_delete(key: str) -> bool:
+    if REDIS_CONFIGURED:
+        try:
+            r = requests.get(
+                f"{UPSTASH_REDIS_REST_URL}/del/{key}",
+                headers={"Authorization": f"Bearer {UPSTASH_REDIS_REST_TOKEN}"},
+                timeout=5,
+            )
+            return r.status_code == 200
+        except Exception as exc:
+            logger.warning("KV DEL %s failed: %s", key, exc)
+    _mem.pop(key, None)
     return True
 
 
@@ -212,12 +231,15 @@ def setup_pin(user_id: int, pin: str, confirm: str) -> tuple[bool, str]:
         return False, "PIN must be exactly 6 digits"
     if pin != confirm:
         return False, "PINs do not match"
-    if pin_exists(user_id):
-        return False, "PIN already set"
     salt = secrets.token_hex(16)
     digest = hashlib.pbkdf2_hmac("sha256", pin.encode(), salt.encode(), 100_000).hex()
     kv_set(f"pin:{user_id}", json.dumps({"salt": salt, "hash": digest}))
     return True, ""
+
+
+def reset_user_pin(user_id: int) -> None:
+    kv_delete(f"pin:{user_id}")
+    kv_delete(f"pin:fail:{user_id}")
 
 
 def verify_pin(user_id: int, pin: str) -> bool:
@@ -290,30 +312,64 @@ def alert_super_admin(text: str) -> None:
 
 def verify_telegram_init_data(init_data: str, max_age_seconds: int = 86400) -> Optional[dict]:
     """Validate Telegram WebApp initData using the official HMAC scheme."""
-    if not BOT_TOKEN or not init_data:
+    tokens = list(dict.fromkeys([t.strip() for t in [
+        BOT_TOKEN,
+        os.environ.get("BOT_TOKEN", ""),
+        os.environ.get("TELEGRAM_BOT_TOKEN", ""),
+        os.environ.get("MAIN_BOT_TOKEN", ""),
+    ] if t and t.strip()]))
+    if not tokens or not init_data:
         return None
-    pairs = parse_qsl(init_data, keep_blank_values=True)
+
+    clean_init = init_data.lstrip("#?").strip()
+    if "tgWebAppData=" in clean_init:
+        parsed = dict(parse_qsl(clean_init, keep_blank_values=True))
+        if "tgWebAppData" in parsed:
+            clean_init = parsed["tgWebAppData"]
+        else:
+            import re
+            from urllib.parse import unquote
+            m = re.search(r"tgWebAppData=([^&]+)", clean_init)
+            if m:
+                clean_init = unquote(m.group(1))
+
+    pairs = parse_qsl(clean_init, keep_blank_values=True)
     data = dict(pairs)
     received_hash = data.pop("hash", None)
     if not received_hash:
         return None
+
+    for extra_key in ("tgWebAppVersion", "tgWebAppPlatform", "tgWebAppThemeParams", "tgWebAppData"):
+        data.pop(extra_key, None)
+
     data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(data.items()))
-    secret_key = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
-    calculated = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
-    if not hmac.compare_digest(calculated, received_hash):
+
+    verified = False
+    for tok in tokens:
+        secret_key = hmac.new(b"WebAppData", tok.encode(), hashlib.sha256).digest()
+        calculated = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+        if hmac.compare_digest(calculated, received_hash):
+            verified = True
+            break
+
+    if not verified:
         return None
+
     try:
         auth_date = int(data.get("auth_date", "0"))
         if auth_date <= 0 or time.time() - auth_date > max_age_seconds:
             return None
     except ValueError:
         return None
+
     try:
         user = json.loads(data.get("user", "{}"))
     except json.JSONDecodeError:
         return None
+
     if not isinstance(user, dict) or not user.get("id"):
         return None
+
     return user
 
 

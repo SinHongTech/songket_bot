@@ -21,7 +21,7 @@ import {
 import LogoMark from "@/shared/components/LogoMark";
 import { G, type Nav, type Lang } from "@/admin/palette";
 import { t as T, kh } from "@/admin/i18n";
-import { fetchDashboardData, setupPin, loginPin, setSessionToken, openTelegramDirect, getTelegramUser, getTelegramWebApp } from "@/admin/api";
+import { fetchDashboardData, setupPin, loginPin, resetPin, setSessionToken, openTelegramDirect, getTelegramUser, getTelegramWebApp } from "@/admin/api";
 import type { DashboardApiResponse } from "@/admin/types";
 import { mockUser } from "@/admin/data";
 import HomeView from "@/admin/components/HomeView";
@@ -205,13 +205,19 @@ function UpgradeModal({ onClose, lang }: { onClose: () => void; lang: Lang }) {
   );
 }
 
-function PinGate({ mode, locked, lang, onSuccess }: { mode: "setup" | "login"; locked: number; lang: Lang; onSuccess: () => void }) {
+function PinGate({ mode: initialMode, locked, lang, onSuccess }: { mode: "setup" | "login"; locked: number; lang: Lang; onSuccess: () => void }) {
   const tx = T(lang);
+  const [currentMode, setCurrentMode] = useState<"setup" | "login">(initialMode);
   const [pin, setPin] = useState("");
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
   const [remaining, setRemaining] = useState(locked);
+
+  useEffect(() => {
+    setCurrentMode(initialMode);
+  }, [initialMode]);
 
   useEffect(() => {
     setRemaining(locked);
@@ -230,19 +236,41 @@ function PinGate({ mode, locked, lang, onSuccess }: { mode: "setup" | "login"; l
     autoComplete: "one-time-code",
   };
 
+  async function handleResetPin() {
+    setErr(null);
+    setInfo(null);
+    setBusy(true);
+    try {
+      const res = await resetPin();
+      if (res.ok) {
+        setPin("");
+        setConfirm("");
+        setCurrentMode("setup");
+        setInfo(tx.resetPinSuccess || "PIN reset! Please create your new 6-digit PIN.");
+      } else {
+        setErr(res.error || "Failed to reset PIN");
+      }
+    } catch (e: any) {
+      setErr(e?.message || "Failed to reset PIN");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function submit() {
     setErr(null);
+    setInfo(null);
     if (pin.length !== 6) {
       setErr(tx.pinIncorrect);
       return;
     }
-    if (mode === "setup" && pin !== confirm) {
+    if (currentMode === "setup" && pin !== confirm) {
       setErr(tx.pinMismatch);
       return;
     }
     setBusy(true);
     try {
-      const res = mode === "setup" ? await setupPin(pin, confirm) : await loginPin(pin);
+      const res = currentMode === "setup" ? await setupPin(pin, confirm) : await loginPin(pin);
       if (res.session) {
         setSessionToken(res.session);
         onSuccess();
@@ -262,15 +290,21 @@ function PinGate({ mode, locked, lang, onSuccess }: { mode: "setup" | "login"; l
       <div style={{ background: G.surface, border: `1px solid ${G.goldBorder}`, borderRadius: 20, padding: "28px 24px", width: "100%", maxWidth: 380, textAlign: "center" }}>
         <LogoMark size={48} />
         <div style={{ fontSize: 18, fontWeight: 800, color: G.gold, marginTop: 12 }}>
-          <span className={kh(lang)}>{mode === "setup" ? tx.pinSetupTitle : tx.pinLoginTitle}</span>
+          <span className={kh(lang)}>{currentMode === "setup" ? tx.pinSetupTitle : tx.pinLoginTitle}</span>
         </div>
         <div style={{ fontSize: 12, color: G.textSec, lineHeight: 1.5, margin: "8px 0 20px" }}>
-          <span className={kh(lang)}>{mode === "setup" ? tx.pinSetupDesc : tx.pinLoginDesc}</span>
+          <span className={kh(lang)}>{currentMode === "setup" ? tx.pinSetupDesc : tx.pinLoginDesc}</span>
         </div>
 
         {remaining > 0 && (
           <div style={{ background: "rgba(224,64,64,0.12)", border: `1px solid ${G.danger}`, color: G.danger, borderRadius: 10, padding: "10px", fontSize: 12, fontWeight: 600, marginBottom: 14 }}>
             <span className={kh(lang)}>{tx.pinLocked}</span> — {fmt(remaining)}
+          </div>
+        )}
+
+        {info && (
+          <div style={{ background: "rgba(34,197,94,0.12)", border: `1px solid ${G.safe}`, color: G.safe, borderRadius: 10, padding: "10px", fontSize: 12, fontWeight: 600, marginBottom: 14 }}>
+            <span className={kh(lang)}>{info}</span>
           </div>
         )}
 
@@ -283,7 +317,7 @@ function PinGate({ mode, locked, lang, onSuccess }: { mode: "setup" | "login"; l
           style={{ width: "100%", background: G.surface2, border: `1px solid ${G.border}`, borderRadius: 10, padding: "12px 14px", color: G.text, fontSize: 18, letterSpacing: "0.3em", textAlign: "center", outline: "none", marginBottom: 10, fontFamily: "JetBrains Mono, monospace" }}
         />
 
-        {mode === "setup" && (
+        {currentMode === "setup" && (
           <input
             {...inputProps}
             value={confirm}
@@ -299,11 +333,21 @@ function PinGate({ mode, locked, lang, onSuccess }: { mode: "setup" | "login"; l
         <button
           onClick={submit}
           disabled={busy || remaining > 0}
-          style={{ width: "100%", background: G.gold, color: "#1a1200", border: "none", borderRadius: 10, padding: "13px 0", fontWeight: 800, cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, opacity: busy || remaining > 0 ? 0.6 : 1 }}
+          style={{ width: "100%", background: G.gold, color: "#1a1200", border: "none", borderRadius: 10, padding: "13px 0", fontWeight: 800, cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, opacity: busy || remaining > 0 ? 0.6 : 1, marginBottom: 12 }}
         >
           <Lock size={15} />
-          <span className={kh(lang)}>{mode === "setup" ? tx.setPin : tx.unlock}</span>
+          <span className={kh(lang)}>{currentMode === "setup" ? tx.setPin : tx.unlock}</span>
         </button>
+
+        {currentMode === "login" && (
+          <button
+            onClick={handleResetPin}
+            disabled={busy}
+            style={{ background: "transparent", border: "none", color: G.gold, fontSize: 12, fontWeight: 700, cursor: "pointer", padding: "6px 12px", textDecoration: "underline" }}
+          >
+            <span className={kh(lang)}>{tx.forgotPin || "Forgot / Reset PIN?"}</span>
+          </button>
+        )}
       </div>
     </div>
   );
