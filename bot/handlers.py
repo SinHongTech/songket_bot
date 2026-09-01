@@ -437,8 +437,6 @@ def _build_admin_menu_keyboard(managed_groups: list[dict]) -> dict:
     for grp in managed_groups:
         keyboard.append([{"text": f"👥 {grp['title']}", "callback_data": f"adm_grp:{grp['id']}"}])
 
-    keyboard.append([{"text": "➕ Link & Protect Group", "callback_data": "link_group"}])
-
     if config.WEB_APP_DASHBOARD_URL:
         keyboard.append([{"text": "🛡️ Open Security Mini App", "web_app": {"url": config.WEB_APP_DASHBOARD_URL}}])
 
@@ -524,37 +522,58 @@ def _prompt_select_group(api: TelegramAPI, chat_id: int, user_id: int) -> None:
         )
 
 
+def _resolve_chat_id_and_info(api: TelegramAPI, gid: int) -> tuple[int, dict]:
+    # 1. Direct getChat
+    info = api.get_chat(gid)
+    if info and info.get("title"):
+        return gid, info
+    # 2. If positive, try -100 supergroup prefix
+    if gid > 0:
+        supergroup_gid = -int(f"100{gid}")
+        info = api.get_chat(supergroup_gid)
+        if info and info.get("title"):
+            return supergroup_gid, info
+        info = api.get_chat(-gid)
+        if info and info.get("title"):
+            return -gid, info
+    return gid, info or {}
+
+
 def _handle_group_selected_for_linking(api: TelegramAPI, chat_id: int, user_id: int, group_id: int) -> None:
     whitelisted = user_id in whitelist_user_ids() or is_super_admin(user_id)
     if not whitelisted:
         api.send_message(chat_id, UNAUTHORIZED_TEXT, reply_markup=_menu_keyboard(False))
         return
 
-    chat_info = api.get_chat(group_id)
-    title = (chat_info or {}).get("title") or f"Group {group_id}"
+    real_gid, chat_info = _resolve_chat_id_and_info(api, group_id)
+    title = (chat_info or {}).get("title") or "ក្រុមដែលបានជ្រើសរើស (Selected Group)"
+    username = (chat_info or {}).get("username")
 
     # Remove the reply keyboard
     api.send_message(
         chat_id,
-        f"⏳ បានរកឃើញក្រុម <b>{esc(title)}</b>...",
+        f"⏳ បានជ្រើសរើសក្រុម <b>{esc(title)}</b>...",
         reply_markup={"remove_keyboard": True}
     )
 
     confirm_kb = {
         "inline_keyboard": [
             [
-                {"text": "✅ បញ្ជាក់ & បើកការការពារ | Confirm & Protect", "callback_data": f"link_confirm:{group_id}"},
+                {"text": "✅ បញ្ជាក់ & បើកការការពារ | Confirm & Protect", "callback_data": f"link_confirm:{real_gid}"},
                 {"text": "❌ បោះបង់ | Cancel", "callback_data": "link_cancel"}
             ]
         ]
     }
 
+    group_label = f"<b>{esc(title)}</b>"
+    if username:
+        group_label += f" (@{esc(username)})"
+
     api.send_message(
         chat_id,
         f"🛡️ <b>បញ្ជាក់ការភ្ជាប់ក្រុម | Confirm Group Protection</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"👥 ឈ្មោះក្រុម (Group) : <b>{esc(title)}</b>\n"
-        f"🆔 Group ID         : <code>{group_id}</code>\n\n"
+        f"👥 ក្រុម (Group) : {group_label}\n\n"
         f"តើអ្នកពិតជាចង់បើកការការពារ ២៤/៧ សម្រាប់ក្រុមនេះមែនទេ?\n"
         f"<i>(Are you sure you want to activate 24/7 protection for this group?)</i>\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
@@ -889,8 +908,8 @@ def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
             if not managed_groups:
                 api.send_message(
                     chat_id,
-                    "មិនទាន់មានក្រុមចាត់តាំង (No groups assigned yet).\nចុចខាងក្រោមដើម្បីភ្ជាប់ក្រុមថ្មី៖",
-                    reply_markup={"inline_keyboard": [[{"text": "➕ Link & Protect Group", "callback_data": "link_group"}]]}
+                    "មិនទាន់មានក្រុមចាត់តាំង (No groups assigned yet).\nសូមចុចប៊ូតុង [ ➕ Link Group ] លើ Menu ខាងក្រោមដើម្បីភ្ជាប់ក្រុមថ្មី។",
+                    reply_markup=menu_kb,
                 )
                 return
             api.send_message(
@@ -1051,16 +1070,21 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
         add_group_handler(user_id, gid)
 
         # 3. Cache group title
-        chat_info = api.get_chat(gid)
-        title = (chat_info or {}).get("title") or f"Group {gid}"
-        record_known_group(gid, title)
+        real_gid, chat_info = _resolve_chat_id_and_info(api, gid)
+        title = (chat_info or {}).get("title") or "ក្រុមដែលបានជ្រើសរើស (Selected Group)"
+        username = (chat_info or {}).get("username")
+        record_known_group(real_gid, title)
+
+        group_label = f"<b>{esc(title)}</b>"
+        if username:
+            group_label += f" (@{esc(username)})"
 
         api.answer_callback_query(query_id, text="✅ ក្រុមត្រូវបានភ្ជាប់ និងការពារជោគជ័យ!")
         api.send_message(
             chat_id,
             f"✅ <b>ជោគជ័យ! ការការពារត្រូវបានបើកដំណើរការ</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"👥 ក្រុម <b>{esc(title)}</b> (<code>{gid}</code>) ត្រូវបានភ្ជាប់ និងការពារ ២៤/៧ ដោយស្វ័យប្រវត្ត។\n"
+            f"👥 ក្រុម {group_label} ត្រូវបានភ្ជាប់ និងការពារ ២៤/៧ ដោយស្វ័យប្រវត្ត។\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
             reply_markup=_menu_keyboard(whitelisted)
         )
