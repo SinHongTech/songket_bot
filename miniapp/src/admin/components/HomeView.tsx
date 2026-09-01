@@ -53,18 +53,22 @@ export default function HomeView({ dashboard, lang, isMock, homeDays, onHomeDays
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-      <div style={{ background: G.surface2, border: `1px solid ${G.goldBorder}`, borderRadius: 14, padding: "18px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <div style={{ background: G.surface2, border: `1px solid ${isMock ? G.goldBorder : "rgba(34,197,94,0.4)"}`, borderRadius: 14, padding: "18px 20px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
           <div style={{ fontSize: 17, fontWeight: 700, color: G.text }}>
             <span className={kh(lang)}>{tx.goodAfternoon}</span>
           </div>
           <div style={{ fontSize: 13, color: G.textSec, marginTop: 4 }}>
-            <span className={kh(lang)}>{tx.monitored}</span>
+            <span className={kh(lang)}>{isMock ? tx.monitored : (lang === "km" ? "ទិន្នន័យផ្សាយផ្ទាល់ពី Redis" : "Live Upstash Redis Data")}</span>
           </div>
         </div>
-        {isMock && (
+        {isMock ? (
           <span style={{ fontSize: 10, background: "rgba(212,167,44,0.15)", color: G.gold, border: `1px solid ${G.goldBorder}`, padding: "3px 8px", borderRadius: 6, fontWeight: 700 }}>
             {tx.previewBadge}
+          </span>
+        ) : (
+          <span style={{ fontSize: 10, background: "rgba(34,197,94,0.15)", color: G.safe, border: `1px solid ${G.safe}`, padding: "3px 8px", borderRadius: 6, fontWeight: 700 }}>
+            🟢 LIVE SYNCED
           </span>
         )}
       </div>
