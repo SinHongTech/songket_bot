@@ -224,6 +224,16 @@ def add_group_handler(user_id: int, chat_id: int) -> None:
         kv_json_set("config:group_handlers", data)
 
 
+def record_known_group(chat_id: int, title: str) -> None:
+    data = kv_json_get("known_groups") or {}
+    data[str(chat_id)] = title or str(chat_id)
+    kv_json_set("known_groups", data)
+
+
+def get_known_groups() -> dict:
+    return kv_json_get("known_groups") or {}
+
+
 def record_first_seen(user_id: int) -> float:
     """Return the first-seen timestamp for a user (best-effort account age proxy)."""
     key = f"firstseen:{user_id}"

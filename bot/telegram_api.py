@@ -62,7 +62,7 @@ class TelegramAPI:
             params={
                 "offset": offset,
                 "timeout": timeout,
-                "allowed_updates": json.dumps(["message", "edited_message", "callback_query"]),
+                "allowed_updates": json.dumps(["message", "edited_message", "callback_query", "my_chat_member"]),
             },
             timeout=timeout + 10,
         )
