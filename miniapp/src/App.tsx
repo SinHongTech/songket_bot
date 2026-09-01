@@ -9,7 +9,14 @@ function RootEntry() {
   const location = useLocation();
   const [checking, setChecking] = useState(true);
 
+  const isManualLanding = location.search.includes("home") || Boolean((location.state as any)?.fromAdmin);
+
   useEffect(() => {
+    if (isManualLanding) {
+      setChecking(false);
+      return;
+    }
+
     const initData = getInitData();
     // If not inside Telegram, stay on public landing page
     if (!initData) {
@@ -17,12 +24,12 @@ function RootEntry() {
       return;
     }
 
-    // Inside Telegram: check authorization
+    // Inside Telegram on initial launch: check authorization
     fetchDashboardData(7)
       .then((data) => {
         if (data && data.authorized) {
-          // Whitelisted admin or super admin: navigate straight to dashboard!
-          if (location.pathname === "/") {
+          // Whitelisted admin or super admin: navigate straight to dashboard on initial open!
+          if (location.pathname === "/" && !isManualLanding) {
             navigate("/dashboard", { replace: true });
           }
         }
@@ -33,9 +40,9 @@ function RootEntry() {
       .finally(() => {
         setChecking(false);
       });
-  }, [navigate, location.pathname]);
+  }, [navigate, location.pathname, isManualLanding]);
 
-  if (checking && getInitData() && location.pathname === "/") {
+  if (checking && getInitData() && location.pathname === "/" && !isManualLanding) {
     return (
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100dvh", background: "#0a0a0c", color: "#d4af37" }}>
         <div className="spin-animation" style={{ width: 36, height: 36, border: "3px solid #d4af37", borderTopColor: "transparent", borderRadius: "50%", marginBottom: 14 }}></div>

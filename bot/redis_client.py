@@ -339,3 +339,70 @@ def get_plan_catalog() -> dict:
 
 def plan_scan_limit_runtime(plan: str) -> int:
     return int(get_plan_catalog().get(plan, {}).get("scans", 0))
+
+
+def get_user_plan_status(user_id: int, is_super: bool = False, is_wl: bool = False) -> dict:
+    if is_super:
+        return {
+            "plan_key": "group_premium",
+            "plan_name": "👑 Super Admin (Personal & Group Premium)",
+            "role": "Super Admin",
+            "is_super_admin": True,
+            "is_whitelisted": True,
+            "is_free": False,
+            "daily_limit": None,
+            "used_today": get_daily_scan_usage(user_id),
+            "remaining_today": "Unlimited (មិនកំណត់)",
+            "monthly_limit": 999999,
+            "used_month": get_scan_usage(user_id),
+            "remaining_month": "Unlimited (មិនកំណត់)",
+            "expiry": None,
+        }
+
+    sub = get_subscription(user_id)
+    plan_key = sub.get("plan")
+    expiry = int(sub.get("expiry", 0) or 0)
+    now = time.time()
+    if expiry and expiry < now:
+        plan_key = "personal_free"
+
+    if is_wl and (not plan_key or plan_key == "personal_free"):
+        plan_key = "group_pro"
+    elif not plan_key:
+        plan_key = "personal_free"
+
+    catalog = get_plan_catalog()
+    plan_info = catalog.get(plan_key, catalog.get("personal_free", {}))
+    is_free = (plan_key == "personal_free")
+
+    used_today = get_daily_scan_usage(user_id)
+    used_month = get_scan_usage(user_id)
+    daily_limit = 3 if is_free else None
+    monthly_limit = int(plan_info.get("scans", 200 if is_wl else 30))
+
+    if is_wl:
+        plan_display_name = f"🛡️ Group Handler ({plan_info.get('name', 'Group Pro')})"
+        role = "Group Handler"
+    elif is_free:
+        plan_display_name = "Personal Free"
+        role = "Personal Free"
+    else:
+        plan_display_name = plan_info.get("name", plan_key.replace("_", " ").title())
+        role = "Personal Pro/Premium"
+
+    return {
+        "plan_key": plan_key,
+        "plan_name": plan_display_name,
+        "role": role,
+        "is_super_admin": False,
+        "is_whitelisted": is_wl,
+        "is_free": is_free,
+        "daily_limit": daily_limit,
+        "used_today": used_today,
+        "remaining_today": max(0, 3 - used_today) if is_free else "Unlimited",
+        "monthly_limit": monthly_limit,
+        "used_month": used_month,
+        "remaining_month": max(0, monthly_limit - used_month) if not is_free else None,
+        "expiry": expiry,
+    }
+
