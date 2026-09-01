@@ -34,6 +34,7 @@ from bot.redis_client import (
     get_strikes,
     get_subscription,
     get_user_lang,
+    get_user_plan_status,
     increment_daily_scan_usage,
     increment_scan_usage,
     is_file_whitelisted,
@@ -293,27 +294,166 @@ def trust_label(chat_id: int, user_id: int, settings: dict) -> str:
     return " " + compute_trust(chat_id, user_id, first, join)["label"]
 
 
-def _personal_allowed(user_id: int) -> tuple[bool, str]:
+def _personal_allowed(user_id: int) -> tuple[bool, str, dict]:
+    is_super = is_super_admin(user_id)
+    is_wl = user_id in whitelist_user_ids()
+    status = get_user_plan_status(user_id, is_super=is_super, is_wl=is_wl)
+
+    if is_super or is_wl:
+        return True, "", status
+
     if not config.QUOTA_ENABLED:
-        return True, ""
-    sub = get_subscription(user_id)
-    plan = sub.get("plan", "personal_free")
-    expiry = int(sub.get("expiry", 0) or 0)
-    if plan in ("personal_pro", "personal_premium") and (not expiry or expiry > time.time()):
-        limit = plan_scan_limit_runtime(plan)
-        used = get_scan_usage(user_id)
-        if used >= limit:
-            return False, f"Monthly scan limit reached ({used}/{limit}). Upgrade to continue."
-        return True, ""
-    used_today = get_daily_scan_usage(user_id)
-    if used_today >= 3:
-        return False, "Free limit reached (3 scans/day). Upgrade to Pro/Premium."
-    return True, ""
+        return True, "", status
+
+    if status["is_free"] and status["used_today"] >= 3:
+        return False, "Free limit reached (3 scans/day). Upgrade to Pro/Premium.", status
+
+    if not status["is_free"] and status["monthly_limit"] > 0 and status["used_month"] >= status["monthly_limit"]:
+        return False, f"Monthly scan limit reached ({status['used_month']}/{status['monthly_limit']}).", status
+
+    return True, "", status
 
 
 def _record_personal_usage(user_id: int) -> None:
     increment_scan_usage(user_id)
     increment_daily_scan_usage(user_id)
+
+
+def _send_plan_status(api: TelegramAPI, chat_id: int, user_id: int, message_id: Optional[int] = None) -> None:
+    is_super = is_super_admin(user_id)
+    is_wl = user_id in whitelist_user_ids()
+    status = get_user_plan_status(user_id, is_super=is_super, is_wl=is_wl)
+    lang = get_user_lang(user_id)
+
+    plan_name = status["plan_name"]
+    used_today = status["used_today"]
+    used_month = status["used_month"]
+
+    if is_super or is_wl:
+        daily_str = f"<code>{used_today} scans (Unlimited)</code>"
+        monthly_str = f"<code>{used_month} scans (Unlimited)</code>"
+        rem_str = "<code>Unlimited (មិនកំណត់)</code>"
+        exp_str = "Permanent (អចិន្ត្រៃយ៍)"
+    elif status["is_free"]:
+        daily_str = f"<code>{used_today} / 3 scans</code>"
+        monthly_str = f"<code>{used_month} scans</code>"
+        rem_str = f"<code>{status['remaining_today']} scans left today</code>"
+        exp_str = "Free Tier (ឥតគិតថ្លៃ)"
+    else:
+        daily_str = f"<code>{used_today} scans</code>"
+        monthly_str = f"<code>{used_month} / {status['monthly_limit']} scans</code>"
+        rem_str = f"<code>{status['remaining_month']} scans left this month</code>"
+        expiry = status.get("expiry")
+        exp_str = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(expiry)) if expiry else "Active"
+
+    if lang == "kh":
+        text = (
+            "💳 <b>ស្ថានភាពគម្រោង & កូតាស្កេន (My Plan & Limits)</b>\n\n"
+            f"👤 <b>គណនី (ID) :</b> <code>{user_id}</code>\n"
+            f"🏷️ <b>គម្រោងបច្ចុប្បន្ន :</b> <b>{plan_name}</b>\n"
+            f"📅 <b>ការស្កេនថ្ងៃនេះ :</b> {daily_str}\n"
+            f"📊 <b>ការស្កេនខែនេះ :</b> {monthly_str}\n"
+            f"⚡ <b>កូតាដែលនៅសល់ :</b> {rem_str}\n"
+            f"⏳ <b>សុពលភាព :</b> {exp_str}\n\n"
+            "💎 <b>ត្រូវការកូតាបន្ថែម ឬការពារក្រុម?</b>\n"
+            "សូមដំឡើងគម្រោង Pro, Premium ឬ Group Plan ដើម្បីទទួលបានការស្កេនច្រើន និងមុខងារការពារស្វ័យប្រវត្តិ!"
+        )
+    elif lang == "en":
+        text = (
+            "💳 <b>My Plan & Security Quota</b>\n\n"
+            f"👤 <b>Account (ID) :</b> <code>{user_id}</code>\n"
+            f"🏷️ <b>Current Plan :</b> <b>{plan_name}</b>\n"
+            f"📅 <b>Today's Scans :</b> {daily_str}\n"
+            f"📊 <b>Monthly Scans :</b> {monthly_str}\n"
+            f"⚡ <b>Remaining Quota :</b> {rem_str}\n"
+            f"⏳ <b>Expiry :</b> {exp_str}\n\n"
+            "💎 <b>Need more scans or group protection?</b>\n"
+            "Upgrade to Pro, Premium, or Group Plan for unlimited safety features!"
+        )
+    else:
+        text = (
+            "💳 <b>ស្ថានភាពគម្រោង & កូតាស្កេន | My Plan & Limits</b>\n\n"
+            f"👤 <b>គណនី (Account) :</b> <code>{user_id}</code>\n"
+            f"🏷️ <b>គម្រោង (Current Tier) :</b> <b>{plan_name}</b>\n"
+            f"📅 <b>ការស្កេនថ្ងៃនេះ (Daily) :</b> {daily_str}\n"
+            f"📊 <b>ការស្កេនខែនេះ (Monthly) :</b> {monthly_str}\n"
+            f"⚡ <b>កូតាដែលនៅសល់ (Remaining) :</b> {rem_str}\n"
+            f"⏳ <b>សុពលភាព (Expires) :</b> {exp_str}\n\n"
+            "💎 <b>ត្រូវការកូតាបន្ថែម ឬការពារក្រុម? (Need more scans?)</b>\n"
+            "សូមដំឡើងគម្រោង Pro, Premium ឬ Group Plan ដើម្បីទទួលបានការស្កេនច្រើន និងការការពារទាន់ចិត្ត!"
+        )
+
+    kb = {
+        "inline_keyboard": [
+            [
+                {"text": "🔍 ស្កេន | Scan Link/File", "callback_data": "prompt_scan"},
+                {"text": "🔄 Refresh", "callback_data": f"refresh_quota:{user_id}"},
+            ],
+            [
+                {"text": "💎 Upgrade Plan (DM @Sin_Hong)", "url": "https://t.me/Sin_Hong"},
+            ],
+        ]
+    }
+    if message_id:
+        api.edit_message_text(chat_id, message_id, text, reply_markup=kb)
+    else:
+        api.send_message(chat_id, text, reply_markup=kb)
+
+
+def _send_scan_prompt(api: TelegramAPI, chat_id: int, user_id: int) -> None:
+    is_super = is_super_admin(user_id)
+    is_wl = user_id in whitelist_user_ids()
+    status = get_user_plan_status(user_id, is_super=is_super, is_wl=is_wl)
+    lang = get_user_lang(user_id)
+
+    plan_name = status["plan_name"]
+    used_today = status["used_today"]
+    rem_today = status["remaining_today"]
+
+    if status["is_free"]:
+        quota_line_kh = f"⚡ <b>កូតាថ្ងៃនេះ :</b> <code>{used_today}/3 scans ({rem_today} នៅសល់)</code>"
+        quota_line_en = f"⚡ <b>Today's Limit :</b> <code>{used_today}/3 scans ({rem_today} remaining)</code>"
+        quota_line_both = f"⚡ <b>កូតាថ្ងៃនេះ (Today) :</b> <code>{used_today}/3 scans ({rem_today} left)</code>"
+    else:
+        quota_line_kh = f"⚡ <b>កូតា :</b> <code>{status['remaining_month']} scans នៅសល់</code>"
+        quota_line_en = f"⚡ <b>Remaining :</b> <code>{status['remaining_month']} scans</code>"
+        quota_line_both = f"⚡ <b>កូតា (Remaining) :</b> <code>{status['remaining_month']} scans left</code>"
+
+    if lang == "kh":
+        text = (
+            "🔍 <b>ស្កេនតំណភ្ជាប់ ឬឯកសារ (Security Scan)</b>\n\n"
+            "សូមផ្ញើតំណភ្ជាប់ (Link/URL) ឬផ្ញើឯកសារ (Document/APK/PDF/EXE...) មកកាន់ទីនេះ។\n"
+            "បូតនឹងស្កេនរកមេរោគ និងសុវត្ថិភាពភ្លាមៗ!\n\n"
+            f"🏷️ <b>គម្រោង :</b> {plan_name}\n"
+            f"{quota_line_kh}"
+        )
+    elif lang == "en":
+        text = (
+            "🔍 <b>Personal Security Scan</b>\n\n"
+            "Send any Link/URL or Document (APK, PDF, EXE, etc.) to this chat.\n"
+            "The security scanner will analyze it instantly for threats!\n\n"
+            f"🏷️ <b>Your Plan :</b> {plan_name}\n"
+            f"{quota_line_en}"
+        )
+    else:
+        text = (
+            "🔍 <b>ស្កេនតំណភ្ជាប់ ឬឯកសារ | Personal Security Scan</b>\n\n"
+            "សូមផ្ញើតំណភ្ជាប់ (Link/URL) ឬផ្ញើឯកសារ (APK/PDF/EXE...) មកកាន់ទីនេះ។\n"
+            "បូតនឹងស្កេនរកមេរោគ និងសុវត្ថិភាពភ្លាមៗ!\n"
+            "(Send any link or file here for instant virus and threat scanning).\n\n"
+            f"🏷️ <b>គម្រោង (Plan) :</b> {plan_name}\n"
+            f"{quota_line_both}"
+        )
+
+    kb = {
+        "inline_keyboard": [
+            [
+                {"text": "📊 My Plan & Limit / ពិនិត្យកូតា", "callback_data": "my_plan"},
+                {"text": "💎 Upgrade Plan", "url": "https://t.me/Sin_Hong"},
+            ]
+        ]
+    }
+    api.send_message(chat_id, text, reply_markup=kb)
 
 
 def _handle_personal_scan(api: TelegramAPI, chat_id: int, message: dict, user_id: int) -> None:
@@ -322,11 +462,51 @@ def _handle_personal_scan(api: TelegramAPI, chat_id: int, message: dict, user_id
     doc = message.get("document") or {}
     file_id = doc.get("file_id", "")
     has_file = bool(file_id)
+    lang = get_user_lang(user_id)
 
-    allowed, reason = _personal_allowed(user_id)
-    if not allowed:
-        api.send_message(chat_id, f"⛔ {reason}")
+    if not urls and not has_file:
+        _send_scan_prompt(api, chat_id, user_id)
         return
+
+    allowed, reason, status = _personal_allowed(user_id)
+    if not allowed:
+        if status["is_free"] and status["used_today"] >= 3:
+            limit_msg = {
+                "kh": (
+                    "⛔ <b>អស់កូតាស្កេនឥតគិតថ្លៃសម្រាប់ថ្ងៃនេះ</b>\n\n"
+                    "អ្នកបានប្រើប្រាស់អស់កូតាស្កេន <b>3/3 scans</b> សម្រាប់ថ្ងៃនេះហើយ។\n\n"
+                    "💎 <b>ដំឡើងគម្រោង (Upgrade to Pro/Premium):</b>\n"
+                    "ទទួលបានការស្កេន 200 - 400 ដង/ខែ និងមុខងារការពារកម្រិតខ្ពស់!"
+                ),
+                "en": (
+                    "⛔ <b>Free Scan Limit Reached</b>\n\n"
+                    "You have reached your free quota limit of <b>3 scans per day</b>.\n\n"
+                    "💎 <b>Upgrade to Pro / Premium:</b>\n"
+                    "Get 200 - 400 scans per month and advanced threat protection!"
+                ),
+                "both": (
+                    "⛔ <b>អស់កូតាស្កេនឥតគិតថ្លៃ | Free Scan Limit Reached</b>\n\n"
+                    "អ្នកបានប្រើប្រាស់អស់កូតាស្កេន <b>3/3 scans</b> សម្រាប់ថ្ងៃនេះហើយ (3/3 scans used today).\n\n"
+                    "💎 <b>ដំឡើងគម្រោង (Upgrade to Pro/Premium):</b>\n"
+                    "ទទួលបានការស្កេន 200 - 400 ដង/ខែ និងមុខងារការពារកម្រិតខ្ពស់!"
+                )
+            }.get(lang, "⛔ Free scan limit reached (3 scans/day). Upgrade to Pro/Premium.")
+            kb = {
+                "inline_keyboard": [
+                    [{"text": "💎 Upgrade Plan (DM @Sin_Hong)", "url": "https://t.me/Sin_Hong"}],
+                    [{"text": "📊 My Plan & Limit / ពិនិត្យកូតា", "callback_data": "my_plan"}],
+                ]
+            }
+            api.send_message(chat_id, limit_msg, reply_markup=kb)
+            return
+
+        limit_msg = f"⛔ <b>{reason}</b>"
+        kb = {"inline_keyboard": [[{"text": "💎 Contact @Sin_Hong", "url": "https://t.me/Sin_Hong"}]]}
+        api.send_message(chat_id, limit_msg, reply_markup=kb)
+        return
+
+    # Post progress notice (identical to group)
+    notice_id = api.send_message(chat_id, get_msg_scanning(lang))
 
     results = []
     scanned = 0
@@ -334,7 +514,8 @@ def _handle_personal_scan(api: TelegramAPI, chat_id: int, message: dict, user_id
     for url in urls:
         if is_whitelisted(url):
             continue
-        results.append(("link", extract_domain(url), vt_scan_url(url)))
+        domain = extract_domain(url)
+        results.append(("link", domain, vt_scan_url(url)))
         scanned += 1
 
     if has_file:
@@ -353,32 +534,137 @@ def _handle_personal_scan(api: TelegramAPI, chat_id: int, message: dict, user_id
     if scanned:
         _record_personal_usage(user_id)
 
-    if not results:
-        api.send_message(chat_id, "🔍 Send me a link or file and I'll scan it for threats.")
-        return
+    # Updated quota status
+    is_super = is_super_admin(user_id)
+    is_wl = user_id in whitelist_user_ids()
+    updated_status = get_user_plan_status(user_id, is_super=is_super, is_wl=is_wl)
+    used_today = updated_status["used_today"]
+    rem_today = updated_status["remaining_today"]
 
-    lang = get_user_lang(user_id)
-    headers = {
-        "threat": {"kh": "🚨 <b>រកឃើញគ្រោះថ្នាក់</b>", "en": "🚨 <b>Threat detected</b>", "both": "🚨 <b>រកឃើញគ្រោះថ្នាក់ | Threat detected</b>"},
-        "suspicious": {"kh": "⚠️ <b>សង្ស័យ</b>", "en": "⚠️ <b>Suspicious</b>", "both": "⚠️ <b>សង្ស័យ | Suspicious</b>"},
-        "clean": {"kh": "✅ <b>សុវត្ថិភាព</b>", "en": "✅ <b>Clean</b>", "both": "✅ <b>សុវត្ថិភាព | Clean</b>"},
-    }
-    target_label = {"kh": "គោលដៅ", "en": "Target", "both": "គោលដៅ/Target"}[lang]
+    if updated_status["is_free"]:
+        rem_summary = f"{used_today}/3 scans used today ({rem_today} left)"
+    else:
+        rem_summary = f"{updated_status['remaining_month']} scans left" if updated_status["remaining_month"] is not None else "Unlimited"
 
     for kind, target, r in results:
         if "error" in r:
+            if notice_id:
+                api.delete_message(chat_id, notice_id)
             api.send_message(chat_id, f"⚠️ Could not scan <code>{target}</code>: {r['error']}")
             continue
+
         mal = r.get("malicious", 0)
         susp = r.get("suspicious", 0)
         display = mask_domain(target) if kind == "link" else esc(target)
+        consensus = engine_consensus(r)
+
         if mal >= config.VT_MALICIOUS_THRESHOLD:
-            header = headers["threat"][lang]
+            if notice_id:
+                api.delete_message(chat_id, notice_id)
+            if lang == "kh":
+                threat_text = (
+                    "🚨 <b>រកឃើញមាតិកាគ្រោះថ្នាក់ (Dangerous Threat)</b>\n\n"
+                    f"🔹 <b>គោលដៅ :</b> <code>{display}</code>\n"
+                    f"🛡️ <b>ការវាយតម្លៃ :</b> {consensus}\n\n"
+                    "⚠️ <b>ការព្រមាន :</b> មាតិកានេះមានផ្ទុកមេរោគ ឬតំណភ្ជាប់ក្លែងបន្លំ! សូមកុំចុច ឬបើកជាដាច់ខាត!\n"
+                    f"⚡ <b>កូតាដែលនៅសល់ :</b> <code>{rem_summary}</code>"
+                )
+            elif lang == "en":
+                threat_text = (
+                    "🚨 <b>Dangerous Threat Detected</b>\n\n"
+                    f"🔹 <b>Target :</b> <code>{display}</code>\n"
+                    f"🛡️ <b>Consensus :</b> {consensus}\n\n"
+                    "⚠️ <b>Warning :</b> This target contains malware or phishing. Do not open!\n"
+                    f"⚡ <b>Remaining Quota :</b> <code>{rem_summary}</code>"
+                )
+            else:
+                threat_text = (
+                    "🚨 <b>រកឃើញមាតិកាគ្រោះថ្នាក់ | Dangerous Threat Detected</b>\n\n"
+                    f"🔹 <b>គោលដៅ (Target) :</b> <code>{display}</code>\n"
+                    f"🛡️ <b>ការវាយតម្លៃ (Consensus) :</b> {consensus}\n\n"
+                    "⚠️ <b>ការព្រមាន (Warning) :</b>\n"
+                    "មាតិកានេះមានផ្ទុកមេរោគ ឬតំណភ្ជាប់ក្លែងបន្លំ! សូមកុំចុច ឬបើកជាដាច់ខាត!\n"
+                    "(This target contains malware or phishing. Do not open!)\n\n"
+                    f"⚡ <b>កូតាដែលនៅសល់ (Remaining) :</b> <code>{rem_summary}</code>"
+                )
+            kb = {
+                "inline_keyboard": [
+                    [{"text": "💎 Upgrade Plan (DM @Sin_Hong)", "url": "https://t.me/Sin_Hong"}],
+                    [{"text": "📊 My Plan & Limit / ពិនិត្យកូតា", "callback_data": "my_plan"}],
+                ]
+            }
+            api.send_message(chat_id, threat_text, reply_markup=kb)
+
         elif susp >= config.VT_SUSPICIOUS_THRESHOLD:
-            header = headers["suspicious"][lang]
+            if notice_id:
+                api.delete_message(chat_id, notice_id)
+            if lang == "kh":
+                susp_text = (
+                    "⚠️ <b>មាតិកាសង្ស័យ (Suspicious Content)</b>\n\n"
+                    f"🔹 <b>គោលដៅ :</b> <code>{display}</code>\n"
+                    f"🛡️ <b>ការវាយតម្លៃ :</b> {consensus}\n\n"
+                    "⚠️ <b>ការណែនាំ :</b> សូមមានការប្រុងប្រយ័ត្នខ្ពស់មុនពេលបើក!\n"
+                    f"⚡ <b>កូតាដែលនៅសល់ :</b> <code>{rem_summary}</code>"
+                )
+            elif lang == "en":
+                susp_text = (
+                    "⚠️ <b>Suspicious Content Detected</b>\n\n"
+                    f"🔹 <b>Target :</b> <code>{display}</code>\n"
+                    f"🛡️ <b>Consensus :</b> {consensus}\n\n"
+                    "⚠️ <b>Caution :</b> Exercise extreme caution before opening!\n"
+                    f"⚡ <b>Remaining Quota :</b> <code>{rem_summary}</code>"
+                )
+            else:
+                susp_text = (
+                    "⚠️ <b>មាតិកាសង្ស័យ | Suspicious Content Detected</b>\n\n"
+                    f"🔹 <b>គោលដៅ (Target) :</b> <code>{display}</code>\n"
+                    f"🛡️ <b>ការវាយតម្លៃ (Consensus) :</b> {consensus}\n\n"
+                    "⚠️ <b>ការណែនាំ (Caution) :</b> សូមមានការប្រុងប្រយ័ត្នខ្ពស់មុនពេលបើក!\n"
+                    f"⚡ <b>កូតាដែលនៅសល់ (Remaining) :</b> <code>{rem_summary}</code>"
+                )
+            kb = {
+                "inline_keyboard": [
+                    [{"text": "📊 My Plan & Limit / ពិនិត្យកូតា", "callback_data": "my_plan"}],
+                    [{"text": "💎 Upgrade Plan", "url": "https://t.me/Sin_Hong"}],
+                ]
+            }
+            api.send_message(chat_id, susp_text, reply_markup=kb)
+
         else:
-            header = headers["clean"][lang]
-        api.send_message(chat_id, f"{header}\n{target_label}: <code>{display}</code>\n{engine_consensus(r)}")
+            # Clean safe result
+            if lang == "kh":
+                safe_text = (
+                    "✅ <b>មាតិកាមានសុវត្ថិភាព</b>\n\n"
+                    f"🔹 <b>គោលដៅ :</b> <code>{display}</code>\n"
+                    f"🛡️ <b>លទ្ធផល :</b> {consensus}\n"
+                    f"⚡ <b>កូតាស្កេន :</b> <code>{rem_summary}</code>"
+                )
+            elif lang == "en":
+                safe_text = (
+                    "✅ <b>Content Verified Safe</b>\n\n"
+                    f"🔹 <b>Target :</b> <code>{display}</code>\n"
+                    f"🛡️ <b>Result :</b> {consensus}\n"
+                    f"⚡ <b>Scan Quota :</b> <code>{rem_summary}</code>"
+                )
+            else:
+                safe_text = (
+                    "✅ <b>មាតិកាមានសុវត្ថិភាព | Content Verified Safe</b>\n\n"
+                    f"🔹 <b>គោលដៅ (Target) :</b> <code>{display}</code>\n"
+                    f"🛡️ <b>លទ្ធផល (Result) :</b> {consensus}\n"
+                    f"⚡ <b>កូតាស្កេន (Quota) :</b> <code>{rem_summary}</code>"
+                )
+            kb = {
+                "inline_keyboard": [
+                    [
+                        {"text": "🔍 ស្កេនទៀត | Scan Another", "callback_data": "prompt_scan"},
+                        {"text": "📊 ពិនិត្យកូតា | Quota", "callback_data": "my_plan"},
+                    ]
+                ]
+            }
+            if notice_id:
+                api.edit_message_text(chat_id, notice_id, safe_text, reply_markup=kb)
+            else:
+                api.send_message(chat_id, safe_text, reply_markup=kb)
 
 
 def _handle_new_members(api: TelegramAPI, chat_id: int, new_members: list, settings: dict) -> None:
@@ -923,6 +1209,14 @@ def _info(kind: str, lang: str) -> str:
 
 
 MENU_ALIASES = {
+    "🔍 Scan Link / File": "scan",
+    "🔍 ស្កេន Link / ឯកសារ": "scan",
+    "🔍 Scan": "scan",
+    "🔍 ស្កេន": "scan",
+    "📊 My Plan & Limit": "plan",
+    "📊 គម្រោង & ដែនកំណត់": "plan",
+    "📊 Plan & Quota": "plan",
+    "📊 គម្រោង": "plan",
     "📖 Guide": "guide",
     "📖 មគ្គុទ្ទេសក៍": "guide",
     "🔒 Privacy": "privacy",
@@ -947,16 +1241,19 @@ def _menu_keyboard(whitelisted: bool, lang: str = "both") -> dict:
         rows.append([{"text": "🛡️ Mini App", "web_app": {"url": config.WEB_APP_DASHBOARD_URL}}])
 
     if lang == "kh":
+        rows.append([{"text": "🔍 ស្កេន Link / ឯកសារ"}, {"text": "📊 គម្រោង & ដែនកំណត់"}])
         rows.append([{"text": "📖 មគ្គុទ្ទេសក៍"}, {"text": "🔒 ភាពឯកជន"}])
         rows.append([{"text": "📜 លក្ខខណ្ឌ"}, {"text": "🌐 ភាសា"}])
         if whitelisted:
             rows.append([{"text": "➕ ភ្ជាប់ក្រុម"}, {"text": "⚙️ ការកំណត់"}])
     elif lang == "en":
+        rows.append([{"text": "🔍 Scan Link / File"}, {"text": "📊 My Plan & Limit"}])
         rows.append([{"text": "📖 Guide"}, {"text": "🔒 Privacy"}])
         rows.append([{"text": "📜 Terms"}, {"text": "🌐 Language"}])
         if whitelisted:
             rows.append([{"text": "➕ Link Group"}, {"text": "⚙️ Settings"}])
     else:
+        rows.append([{"text": "🔍 Scan Link / File"}, {"text": "📊 My Plan & Limit"}])
         rows.append([{"text": "📖 Guide"}, {"text": "🔒 Privacy"}])
         rows.append([{"text": "📜 Terms"}, {"text": "🌐 Lang"}])
         if whitelisted:
@@ -1009,6 +1306,12 @@ def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
         if whitelisted:
             api.set_my_commands(ADMIN_COMMANDS, scope={"type": "chat", "chat_id": chat_id})
 
+        if command in {"/scan", "/check"}:
+            _handle_personal_scan(api, chat_id, message, user_id)
+            return
+        if command in {"/plan", "/credit", "/limit", "/quota"}:
+            _send_plan_status(api, chat_id, user_id)
+            return
         if command in {"/addgroup", "/linkgroup", "/link"}:
             _prompt_select_group(api, chat_id, user_id)
             return
@@ -1132,6 +1435,22 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
     chat = msg.get("chat", {})
     chat_id = chat.get("id", 0)
     msg_id = msg.get("message_id", 0)
+
+    # 0. Personal Plan & Scan Callbacks
+    if data == "my_plan":
+        api.answer_callback_query(query_id)
+        _send_plan_status(api, chat_id, user_id)
+        return
+
+    if data == "prompt_scan":
+        api.answer_callback_query(query_id)
+        _send_scan_prompt(api, chat_id, user_id)
+        return
+
+    if data.startswith("refresh_quota:"):
+        api.answer_callback_query(query_id, text="✅ Quota refreshed")
+        _send_plan_status(api, chat_id, user_id, message_id=msg_id)
+        return
 
     # 0. New-member verification button
     if data.startswith("verify:"):

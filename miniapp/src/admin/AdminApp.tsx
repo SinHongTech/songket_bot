@@ -551,7 +551,7 @@ export default function AdminApp() {
 
       <header style={{ padding: "12px 16px", borderBottom: `1px solid ${G.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: G.surface, flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <Link to="/" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 7, border: `1px solid ${G.border}`, color: G.muted, textDecoration: "none" }}>
+          <Link to="/?home=1" state={{ fromAdmin: true }} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 7, border: `1px solid ${G.border}`, color: G.muted, textDecoration: "none" }} title="Landing Page">
             <ArrowLeft size={13} />
           </Link>
           <LogoMark size={34} />
