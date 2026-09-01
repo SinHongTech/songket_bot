@@ -37,6 +37,9 @@ from bot.redis_client import (
     increment_daily_scan_usage,
     increment_scan_usage,
     is_file_whitelisted,
+    kv_delete,
+    kv_get,
+    kv_set,
     plan_scan_limit_runtime,
     record_first_seen,
     record_join_time,
@@ -443,15 +446,50 @@ def _build_admin_menu_keyboard(managed_groups: list[dict]) -> dict:
     return {"inline_keyboard": keyboard}
 
 
+def _resolve_chat_id_and_info(api: TelegramAPI, gid: int) -> tuple[int, dict]:
+    candidates = []
+    if gid > 0:
+        # 1. Standard Telegram supergroup format (-100{gid})
+        try:
+            candidates.append(-int(f"100{gid}"))
+        except ValueError:
+            pass
+        # 2. Legacy basic group format (-gid)
+        candidates.append(-gid)
+        # 3. Direct positive ID
+        candidates.append(gid)
+    else:
+        candidates.append(gid)
+        if not str(gid).startswith("-100"):
+            try:
+                candidates.append(-int(f"100{abs(gid)}"))
+            except ValueError:
+                pass
+
+    for try_id in candidates:
+        info = api.get_chat(try_id)
+        if info and info.get("title"):
+            return try_id, info
+
+    known = get_known_groups()
+    for try_id in candidates:
+        if str(try_id) in known:
+            return try_id, {"id": try_id, "title": known[str(try_id)]}
+
+    best_id = candidates[0] if candidates else gid
+    return best_id, {}
+
+
 def _prompt_select_group(api: TelegramAPI, chat_id: int, user_id: int) -> None:
     whitelisted = user_id in whitelist_user_ids() or is_super_admin(user_id)
+    lang = get_user_lang(user_id)
     if not whitelisted:
-        api.send_message(
-            chat_id,
-            "⛔ <b>គ្មានសិទ្ធិអនុញ្ញាត (Unauthorized)</b>\n"
-            "សូមទាក់ទង Super Admin (@sinhong) ដើម្បីទទួលបានសិទ្ធិភ្ជាប់ក្រុម។\n"
-            "<i>(You are not authorized to link groups. Please contact @sinhong)</i>"
-        )
+        unauth_msg = {
+            "kh": "⛔ <b>គ្មានសិទ្ធិអនុញ្ញាត (Unauthorized)</b>\nសូមទាក់ទង Super Admin (@sinhong) ដើម្បីទទួលបានសិទ្ធិភ្ជាប់ក្រុម។",
+            "en": "⛔ <b>Unauthorized</b>\nPlease contact the Super Admin (@sinhong) to request group protection access.",
+            "both": "⛔ <b>គ្មានសិទ្ធិអនុញ្ញាត | Unauthorized</b>\nសូមទាក់ទង Super Admin (@sinhong) ដើម្បីទទួលបានសិទ្ធិភ្ជាប់ក្រុម (Please contact @sinhong for access)."
+        }.get(lang, "⛔ <b>Unauthorized</b>")
+        api.send_message(chat_id, unauth_msg)
         return
 
     # Check plan group limit
@@ -463,20 +501,31 @@ def _prompt_select_group(api: TelegramAPI, chat_id: int, user_id: int) -> None:
 
     current_groups = get_managed_groups_for_user(api, user_id)
     if len(current_groups) >= max_groups and not is_super_admin(user_id):
-        api.send_message(
-            chat_id,
-            f"⚠️ <b>ដល់កម្រិតកំណត់ក្រុមហើយ (Group Limit Reached)</b>\n"
-            f"គម្រោងបច្ចុប្បន្នរបស់អ្នកអនុញ្ញាតឱ្យភ្ជាប់បានត្រឹមតែ {max_groups} ក្រុមប៉ុណ្ណោះ ({len(current_groups)}/{max_groups})。\n"
-            f"សូម Upgrade គម្រោងរបស់អ្នកដើម្បីភ្ជាប់ក្រុមបន្ថែម។"
-        )
+        limit_msg = {
+            "kh": f"⚠️ <b>ដល់កម្រិតកំណត់ក្រុមហើយ (Group Limit Reached)</b>\nគម្រោងរបស់អ្នកអនុញ្ញាតឱ្យភ្ជាប់បានត្រឹមតែ {max_groups} ក្រុមប៉ុណ្ណោះ ({len(current_groups)}/{max_groups})。\nសូម Upgrade គម្រោងដើម្បីភ្ជាប់ក្រុមបន្ថែម。",
+            "en": f"⚠️ <b>Group Limit Reached</b>\nYour current plan allows up to {max_groups} groups ({len(current_groups)}/{max_groups}).\nPlease upgrade your plan to protect more groups.",
+            "both": f"⚠️ <b>ដល់កម្រិតកំណត់ក្រុមហើយ | Group Limit Reached</b>\nគម្រោងរបស់អ្នកអនុញ្ញាតឱ្យភ្ជាប់បាន {max_groups} ក្រុម ({len(current_groups)}/{max_groups})。\nសូម Upgrade គម្រោងដើម្បីភ្ជាប់ក្រុមបន្ថែម (Please upgrade plan)."
+        }.get(lang, "⚠️ Group limit reached.")
+        api.send_message(chat_id, limit_msg)
         return
 
-    # Native Telegram Chat Selector Keyboard (Telegram Bot API 6.7+ request_chat)
+    button_label = {
+        "kh": "👥 ជ្រើសរើសក្រុមពី Telegram",
+        "en": "👥 Select Group from Telegram",
+        "both": "👥 ជ្រើសរើសក្រុម | Select Group"
+    }.get(lang, "👥 Select Group")
+
+    cancel_label = {
+        "kh": "❌ បោះបង់",
+        "en": "❌ Cancel",
+        "both": "❌ បោះបង់ | Cancel"
+    }.get(lang, "❌ Cancel")
+
     select_kb = {
         "keyboard": [
             [
                 {
-                    "text": "👥 ជ្រើសរើសក្រុមពី Telegram | Select Group",
+                    "text": button_label,
                     "request_chat": {
                         "request_id": 101,
                         "chat_is_channel": False,
@@ -484,14 +533,13 @@ def _prompt_select_group(api: TelegramAPI, chat_id: int, user_id: int) -> None:
                 }
             ],
             [
-                {"text": "❌ បោះបង់ | Cancel"}
+                {"text": cancel_label}
             ]
         ],
         "resize_keyboard": True,
         "one_time_keyboard": True
     }
 
-    # Also list candidate groups if known
     known = get_known_groups()
     allowed = get_allowed_groups()
     candidates = [(int(gid), title) for gid, title in known.items() if int(gid) not in allowed]
@@ -503,64 +551,119 @@ def _prompt_select_group(api: TelegramAPI, chat_id: int, user_id: int) -> None:
 
     inline_markup = {"inline_keyboard": candidate_buttons} if candidate_buttons else None
 
-    api.send_message(
-        chat_id,
-        "👥 <b>ភ្ជាប់ក្រុមថ្មីដើម្បីការពារ (Link & Protect Group)</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        "1️⃣ សូមចុចប៊ូតុង <b>[ 👥 ជ្រើសរើសក្រុមពី Telegram ]</b> ខាងក្រោម\n"
-        "2️⃣ ជ្រើសរើសក្រុមដែលអ្នកជា Admin ហើយបាន Add Bot រួច\n"
-        "3️⃣ Bot នឹងចាប់យក Group ID ដោយស្វ័យប្រវត្ត (មិនបាច់ Copy/Paste ID ឡើយ!)\n"
-        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-        reply_markup=select_kb
-    )
+    prompt_text = {
+        "kh": (
+            "👥 <b>ភ្ជាប់ក្រុមថ្មីដើម្បីការពារ</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "1️⃣ សូមចុចប៊ូតុង <b>[ 👥 ជ្រើសរើសក្រុមពី Telegram ]</b> ខាងក្រោម\n"
+            "2️⃣ ជ្រើសរើសក្រុមដែលអ្នកជា Admin ហើយបាន Add Bot រួច\n"
+            "3️⃣ Bot នឹងចាប់យកក្រុមដោយស្វ័យប្រវត្ត (មិនបាច់ Copy ID ឡើយ!)\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        ),
+        "en": (
+            "👥 <b>Link & Protect New Group</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "1️⃣ Tap <b>[ 👥 Select Group from Telegram ]</b> below\n"
+            "2️⃣ Select a group where you are Admin and Bot is added\n"
+            "3️⃣ The bot will link the group automatically (No ID needed!)\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        ),
+        "both": (
+            "👥 <b>ភ្ជាប់ក្រុមថ្មីដើម្បីការពារ | Link & Protect Group</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "1️⃣ សូមចុចប៊ូតុង <b>[ 👥 ជ្រើសរើសក្រុម | Select Group ]</b> ខាងក្រោម\n"
+            "2️⃣ ជ្រើសរើសក្រុមដែលអ្នកជា Admin ហើយបាន Add Bot រួច\n"
+            "3️⃣ Bot នឹងចាប់យកក្រុមដោយស្វ័យប្រវត្ត (Automated zero-ID linking!)\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        )
+    }.get(lang, "Link & Protect Group")
+
+    api.send_message(chat_id, prompt_text, reply_markup=select_kb)
 
     if inline_markup:
-        api.send_message(
-            chat_id,
-            "💡 ឬជ្រើសរើសពីក្រុមដែល Bot បានរកឃើញស្រាប់៖",
-            reply_markup=inline_markup
-        )
-
-
-def _resolve_chat_id_and_info(api: TelegramAPI, gid: int) -> tuple[int, dict]:
-    # 1. Direct getChat
-    info = api.get_chat(gid)
-    if info and info.get("title"):
-        return gid, info
-    # 2. If positive, try -100 supergroup prefix
-    if gid > 0:
-        supergroup_gid = -int(f"100{gid}")
-        info = api.get_chat(supergroup_gid)
-        if info and info.get("title"):
-            return supergroup_gid, info
-        info = api.get_chat(-gid)
-        if info and info.get("title"):
-            return -gid, info
-    return gid, info or {}
+        cand_text = {
+            "kh": "💡 ឬជ្រើសរើសពីក្រុមដែល Bot បានរកឃើញស្រាប់៖",
+            "en": "💡 Or select from detected groups:",
+            "both": "💡 ឬជ្រើសរើសពីក្រុមស្រាប់ | Or select from known groups:"
+        }.get(lang, "Detected groups:")
+        api.send_message(chat_id, cand_text, reply_markup=inline_markup)
 
 
 def _handle_group_selected_for_linking(api: TelegramAPI, chat_id: int, user_id: int, group_id: int) -> None:
     whitelisted = user_id in whitelist_user_ids() or is_super_admin(user_id)
+    lang = get_user_lang(user_id)
+    menu_kb = _menu_keyboard(whitelisted, lang)
+
     if not whitelisted:
-        api.send_message(chat_id, UNAUTHORIZED_TEXT, reply_markup=_menu_keyboard(False))
+        api.send_message(chat_id, UNAUTHORIZED_TEXT, reply_markup=menu_kb)
         return
 
     real_gid, chat_info = _resolve_chat_id_and_info(api, group_id)
-    title = (chat_info or {}).get("title") or "ក្រុមដែលបានជ្រើសរើស (Selected Group)"
+    title = (chat_info or {}).get("title")
     username = (chat_info or {}).get("username")
 
-    # Remove the reply keyboard
-    api.send_message(
-        chat_id,
-        f"⏳ បានជ្រើសរើសក្រុម <b>{esc(title)}</b>...",
-        reply_markup={"remove_keyboard": True}
-    )
+    # Send temporary acknowledgment to clear the reply keyboard, and track its ID for cleanup
+    ack_text = {
+        "kh": "⏳ កំពុងដំណើរការ...",
+        "en": "⏳ Processing...",
+        "both": "⏳ កំពុងដំណើរការ | Processing..."
+    }.get(lang, "⏳ Processing...")
+
+    ack_res = api.send_message(chat_id, ack_text, reply_markup={"remove_keyboard": True})
+    if ack_res and ack_res.get("result") and ack_res["result"].get("message_id"):
+        kv_set(f"temp_link_msg:{chat_id}", str(ack_res["result"]["message_id"]), ttl=300)
+
+    # If the bot is not yet added to the group and get_chat could not find it:
+    if not title:
+        temp_id = kv_get(f"temp_link_msg:{chat_id}")
+        if temp_id:
+            api.delete_message(chat_id, int(temp_id))
+            kv_delete(f"temp_link_msg:{chat_id}")
+
+        not_in_group_msg = {
+            "kh": (
+                "⚠️ <b>Bot មិនទាន់ត្រូវបាន Add ចូលក្នុងក្រុមនេះនៅឡើយទេ!</b>\n\n"
+                "📌 <b>របៀបបើកដំណើរការ៖</b>\n"
+                "1. សូម Add Bot ចូលក្នុងក្រុមរបស់អ្នក\n"
+                "2. ផ្តល់សិទ្ធិជា <b>Administrator</b> (Delete Messages & Restrict Members)\n"
+                "3. បន្ទាប់មកចុច [ ➕ ភ្ជាប់ក្រុម ] ម្តងទៀត!"
+            ),
+            "en": (
+                "⚠️ <b>Bot is not yet in this group!</b>\n\n"
+                "📌 <b>How to activate:</b>\n"
+                "1. Add the Bot to your Telegram group\n"
+                "2. Promote it as an <b>Administrator</b> (Delete Messages & Restrict Members)\n"
+                "3. Then tap [ ➕ Link Group ] again!"
+            ),
+            "both": (
+                "⚠️ <b>Bot មិនទាន់ត្រូវបាន Add ចូលក្នុងក្រុមនៅឡើយទេ | Bot not in group yet</b>\n\n"
+                "📌 <b>ជំហានបន្ទាប់ (Next Steps):</b>\n"
+                "1. សូម Add Bot ចូលក្នុងក្រុមរបស់អ្នក (Add Bot to your group)\n"
+                "2. ផ្តល់សិទ្ធិជា <b>Administrator</b> ដល់ Bot\n"
+                "3. បន្ទាប់មកចុច [ ➕ Link Group ] ម្តងទៀត!"
+            )
+        }.get(lang, "Bot is not in this group yet. Please add Bot as Admin first.")
+
+        api.send_message(chat_id, not_in_group_msg, reply_markup=menu_kb)
+        return
+
+    confirm_btn = {
+        "kh": "✅ បញ្ជាក់ & បើកការការពារ",
+        "en": "✅ Confirm & Protect",
+        "both": "✅ បញ្ជាក់ & បើកការការពារ | Confirm"
+    }.get(lang, "✅ Confirm & Protect")
+
+    cancel_btn = {
+        "kh": "❌ បោះបង់",
+        "en": "❌ Cancel",
+        "both": "❌ បោះបង់ | Cancel"
+    }.get(lang, "❌ Cancel")
 
     confirm_kb = {
         "inline_keyboard": [
             [
-                {"text": "✅ បញ្ជាក់ & បើកការការពារ | Confirm & Protect", "callback_data": f"link_confirm:{real_gid}"},
-                {"text": "❌ បោះបង់ | Cancel", "callback_data": "link_cancel"}
+                {"text": confirm_btn, "callback_data": f"link_confirm:{real_gid}"},
+                {"text": cancel_btn, "callback_data": "link_cancel"}
             ]
         ]
     }
@@ -569,16 +672,32 @@ def _handle_group_selected_for_linking(api: TelegramAPI, chat_id: int, user_id: 
     if username:
         group_label += f" (@{esc(username)})"
 
-    api.send_message(
-        chat_id,
-        f"🛡️ <b>បញ្ជាក់ការភ្ជាប់ក្រុម | Confirm Group Protection</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"👥 ក្រុម (Group) : {group_label}\n\n"
-        f"តើអ្នកពិតជាចង់បើកការការពារ ២៤/៧ សម្រាប់ក្រុមនេះមែនទេ?\n"
-        f"<i>(Are you sure you want to activate 24/7 protection for this group?)</i>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-        reply_markup=confirm_kb
-    )
+    confirm_prompt = {
+        "kh": (
+            f"🛡️ <b>បញ្ជាក់ការភ្ជាប់ក្រុម</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"👥 ក្រុម : {group_label}\n\n"
+            f"តើអ្នកពិតជាចង់បើកការការពារ ២៤/៧ សម្រាប់ក្រុមនេះមែនទេ?\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        ),
+        "en": (
+            f"🛡️ <b>Confirm Group Protection</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"👥 Group : {group_label}\n\n"
+            f"Are you sure you want to activate 24/7 protection for this group?\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        ),
+        "both": (
+            f"🛡️ <b>បញ្ជាក់ការភ្ជាប់ក្រុម | Confirm Group Protection</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"👥 ក្រុម (Group) : {group_label}\n\n"
+            f"តើអ្នកពិតជាចង់បើកការការពារ ២៤/៧ សម្រាប់ក្រុមនេះមែនទេ?\n"
+            f"<i>(Are you sure you want to activate 24/7 protection for this group?)</i>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        )
+    }.get(lang, "Confirm Group Protection")
+
+    api.send_message(chat_id, confirm_prompt, reply_markup=confirm_kb)
 
 
 def _build_group_settings_view(api: TelegramAPI, group_id: int) -> tuple[str, dict]:
@@ -811,23 +930,43 @@ def _info(kind: str, lang: str) -> str:
 
 MENU_ALIASES = {
     "📖 Guide": "guide",
+    "📖 មគ្គុទ្ទេសក៍": "guide",
     "🔒 Privacy": "privacy",
+    "🔒 ភាពឯកជន": "privacy",
     "📜 Terms": "terms",
+    "📜 លក្ខខណ្ឌ": "terms",
     "🌐 Lang": "lang",
+    "🌐 Language": "lang",
+    "🌐 ភាសា": "lang",
     "⚙️ Settings": "settings",
+    "⚙️ ការកំណត់": "settings",
     "➕ Link Group": "addgroup",
+    "➕ ភ្ជាប់ក្រុម": "addgroup",
     "👥 Link Group": "addgroup",
+    "👥 ភ្ជាប់ក្រុម": "addgroup",
 }
 
 
-def _menu_keyboard(whitelisted: bool) -> dict:
+def _menu_keyboard(whitelisted: bool, lang: str = "both") -> dict:
     rows = []
     if config.WEB_APP_URL:
         rows.append([{"text": "🛡️ Mini App", "web_app": {"url": config.WEB_APP_DASHBOARD_URL}}])
-    rows.append([{"text": "📖 Guide"}, {"text": "🔒 Privacy"}])
-    rows.append([{"text": "📜 Terms"}, {"text": "🌐 Lang"}])
-    if whitelisted:
-        rows.append([{"text": "➕ Link Group"}, {"text": "⚙️ Settings"}])
+
+    if lang == "kh":
+        rows.append([{"text": "📖 មគ្គុទ្ទេសក៍"}, {"text": "🔒 ភាពឯកជន"}])
+        rows.append([{"text": "📜 លក្ខខណ្ឌ"}, {"text": "🌐 ភាសា"}])
+        if whitelisted:
+            rows.append([{"text": "➕ ភ្ជាប់ក្រុម"}, {"text": "⚙️ ការកំណត់"}])
+    elif lang == "en":
+        rows.append([{"text": "📖 Guide"}, {"text": "🔒 Privacy"}])
+        rows.append([{"text": "📜 Terms"}, {"text": "🌐 Language"}])
+        if whitelisted:
+            rows.append([{"text": "➕ Link Group"}, {"text": "⚙️ Settings"}])
+    else:
+        rows.append([{"text": "📖 Guide"}, {"text": "🔒 Privacy"}])
+        rows.append([{"text": "📜 Terms"}, {"text": "🌐 Lang"}])
+        if whitelisted:
+            rows.append([{"text": "➕ Link Group"}, {"text": "⚙️ Settings"}])
     return {"keyboard": rows, "resize_keyboard": True}
 
 
@@ -836,6 +975,7 @@ def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
     text = (message.get("text") or "").strip()
     command = text.split()[0].split("@", 1)[0] if text else ""
     whitelisted = user_id in whitelist_user_ids() or is_super_admin(user_id)
+    lang = get_user_lang(user_id)
 
     # 1. Telegram Native Chat Shared event (when user selects a group via request_chat button)
     chat_shared = message.get("chat_shared")
@@ -846,11 +986,21 @@ def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
             return
 
     # 2. Cancel action
-    if text in {"❌ បោះបង់ | Cancel", "Cancel", "/cancel"}:
+    if text in {"❌ បោះបង់ | Cancel", "❌ បោះបង់", "❌ Cancel", "Cancel", "/cancel"}:
+        temp_id = kv_get(f"temp_link_msg:{chat_id}")
+        if temp_id:
+            api.delete_message(chat_id, int(temp_id))
+            kv_delete(f"temp_link_msg:{chat_id}")
+
+        cancel_msg = {
+            "kh": "❌ បានបោះបង់",
+            "en": "❌ Cancelled",
+            "both": "❌ បានបោះបង់ (Cancelled)"
+        }.get(lang, "❌ Cancelled")
         api.send_message(
             chat_id,
-            "❌ បានបោះបង់ (Cancelled).",
-            reply_markup=_menu_keyboard(whitelisted)
+            cancel_msg,
+            reply_markup=_menu_keyboard(whitelisted, lang)
         )
         return
 
@@ -858,7 +1008,7 @@ def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
     if text in MENU_ALIASES:
         command = "/" + MENU_ALIASES[text]
 
-    menu_kb = _menu_keyboard(whitelisted)
+    menu_kb = _menu_keyboard(whitelisted, lang)
 
     if command:
         # Whitelisted users get the admin commands scoped to their private chat.
@@ -869,16 +1019,16 @@ def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
             _prompt_select_group(api, chat_id, user_id)
             return
         if command == "/privacy":
-            api.send_message(chat_id, _info("privacy", get_user_lang(user_id)), reply_markup=menu_kb)
+            api.send_message(chat_id, _info("privacy", lang), reply_markup=menu_kb)
             return
         if command == "/help":
-            api.send_message(chat_id, _info("help", get_user_lang(user_id)), reply_markup=menu_kb)
+            api.send_message(chat_id, _info("help", lang), reply_markup=menu_kb)
             return
         if command == "/guide":
-            api.send_message(chat_id, _info("guide", get_user_lang(user_id)), reply_markup=menu_kb)
+            api.send_message(chat_id, _info("guide", lang), reply_markup=menu_kb)
             return
         if command == "/terms":
-            api.send_message(chat_id, _info("terms", get_user_lang(user_id)), reply_markup=menu_kb)
+            api.send_message(chat_id, _info("terms", lang), reply_markup=menu_kb)
             return
         if command == "/app":
             if config.WEB_APP_URL:
@@ -888,7 +1038,7 @@ def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
                 api.send_message(chat_id, "Mini App URL not configured.")
             return
         if command in {"/lang", "/language"}:
-            current = get_user_lang(user_id)
+            current = lang
             kb = {
                 "inline_keyboard": [
                     [
@@ -906,15 +1056,16 @@ def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
                 return
             managed_groups = get_managed_groups_for_user(api, user_id)
             if not managed_groups:
-                api.send_message(
-                    chat_id,
-                    "មិនទាន់មានក្រុមចាត់តាំង (No groups assigned yet).\nសូមចុចប៊ូតុង [ ➕ Link Group ] លើ Menu ខាងក្រោមដើម្បីភ្ជាប់ក្រុមថ្មី។",
-                    reply_markup=menu_kb,
-                )
+                no_grp_msg = {
+                    "kh": "មិនទាន់មានក្រុមចាត់តាំងនៅឡើយទេ។\nសូមចុចប៊ូតុង [ ➕ ភ្ជាប់ក្រុម ] លើ Menu ខាងក្រោមដើម្បីភ្ជាប់ក្រុមថ្មី។",
+                    "en": "No groups assigned yet.\nPlease tap [ ➕ Link Group ] on the menu below to link a new group.",
+                    "both": "មិនទាន់មានក្រុមចាត់តាំង (No groups assigned yet).\nសូមចុចប៊ូតុង [ ➕ Link Group ] លើ Menu ខាងក្រោមដើម្បីភ្ជាប់ក្រុមថ្មី។"
+                }.get(lang, "No groups assigned yet.")
+                api.send_message(chat_id, no_grp_msg, reply_markup=menu_kb)
                 return
             api.send_message(
                 chat_id,
-                _info("settings_intro", get_user_lang(user_id)),
+                _info("settings_intro", lang),
                 reply_markup=_build_admin_menu_keyboard(managed_groups),
             )
             return
@@ -926,9 +1077,14 @@ def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
         return
 
     # Plain text -> show the menu keyboard
+    greeting_text = {
+        "kh": "🤖 សូមជ្រើសរើសមុខងារខាងក្រោម៖",
+        "en": "🤖 Please choose an option below:",
+        "both": "🤖 សូមជ្រើសរើសមុខងារ (Choose an option below):"
+    }.get(lang, "🤖 Choose an option below:")
     api.send_message(
         chat_id,
-        "🤖 សូមជ្រើសរើសមុខងារ (Choose an option below):",
+        greeting_text,
         reply_markup=menu_kb,
     )
 
@@ -1006,7 +1162,16 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
                 api.answer_callback_query(query_id, text="❌ Not yours.", show_alert=True)
                 return
             set_user_lang(target_uid, new_lang)
+            whitelisted = user_id in whitelist_user_ids() or is_super_admin(user_id)
             api.answer_callback_query(query_id, text=f"✅ Language set to {new_lang.upper()}")
+
+            lang_ack = {
+                "kh": "✅ ភាសាត្រូវបានប្តូរទៅជា <b>ភាសាខ្មែរ</b>",
+                "en": "✅ Language changed to <b>English</b>",
+                "both": "✅ ភាសាត្រូវបានប្តូរ | Language set to <b>Bilingual (KH + EN)</b>"
+            }.get(new_lang, f"✅ Language set to {new_lang.upper()}")
+
+            api.send_message(chat_id, lang_ack, reply_markup=_menu_keyboard(whitelisted, new_lang))
             return
 
     # 0.6 File whitelist approval (doc section 4)
@@ -1058,6 +1223,8 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
             api.answer_callback_query(query_id)
             return
         whitelisted = user_id in whitelist_user_ids() or is_super_admin(user_id)
+        lang = get_user_lang(user_id)
+        menu_kb = _menu_keyboard(whitelisted, lang)
         if not whitelisted:
             api.answer_callback_query(query_id, text="❌ Unauthorized", show_alert=True)
             return
@@ -1065,13 +1232,19 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
         # 1. Delete the confirmation message immediately
         api.delete_message(chat_id, msg_id)
 
-        # 2. Register group
+        # 2. Delete the temp acknowledgment message if present
+        temp_id = kv_get(f"temp_link_msg:{chat_id}")
+        if temp_id:
+            api.delete_message(chat_id, int(temp_id))
+            kv_delete(f"temp_link_msg:{chat_id}")
+
+        # 3. Register group
         add_allowed_group(gid)
         add_group_handler(user_id, gid)
 
-        # 3. Cache group title
+        # 4. Cache group title
         real_gid, chat_info = _resolve_chat_id_and_info(api, gid)
-        title = (chat_info or {}).get("title") or "ក្រុមដែលបានជ្រើសរើស (Selected Group)"
+        title = (chat_info or {}).get("title") or "Selected Group"
         username = (chat_info or {}).get("username")
         record_known_group(real_gid, title)
 
@@ -1079,27 +1252,65 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
         if username:
             group_label += f" (@{esc(username)})"
 
-        api.answer_callback_query(query_id, text="✅ ក្រុមត្រូវបានភ្ជាប់ និងការពារជោគជ័យ!")
-        api.send_message(
-            chat_id,
-            f"✅ <b>ជោគជ័យ! ការការពារត្រូវបានបើកដំណើរការ</b>\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"👥 ក្រុម {group_label} ត្រូវបានភ្ជាប់ និងការពារ ២៤/៧ ដោយស្វ័យប្រវត្ត។\n"
-            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-            reply_markup=_menu_keyboard(whitelisted)
-        )
+        ans_text = {
+            "kh": "✅ ក្រុមត្រូវបានភ្ជាប់ និងការពារជោគជ័យ!",
+            "en": "✅ Group linked & protected successfully!",
+            "both": "✅ ក្រុមត្រូវបានការពារជោគជ័យ | Group protected!"
+        }.get(lang, "✅ Group linked & protected!")
+
+        success_msg = {
+            "kh": (
+                f"✅ <b>ជោគជ័យ! ការការពារត្រូវបានបើកដំណើរការ</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"👥 ក្រុម {group_label} ត្រូវបានភ្ជាប់ និងការពារ ២៤/៧ ដោយស្វ័យប្រវត្ត។\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            ),
+            "en": (
+                f"✅ <b>Success! Protection Activated</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"👥 Group {group_label} is now linked and protected 24/7.\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            ),
+            "both": (
+                f"✅ <b>ជោគជ័យ! ការការពារត្រូវបានបើកដំណើរការ</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"👥 ក្រុម {group_label} ត្រូវបានភ្ជាប់ និងការពារ ២៤/៧ ដោយស្វ័យប្រវត្ត (Protected 24/7).\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            )
+        }.get(lang, "Success! Protection Activated")
+
+        api.answer_callback_query(query_id, text=ans_text)
+        api.send_message(chat_id, success_msg, reply_markup=menu_kb)
         return
 
     if data == "link_cancel":
         whitelisted = user_id in whitelist_user_ids() or is_super_admin(user_id)
-        # Delete the confirmation message immediately
+        lang = get_user_lang(user_id)
+        menu_kb = _menu_keyboard(whitelisted, lang)
+
+        # 1. Delete the confirmation message immediately
         api.delete_message(chat_id, msg_id)
-        api.answer_callback_query(query_id, text="❌ បានបោះបង់ (Cancelled)")
-        api.send_message(
-            chat_id,
-            "❌ ការភ្ជាប់ក្រុមត្រូវបានបោះបង់ (Cancelled).",
-            reply_markup=_menu_keyboard(whitelisted)
-        )
+
+        # 2. Delete the temp acknowledgment message if present
+        temp_id = kv_get(f"temp_link_msg:{chat_id}")
+        if temp_id:
+            api.delete_message(chat_id, int(temp_id))
+            kv_delete(f"temp_link_msg:{chat_id}")
+
+        ans_cancel = {
+            "kh": "❌ បានបោះបង់",
+            "en": "❌ Cancelled",
+            "both": "❌ បានបោះបង់ (Cancelled)"
+        }.get(lang, "❌ Cancelled")
+
+        cancel_msg = {
+            "kh": "❌ ការភ្ជាប់ក្រុមត្រូវបានបោះបង់។",
+            "en": "❌ Group linking cancelled.",
+            "both": "❌ ការភ្ជាប់ក្រុមត្រូវបានបោះបង់ (Group linking cancelled)."
+        }.get(lang, "❌ Cancelled.")
+
+        api.answer_callback_query(query_id, text=ans_cancel)
+        api.send_message(chat_id, cancel_msg, reply_markup=menu_kb)
         return
 
     # 1. Non-technical explanation modal
