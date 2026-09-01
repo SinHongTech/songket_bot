@@ -36,6 +36,29 @@ export function getTelegramWebApp() {
   return null;
 }
 
+export function getInitData(): string {
+  const tg = getTelegramWebApp();
+  if (tg?.initData) return tg.initData;
+
+  if (typeof window !== "undefined") {
+    // 1. Hash param fallback (e.g. #tgWebAppData=...)
+    const hash = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash;
+    if (hash.includes("tgWebAppData=")) {
+      const params = new URLSearchParams(hash);
+      const data = params.get("tgWebAppData");
+      if (data) return data;
+    }
+    // 2. Search param fallback (e.g. ?tgWebAppData=...)
+    const search = window.location.search.startsWith("?") ? window.location.search.slice(1) : window.location.search;
+    if (search.includes("tgWebAppData=")) {
+      const params = new URLSearchParams(search);
+      const data = params.get("tgWebAppData");
+      if (data) return data;
+    }
+  }
+  return "";
+}
+
 export function getSessionToken(): string {
   return _sessionToken;
 }
@@ -55,7 +78,7 @@ export async function fetchDashboardData(days: number = 7): Promise<DashboardApi
     }
   }
 
-  const initData = tg?.initData || "";
+  const initData = getInitData();
 
   // If outside Telegram / local development without valid initData
   if (!initData) {
@@ -101,8 +124,7 @@ export async function fetchDashboardData(days: number = 7): Promise<DashboardApi
 }
 
 async function postAction(payload: Record<string, unknown>) {
-  const tg = getTelegramWebApp();
-  const initData = tg?.initData || "";
+  const initData = getInitData();
 
   const response = await fetch("/api/dashboard", {
     method: "POST",
@@ -116,9 +138,18 @@ async function postAction(payload: Record<string, unknown>) {
   return await response.json();
 }
 
+export async function checkPinStatus() {
+  const initData = getInitData();
+  const response = await fetch("/api/dashboard", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ initData, action: "check_pin" }),
+  });
+  return await response.json();
+}
+
 export async function setupPin(pin: string, confirm: string) {
-  const tg = getTelegramWebApp();
-  const initData = tg?.initData || "";
+  const initData = getInitData();
   const response = await fetch("/api/dashboard", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -128,8 +159,7 @@ export async function setupPin(pin: string, confirm: string) {
 }
 
 export async function loginPin(pin: string) {
-  const tg = getTelegramWebApp();
-  const initData = tg?.initData || "";
+  const initData = getInitData();
   const response = await fetch("/api/dashboard", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

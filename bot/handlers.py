@@ -27,6 +27,7 @@ from bot.redis_client import (
     get_group_settings,
     get_known_groups,
     get_pending,
+    get_plan_catalog,
     get_scan_usage,
     get_daily_scan_usage,
     get_join_time,
@@ -481,11 +482,6 @@ def _prompt_select_group(api: TelegramAPI, chat_id: int, user_id: int) -> None:
                     "request_chat": {
                         "request_id": 101,
                         "chat_is_channel": False,
-                        "bot_is_member": True,
-                        "user_administrator_rights": {
-                            "can_delete_messages": True,
-                            "can_restrict_members": True
-                        }
                     }
                 }
             ],
