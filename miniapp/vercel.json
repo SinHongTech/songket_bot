@@ -1,8 +1,40 @@
 {
-  "rewrites": [
+  "version": 2,
+  "builds": [
     {
-      "source": "/((?!api/).*)",
-      "destination": "/index.html"
+      "src": "api/dashboard.py",
+      "use": "@vercel/python",
+      "config": {
+        "maxDuration": 20
+      }
+    },
+    {
+      "src": "miniapp/package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "buildCommand": "npm run build",
+        "outputDirectory": "dist"
+      }
     }
-  ]
+  ],
+  "routes": [
+    {
+      "src": "/api/dashboard",
+      "dest": "/api/dashboard.py"
+    },
+    {
+      "src": "/api/webapp",
+      "dest": "/api/dashboard.py"
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
+    }
+  ],
+  "env": {
+    "PYTHONUNBUFFERED": "1"
+  }
 }
