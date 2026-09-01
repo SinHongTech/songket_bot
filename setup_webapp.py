@@ -7,13 +7,27 @@ Usage:
 import os
 import sys
 
+from pathlib import Path
 import requests
 
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
-WEB_APP_URL = os.environ.get("WEB_APP_URL", "")
+# Automatically load .env if present
+env_file = Path(__file__).resolve().parent / ".env"
+if env_file.exists():
+    with open(env_file, "r") as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                k, v = line.split("=", 1)
+                k = k.strip()
+                v = v.split("#", 1)[0].strip().strip("'\"")
+                if k and k not in os.environ:
+                    os.environ[k] = v
+
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
+WEB_APP_URL = os.environ.get("WEB_APP_URL", "").strip()
 
 if not BOT_TOKEN or not WEB_APP_URL:
-    print("Set BOT_TOKEN and WEB_APP_URL first.")
+    print("Set BOT_TOKEN and WEB_APP_URL in .env or environment first.")
     sys.exit(1)
 
 API = f"https://api.telegram.org/bot{BOT_TOKEN}"
