@@ -100,9 +100,7 @@ html, body, #root {
   box-shadow: 0 0 0 1px rgba(245,184,0,0.06), inset 0 1px 0 rgba(245,184,0,0.08);
 }
 
-.khmer { font-family: 'Kantumruy Pro', sans-serif; }
-
-/* ── Splash / logo animation ── */
+.khmer { font-family: 'Kantumruy Pro', sans-serif; }/* ── Splash / logo animation ── */
 @keyframes splash-logo-in {
   0%   { transform: scale(0.12); opacity: 0; }
   18%  { transform: scale(1.14); opacity: 1; }
@@ -182,3 +180,51 @@ html, body, #root {
 .splash-ellipsis-2      { animation: splash-ellipsis-2 4.5s ease-in-out infinite; }
 .splash-ellipsis-3      { animation: splash-ellipsis-3 4.5s ease-in-out infinite; }
 .splash-ping            { animation: splash-ping 2s ease-out 0.9s infinite; }
+
+/* ── HowItWorks phone carousel ── */
+.how-panel {
+  position: relative;
+  overflow: hidden;
+  margin: 0 -18px;
+  background: #070500;
+}
+[data-theme="light"] .how-panel {
+  margin: 0;
+  border-radius: 16px;
+  border: 1px solid rgba(212,167,44,0.3);
+  background: var(--surface);
+  box-shadow: 0 4px 32px rgba(0,0,0,0.08);
+}
+[data-theme="light"] .how-vscan-line {
+  opacity: 0.3;
+}
+[data-theme="light"] .circuit-dot,
+[data-theme="light"] .circuit-dot-b,
+[data-theme="light"] .circuit-dot-c {
+  opacity: 0.15;
+}
+
+.how-phone-card {
+  transform: translateX(var(--phone-tx, 0px)) scale(var(--phone-sc, 1));
+  transition: transform 0.45s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.45s ease, filter 0.45s ease, box-shadow 0.45s ease;
+}
+@keyframes circuit-blink {
+  0%, 100% { opacity: 0.35; }
+  50%       { opacity: 1; }
+}
+@keyframes how-vscan {
+  0%   { left: 0%; opacity: 0; }
+  4%   { opacity: 0.55; }
+  96%  { opacity: 0.55; }
+  100% { left: 100%; opacity: 0; }
+}
+.circuit-dot   { animation: circuit-blink 2s ease-in-out infinite; }
+.circuit-dot-b { animation: circuit-blink 2s ease-in-out 0.67s infinite; }
+.circuit-dot-c { animation: circuit-blink 2s ease-in-out 1.33s infinite; }
+.how-vscan-line {
+  position: absolute;
+  top: 0; bottom: 0; width: 2px;
+  background: linear-gradient(180deg, transparent 0%, rgba(212,167,44,0.35) 30%, rgba(212,167,44,0.5) 50%, rgba(212,167,44,0.35) 70%, transparent 100%);
+  pointer-events: none;
+  animation: how-vscan 6s ease-in-out infinite;
+}

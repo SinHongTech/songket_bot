@@ -35,10 +35,10 @@ export default function Footer({ isKm, bodyFont }: FooterProps) {
           ))}
         </div>
         <div style={{ height: 1, background: "var(--border)", marginBottom: 24 }} />
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginBottom: 28 }}>
-          {[
-            { heading: isKm ? "ផលិតផល" : "PRODUCT", links: [{ label: isKm ? "ការស្កែន" : "File Scanning", href: "#" }, { label: isKm ? "ការរកឃើញតំណ" : "Link Detection", href: "#" }, { label: isKm ? "តម្លៃ" : "Pricing", href: "#pricing" }, { label: isKm ? "ការអាប់ដេត" : "Changelog", href: "#" }] },
-            { heading: isKm ? "ក្រុមហ៊ុន" : "COMPANY", links: [{ label: isKm ? "អំពីយើង" : "About Us", href: "#about" }, { label: isKm ? "ក្រុមការងារ" : "Our Team", href: "#about" }, { label: isKm ? "ទំនាក់ទំនង" : "Contact", href: "mailto:team@songket.app" }, { label: isKm ? "ភាពឯកជន" : "Privacy Policy", href: "#" }] },
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 20, marginBottom: 28 }}>
+          {[{ heading: isKm ? "ផលិតផល" : "PRODUCT", links: [{ label: isKm ? "ការស្កែន" : "File Scanning", href: "#" }, { label: isKm ? "ការរកឃើញតំណ" : "Link Detection", href: "#" }, { label: isKm ? "តម្លៃ" : "Pricing", href: "#pricing" }, { label: isKm ? "របៀបដំណើរការ" : "How It Works", href: "#how-it-works" }] },
+            { heading: isKm ? "ក្រុមហ៊ុន" : "COMPANY", links: [{ label: isKm ? "អំពីយើង" : "About Us", href: "#about" }, { label: isKm ? "ក្រុមការងារ" : "Our Team", href: "#about" }, { label: isKm ? "ទំនាក់ទំនង" : "Contact", href: "#contact" }, { label: isKm ? "សំណួរញឹកញាប់" : "FAQ", href: "#faq" }] },
+            { heading: isKm ? "ច្បាប់" : "LEGAL", links: [{ label: isKm ? "គោលនយោបាយឯកជន" : "Privacy Policy", href: "/privacy-terms#privacy" }, { label: isKm ? "លក្ខខណ្ឌនៃការប្រើប្រាស់" : "Terms & Conditions", href: "/privacy-terms#terms" }] },
           ].map(col => (
             <div key={col.heading}>
               <p className="mono" style={{ fontSize: 9, fontWeight: 700, color: "var(--muted)", letterSpacing: "0.16em", marginBottom: 14 }}>{col.heading}</p>

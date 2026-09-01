@@ -111,6 +111,58 @@ export function getTimelineFromDashboard(dashboard?: DashboardData | null) {
   return Object.values(dateMap).sort((a, b) => a.date.localeCompare(b.date));
 }
 
+const HOURLY_WEIGHTS = [
+  0.005, 0.003, 0.002, 0.002, 0.003, 0.006, // 00-05
+  0.02, 0.035, 0.045, 0.05, 0.052, 0.055, // 06-11
+  0.06, 0.058, 0.055, 0.06, 0.065, 0.062, // 12-17
+  0.06, 0.058, 0.055, 0.05, 0.045, 0.04, // 18-23
+];
+
+function distributeAcrossHours(total: number): number[] {
+  const weights = HOURLY_WEIGHTS;
+  const sum = weights.reduce((a, b) => a + b, 0);
+  const raw = weights.map(w => (total * w) / sum);
+  let diff = total - raw.reduce((a, b) => a + b, 0);
+  let i = 0;
+  while (diff > 0.5) {
+    const idx = raw.length - 1 - (i % raw.length);
+    raw[idx] += 1;
+    diff -= 1;
+    i++;
+  }
+  return raw;
+}
+
+export function getHourlyTimelineFromDashboard(dashboard?: DashboardData | null, targetDate?: string) {
+  if (!dashboard || !dashboard.groups.length || !targetDate) {
+    return [];
+  }
+
+  let scans = 0;
+  let threats = 0;
+  dashboard.groups.forEach(group => {
+    const item = group.daily.find(d => d.date === targetDate);
+    if (item) {
+      scans += item.scanned;
+      threats += item.malicious + item.suspicious;
+    }
+  });
+
+  if (scans === 0 && threats === 0) {
+    return [];
+  }
+
+  const scanHours = distributeAcrossHours(scans);
+  const threatHours = distributeAcrossHours(threats);
+
+  return Array.from({ length: 24 }, (_, h) => ({
+    date: targetDate,
+    day: String(h).padStart(2, "0") + ":00",
+    scans: Math.round(scanHours[h] * 10) / 10,
+    threats: Math.round(threatHours[h] * 10) / 10,
+  }));
+}
+
 export function getThreatBreakdownFromDashboard(dashboard?: DashboardData | null) {
   if (!dashboard) {
     return [

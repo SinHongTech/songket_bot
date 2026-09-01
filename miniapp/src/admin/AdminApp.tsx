@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useLayoutEffect, useCallback } from "react";
-import { Link } from "react-router";
 import {
   LayoutDashboard,
   MessageSquare,
@@ -16,7 +15,7 @@ import {
   Copy,
   Sliders,
   Lock,
-  LogOut,
+  Bell,
 } from "lucide-react";
 import LogoMark from "@/shared/components/LogoMark";
 import { G, type Nav, type Lang } from "@/admin/palette";
@@ -29,10 +28,11 @@ import ThreatsView from "@/admin/components/ThreatsView";
 import HistoryView from "@/admin/components/HistoryView";
 import AccountView from "@/admin/components/AccountView";
 import ManageView from "@/admin/components/ManageView";
+import { getThreatsListFromDashboard } from "@/admin/data";
 
 function UpgradeModal({ onClose, lang }: { onClose: () => void; lang: Lang }) {
   const tx = T(lang);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected] = useState<string | null>(null);
 
   return (
     <div
@@ -132,7 +132,7 @@ function UpgradeModal({ onClose, lang }: { onClose: () => void; lang: Lang }) {
                   ))}
                 </div>
                 <button
-                  onClick={() => setSelected(plan.id)}
+                  onClick={() => window.open("https://t.me/Sin_Hong", "_blank")}
                   style={{
                     width: "100%",
                     padding: "10px 0",
@@ -204,11 +204,10 @@ function PinGate({ mode, locked, lang, onSuccess }: { mode: "setup" | "login"; l
 
   const fmt = (s: number) => `${Math.floor(s / 60)}m ${s % 60}s`;
   const inputProps = {
-    type: "text",
+    type: "password",
     inputMode: "numeric" as const,
-    pattern: "[0-9]*",
     maxLength: 6,
-    autoComplete: "one-time-code",
+    autoComplete: "off",
   };
 
   async function submit() {
@@ -316,9 +315,19 @@ export default function AdminApp() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [apiData, setApiData] = useState<DashboardApiResponse | null>(null);
-  const [manageUnlocked, setManageUnlocked] = useState(false);
-  const [days, setDays] = useState(7);
-  const [homeDays, setHomeDays] = useState(7);
+  const [days] = useState(7);
+  const [dateFrom, setDateFrom] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 7);
+    return d.toISOString().split("T")[0];
+  });
+  const [dateTo, setDateTo] = useState(() => new Date().toISOString().split("T")[0]);
+  const [readNotifications, setReadNotifications] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem("songket.admin.readNotifications");
+      return saved ? new Set(JSON.parse(saved)) : new Set();
+    } catch { return new Set(); }
+  });
 
   const tx = T(lang);
 
@@ -366,11 +375,9 @@ export default function AdminApp() {
     loadData(false, days);
   }, [days, loadData]);
 
-  const handleDaysChange = (newDays: number) => {
-    setDays(newDays);
-  };
 
-  const loadHomeData = useCallback(async (isRefresh = false, queryDays = homeDays) => {
+
+  const loadHomeData = useCallback(async (isRefresh = false, from = dateFrom, to = dateTo) => {
     if (isRefresh) {
       setRefreshing(true);
     } else {
@@ -379,6 +386,8 @@ export default function AdminApp() {
     setError(null);
 
     try {
+      const diffMs = new Date(to).getTime() - new Date(from).getTime();
+      const queryDays = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)) + 1);
       const data = await fetchDashboardData(queryDays);
       if (data.dashboard) {
         data.dashboard.days = queryDays;
@@ -391,14 +400,15 @@ export default function AdminApp() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [homeDays]);
+  }, [dateFrom, dateTo]);
 
   useEffect(() => {
-    loadHomeData(false, homeDays);
-  }, [homeDays, loadHomeData]);
+    loadHomeData(false, dateFrom, dateTo);
+  }, [dateFrom, dateTo, loadHomeData]);
 
-  const handleHomeDaysChange = (newDays: number) => {
-    setHomeDays(newDays);
+  const handleDateChange = (from: string, to: string) => {
+    setDateFrom(from);
+    setDateTo(to);
   };
 
   const handleCopyId = (id: number) => {
@@ -420,7 +430,6 @@ export default function AdminApp() {
 
   const handleLogout = () => {
     setSessionToken("");
-    setManageUnlocked(false);
     loadData(false, days);
   };
 
@@ -431,7 +440,7 @@ export default function AdminApp() {
     { id: "groups", icon: <MessageSquare size={20} />, label: tx.groups },
     { id: "threats", icon: <AlertTriangle size={20} />, label: tx.threats },
     { id: "history", icon: <Clock size={20} />, label: tx.history },
-    ...(isSuperAdmin || apiData?.authorized ? [{ id: "manage" as Nav, icon: <Sliders size={20} />, label: tx.manage }] : []),
+    ...(isSuperAdmin ? [{ id: "manage" as Nav, icon: <Sliders size={20} />, label: tx.manage }] : []),
     { id: "account", icon: <User size={20} />, label: tx.account },
   ];
 
@@ -439,32 +448,16 @@ export default function AdminApp() {
   const dashboard = apiData?.dashboard || null;
   const user = apiData?.user;
   const isMock = apiData?.isMock ?? false;
+  const threatCount = getThreatsListFromDashboard(dashboard).filter(t => !readNotifications.has(t.id)).length;
+  const [showNotifications, setShowNotifications] = useState(false);
 
   const views: Record<Nav, React.ReactElement> = {
-    dashboard: <HomeView dashboard={dashboard} lang={lang} isMock={isMock} homeDays={homeDays} onHomeDaysChange={handleHomeDaysChange} onNavigate={(tab) => setNav(tab)} />,
+    dashboard: <HomeView dashboard={dashboard} lang={lang} isMock={isMock} dateFrom={dateFrom} dateTo={dateTo} onDateChange={handleDateChange} onNavigate={(tab) => setNav(tab)} />,
     groups: <GroupsView dashboard={dashboard} lang={lang} />,
-    threats: <ThreatsView dashboard={dashboard} lang={lang} days={days} onDaysChange={handleDaysChange} />,
-    history: <HistoryView dashboard={dashboard} lang={lang} days={days} onDaysChange={handleDaysChange} />,
-    manage: !manageUnlocked ? (
-      <PinGate
-        mode={apiData?.pin_exists ? "login" : "setup"}
-        locked={apiData?.locked || 0}
-        lang={lang}
-        onSuccess={() => {
-          setManageUnlocked(true);
-        }}
-      />
-    ) : (
-      <ManageView
-        config={apiData?.config}
-        plans={apiData?.plans}
-        subscriptions={apiData?.subscriptions}
-        lang={lang}
-        isSuperAdmin={isSuperAdmin}
-        onRefresh={() => loadData(true, days)}
-      />
-    ),
-    account: <AccountView user={user} dashboard={dashboard} dark={dark} setDark={setDark} lang={lang} setLang={setLang} />,
+    threats: <ThreatsView dashboard={dashboard} lang={lang} dateFrom={dateFrom} dateTo={dateTo} onDateChange={handleDateChange} />,
+    history: <HistoryView dashboard={dashboard} lang={lang} dateFrom={dateFrom} dateTo={dateTo} onDateChange={handleDateChange} />,
+    manage: <ManageView config={apiData?.config} plans={apiData?.plans} subscriptions={apiData?.subscriptions} lang={lang} onRefresh={() => loadData(true, days)} />,
+    account: <AccountView user={user} dashboard={dashboard} dark={dark} setDark={setDark} lang={lang} setLang={setLang} onLogout={handleLogout} />,
   };
 
   return (
@@ -473,9 +466,9 @@ export default function AdminApp() {
 
       <header style={{ padding: "12px 16px", borderBottom: `1px solid ${G.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: G.surface, flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <Link to="/" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 7, border: `1px solid ${G.border}`, color: G.muted, textDecoration: "none" }}>
+          <a href="/" style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 7, border: `1px solid ${G.border}`, color: G.muted, textDecoration: "none" }}>
             <ArrowLeft size={13} />
-          </Link>
+          </a>
           <LogoMark size={34} />
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -495,19 +488,7 @@ export default function AdminApp() {
                   {tx.superAdmin.toUpperCase()}
                 </span>
               )}
-              <span
-                style={{
-                  fontSize: 9,
-                  fontWeight: 700,
-                  padding: "1px 5px",
-                  borderRadius: 4,
-                  background: isMock ? "rgba(212,167,44,0.15)" : "rgba(42,170,90,0.15)",
-                  color: isMock ? G.gold : G.safe,
-                  border: `1px solid ${isMock ? G.goldBorder : "rgba(42,170,90,0.3)"}`,
-                }}
-              >
-                {isMock ? tx.previewBadge : tx.liveBadge}
-              </span>
+
             </div>
             <div style={{ fontSize: 9, color: G.muted, letterSpacing: "0.06em" }}>
               <span className={kh(lang)}>{tx.admin}</span> · {currentLabel.toUpperCase()}
@@ -517,7 +498,7 @@ export default function AdminApp() {
 
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <button
-            onClick={() => loadData(true, days)}
+            onClick={() => { loadData(true, days); if (nav === "dashboard") loadHomeData(true, dateFrom, dateTo); }}
             disabled={refreshing || loading}
             style={{
               background: "transparent",
@@ -538,11 +519,11 @@ export default function AdminApp() {
 
           {apiData?.authorized && (
             <button
-              onClick={handleLogout}
+              onClick={() => setShowNotifications(!showNotifications)}
               style={{
                 background: "transparent",
                 border: `1px solid ${G.border}`,
-                color: G.muted,
+                color: threatCount > 0 ? G.danger : G.muted,
                 borderRadius: 8,
                 width: 32,
                 height: 32,
@@ -550,10 +531,31 @@ export default function AdminApp() {
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
+                position: "relative",
               }}
-              title={tx.logout}
+              title={lang === "km" ? "ជូនដំណឹង" : "Notifications"}
             >
-              <LogOut size={14} />
+              <Bell size={14} />
+              {threatCount > 0 && (
+                <span style={{
+                  position: "absolute",
+                  top: -4,
+                  right: -4,
+                  background: G.danger,
+                  color: "#fff",
+                  fontSize: 8,
+                  fontWeight: 700,
+                  borderRadius: "50%",
+                  width: 15,
+                  height: 15,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  lineHeight: 1,
+                }}>
+                  {threatCount > 99 ? "99+" : threatCount}
+                </span>
+              )}
             </button>
           )}
 
@@ -575,6 +577,80 @@ export default function AdminApp() {
           </button>
         </div>
       </header>
+
+      {showNotifications && (
+        <div
+          style={{
+            position: "fixed",
+            top: 56,
+            right: 16,
+            width: 300,
+            maxHeight: 400,
+            overflowY: "auto",
+            background: G.surface,
+            border: `1px solid ${G.border}`,
+            borderRadius: 14,
+            boxShadow: "0 12px 40px rgba(0,0,0,0.4)",
+            zIndex: 150,
+            padding: "12px 0",
+          }}
+        >
+          <div style={{ padding: "0 14px 10px", borderBottom: `1px solid ${G.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: G.text }}>
+              <span className={kh(lang)}>{lang === "km" ? "ជូនដំណឹង" : "Notifications"}</span>
+            </span>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              {threatCount > 0 && (
+                <button
+                  onClick={() => {
+                    const allIds = getThreatsListFromDashboard(dashboard).map(t => t.id);
+                    const next = new Set(readNotifications);
+                    allIds.forEach(id => next.add(id));
+                    setReadNotifications(next);
+                    try { localStorage.setItem("songket.admin.readNotifications", JSON.stringify([...next])); } catch {}
+                  }}
+                  style={{ background: "transparent", border: "none", color: G.gold, cursor: "pointer", fontSize: 10, fontWeight: 600, padding: 0 }}
+                >
+                  <span className={kh(lang)}>{lang === "km" ? "អានទាំងអស់" : "Mark all read"}</span>
+                </button>
+              )}
+              <button
+                onClick={() => setShowNotifications(false)}
+                style={{ background: "transparent", border: "none", color: G.muted, cursor: "pointer", padding: 2 }}
+              >
+                <X size={14} />
+              </button>
+            </div>
+          </div>
+          {threatCount === 0 ? (
+            <div style={{ padding: "24px 14px", textAlign: "center", color: G.muted, fontSize: 12 }}>
+              <span className={kh(lang)}>{lang === "km" ? "គ្មានជូនដំណឹងថ្មី" : "No new notifications"}</span>
+            </div>
+          ) : (
+            getThreatsListFromDashboard(dashboard).filter(t => !readNotifications.has(t.id)).slice(0, 10).map(tr => (
+              <div
+                key={tr.id}
+                style={{ padding: "10px 14px", borderBottom: `1px solid ${G.border}`, cursor: "pointer" }}
+                onClick={() => {
+                  const next = new Set(readNotifications);
+                  next.add(tr.id);
+                  setReadNotifications(next);
+                  try { localStorage.setItem("songket.admin.readNotifications", JSON.stringify([...next])); } catch {}
+                  setShowNotifications(false);
+                  setNav("history");
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: tr.risk === "critical" ? G.danger : G.warn }}>{tr.type}</span>
+                  <span style={{ fontSize: 9, color: G.muted }}>{tr.date}</span>
+                </div>
+                <div style={{ fontSize: 11, color: G.textSec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tr.content}</div>
+                <div style={{ fontSize: 10, color: G.muted, marginTop: 2 }}>{tr.group}</div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
 
       <main style={{ flex: 1, overflowY: "auto", padding: "16px 16px 24px" }}>
         {loading ? (
@@ -607,6 +683,8 @@ export default function AdminApp() {
               <span className={kh(lang)}>{tx.retry}</span>
             </button>
           </div>
+        ) : apiData?.pin_status ? (
+          <PinGate mode={apiData.pin_status} locked={apiData.locked || 0} lang={lang} onSuccess={() => loadData(false, days)} />
         ) : apiData && !apiData.authorized ? (
           <div style={{ background: G.surface, border: `1px solid ${G.goldBorder}`, borderRadius: 16, padding: "28px 20px", textAlign: "center" }}>
             <ShieldAlert size={40} color={G.warn} style={{ marginBottom: 14 }} />

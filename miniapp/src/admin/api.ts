@@ -25,9 +25,7 @@ declare global {
   }
 }
 
-// In-memory session: cleared on every fresh WebApp open, so PIN is required
-// each time the app is (re)opened. Not persisted to storage.
-let _sessionToken = "";
+const SESSION_KEY = "songket.admin.session";
 
 export function getTelegramWebApp() {
   if (typeof window !== "undefined" && window.Telegram?.WebApp) {
@@ -36,35 +34,21 @@ export function getTelegramWebApp() {
   return null;
 }
 
-export function getInitData(): string {
-  const tg = getTelegramWebApp();
-  if (tg?.initData) return tg.initData;
-
-  if (typeof window !== "undefined") {
-    // 1. Hash param fallback (e.g. #tgWebAppData=...)
-    const hash = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash;
-    if (hash.includes("tgWebAppData=")) {
-      const params = new URLSearchParams(hash);
-      const data = params.get("tgWebAppData");
-      if (data) return data;
-    }
-    // 2. Search param fallback (e.g. ?tgWebAppData=...)
-    const search = window.location.search.startsWith("?") ? window.location.search.slice(1) : window.location.search;
-    if (search.includes("tgWebAppData=")) {
-      const params = new URLSearchParams(search);
-      const data = params.get("tgWebAppData");
-      if (data) return data;
-    }
-  }
-  return "";
-}
-
 export function getSessionToken(): string {
-  return _sessionToken;
+  try {
+    return localStorage.getItem(SESSION_KEY) || "";
+  } catch {
+    return "";
+  }
 }
 
 export function setSessionToken(token: string) {
-  _sessionToken = token;
+  try {
+    if (token) localStorage.setItem(SESSION_KEY, token);
+    else localStorage.removeItem(SESSION_KEY);
+  } catch {
+    // ignore storage errors
+  }
 }
 
 export async function fetchDashboardData(days: number = 7): Promise<DashboardApiResponse> {
@@ -78,7 +62,7 @@ export async function fetchDashboardData(days: number = 7): Promise<DashboardApi
     }
   }
 
-  const initData = getInitData();
+  const initData = tg?.initData || "";
 
   // If outside Telegram / local development without valid initData
   if (!initData) {
@@ -124,7 +108,8 @@ export async function fetchDashboardData(days: number = 7): Promise<DashboardApi
 }
 
 async function postAction(payload: Record<string, unknown>) {
-  const initData = getInitData();
+  const tg = getTelegramWebApp();
+  const initData = tg?.initData || "";
 
   const response = await fetch("/api/dashboard", {
     method: "POST",
@@ -138,18 +123,9 @@ async function postAction(payload: Record<string, unknown>) {
   return await response.json();
 }
 
-export async function checkPinStatus() {
-  const initData = getInitData();
-  const response = await fetch("/api/dashboard", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ initData, action: "check_pin" }),
-  });
-  return await response.json();
-}
-
 export async function setupPin(pin: string, confirm: string) {
-  const initData = getInitData();
+  const tg = getTelegramWebApp();
+  const initData = tg?.initData || "";
   const response = await fetch("/api/dashboard", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -159,7 +135,8 @@ export async function setupPin(pin: string, confirm: string) {
 }
 
 export async function loginPin(pin: string) {
-  const initData = getInitData();
+  const tg = getTelegramWebApp();
+  const initData = tg?.initData || "";
   const response = await fetch("/api/dashboard", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -181,10 +158,6 @@ export async function saveSystemConfig(config: {
 
 export async function savePlans(plans: Record<string, PlanEntry>) {
   return postAction({ action: "save_plans", plans });
-}
-
-export async function saveGroups(allowed_groups: number[]) {
-  return postAction({ action: "save_groups", allowed_groups });
 }
 
 export async function assignPlan(user_id: number, plan: string) {

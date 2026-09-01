@@ -3,7 +3,7 @@ import { Users, MessageSquare, Plus, Trash2, Check, ShieldCheck, Loader2, Save, 
 import { G, type Lang } from "../palette";
 import { t as T, kh } from "../i18n";
 import type { SystemConfig, PlanEntry, Subscription } from "../types";
-import { saveSystemConfig, savePlans, saveGroups, assignPlan, removePlan } from "../api";
+import { saveSystemConfig, savePlans, assignPlan, removePlan } from "../api";
 import { SectionHeader } from "./Badges";
 
 interface ManageViewProps {
@@ -11,11 +11,10 @@ interface ManageViewProps {
   plans?: Record<string, PlanEntry> | null;
   subscriptions?: Subscription[] | null;
   lang: Lang;
-  isSuperAdmin: boolean;
   onRefresh: () => void;
 }
 
-export default function ManageView({ config, plans, subscriptions, lang, isSuperAdmin, onRefresh }: ManageViewProps) {
+export default function ManageView({ config, plans, subscriptions, lang, onRefresh }: ManageViewProps) {
   const tx = T(lang);
 
   const [whitelist, setWhitelist] = useState<number[]>([]);
@@ -129,15 +128,11 @@ export default function ManageView({ config, plans, subscriptions, lang, isSuper
     setErrorMsg(null);
 
     try {
-      if (isSuperAdmin) {
-        await saveSystemConfig({
-          whitelist,
-          allowed_groups: allowedGroups,
-          group_handlers: groupHandlers,
-        });
-      } else {
-        await saveGroups(allowedGroups);
-      }
+      await saveSystemConfig({
+        whitelist,
+        allowed_groups: allowedGroups,
+        group_handlers: groupHandlers,
+      });
 
       setSavedToast(true);
       setTimeout(() => setSavedToast(false), 3000);
@@ -242,7 +237,6 @@ export default function ManageView({ config, plans, subscriptions, lang, isSuper
       )}
 
       {/* 1. Whitelist Management */}
-      {isSuperAdmin && (<>
       <div style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 14, padding: "18px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
           <Users size={16} color={G.gold} />
@@ -296,7 +290,6 @@ export default function ManageView({ config, plans, subscriptions, lang, isSuper
           </button>
         </div>
       </div>
-      </>)}
 
       {/* 2. Monitored Groups Management */}
       <div style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 14, padding: "18px" }}>
@@ -354,7 +347,6 @@ export default function ManageView({ config, plans, subscriptions, lang, isSuper
       </div>
 
       {/* 3. Group Handler Mappings */}
-      {isSuperAdmin && (<>
       <div style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 14, padding: "18px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
           <ShieldCheck size={16} color={G.gold} />
@@ -543,7 +535,6 @@ export default function ManageView({ config, plans, subscriptions, lang, isSuper
           )}
         </div>
       </div>
-      </>)}
 
       {planToast && (
         <div style={{ background: "rgba(42,170,90,0.15)", border: `1px solid ${G.safe}`, color: G.safe, borderRadius: 10, padding: "12px 16px", fontSize: 13, display: "flex", alignItems: "center", gap: 8, fontWeight: 600 }}>

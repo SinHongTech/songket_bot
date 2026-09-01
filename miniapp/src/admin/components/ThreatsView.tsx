@@ -11,14 +11,14 @@ type RiskFilter = "all" | "critical" | "high" | "medium";
 interface ThreatsViewProps {
   dashboard: DashboardData | null;
   lang: Lang;
-  days: number;
-  onDaysChange: (d: number) => void;
+  dateFrom: string;
+  dateTo: string;
+  onDateChange: (from: string, to: string) => void;
 }
 
 const RISK_FILTERS: RiskFilter[] = ["all", "critical", "high", "medium"];
-const DAY_OPTIONS = [1, 7, 14, 30];
 
-export default function ThreatsView({ dashboard, lang, days, onDaysChange }: ThreatsViewProps) {
+export default function ThreatsView({ dashboard, lang, dateFrom, dateTo, onDateChange }: ThreatsViewProps) {
   const tx = T(lang);
   const [riskFilter, setRiskFilter] = useState<RiskFilter>("all");
 
@@ -28,37 +28,58 @@ export default function ThreatsView({ dashboard, lang, days, onDaysChange }: Thr
   };
 
   const threats = getThreatsListFromDashboard(dashboard);
-  const filtered = threats.filter(t => riskFilter === "all" || t.risk === riskFilter);
+  const filtered = threats.filter(t => {
+    const inDateRange = t.date >= dateFrom && t.date <= dateTo;
+    const inRisk = riskFilter === "all" || t.risk === riskFilter;
+    return inDateRange && inRisk;
+  });
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       <SectionHeader title={tx.detectedThreats} sub={tx.autoDetected} lang={lang} />
 
       {/* Date filter */}
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        {tx.dateFilters.map((label, i) => {
-          const dVal = DAY_OPTIONS[i] || 7;
-          const active = days === dVal;
-          return (
-            <button
-              key={i}
-              onClick={() => onDaysChange(dVal)}
-              style={{
-                padding: "5px 12px",
-                borderRadius: 20,
-                border: `1.5px solid ${active ? G.gold : G.border}`,
-                background: active ? G.goldSurface : "transparent",
-                color: active ? G.gold : G.muted,
-                cursor: "pointer",
-                fontSize: 11,
-                fontWeight: 700,
-                transition: "all 0.15s",
-              }}
-            >
-              <span className={kh(lang)}>{label}</span>
-            </button>
-          );
-        })}
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1 }}>
+          <span style={{ fontSize: 10, fontWeight: 600, color: G.muted }}>
+            <span className={kh(lang)}>{tx.fromDate}</span>
+          </span>
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={e => onDateChange(e.target.value, dateTo)}
+            style={{
+              padding: "6px 8px",
+              borderRadius: 8,
+              border: `1px solid ${G.border}`,
+              background: G.surface,
+              color: G.text,
+              fontSize: 12,
+              fontFamily: "inherit",
+              outline: "none",
+            }}
+          />
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1 }}>
+          <span style={{ fontSize: 10, fontWeight: 600, color: G.muted }}>
+            <span className={kh(lang)}>{tx.toDate}</span>
+          </span>
+          <input
+            type="date"
+            value={dateTo}
+            onChange={e => onDateChange(dateFrom, e.target.value)}
+            style={{
+              padding: "6px 8px",
+              borderRadius: 8,
+              border: `1px solid ${G.border}`,
+              background: G.surface,
+              color: G.text,
+              fontSize: 12,
+              fontFamily: "inherit",
+              outline: "none",
+            }}
+          />
+        </div>
       </div>
 
       {/* Risk filter */}

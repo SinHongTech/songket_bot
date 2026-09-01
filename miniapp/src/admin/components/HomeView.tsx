@@ -4,25 +4,29 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { G, type Lang, type Nav } from "../palette";
 import { t as T, kh } from "../i18n";
 import type { DashboardData } from "../types";
-import { getTimelineFromDashboard, getThreatBreakdownFromDashboard, getThreatsListFromDashboard, PIE_COLORS } from "../data";
+import { getHourlyTimelineFromDashboard, getTimelineFromDashboard, getThreatBreakdownFromDashboard, getThreatsListFromDashboard, PIE_COLORS } from "../data";
 import { StatCard, RiskBadge } from "./Badges";
 
 interface HomeViewProps {
   dashboard: DashboardData | null;
   lang: Lang;
   isMock?: boolean;
-  homeDays: number;
-  onHomeDaysChange: (d: number) => void;
+  dateFrom: string;
+  dateTo: string;
+  onDateChange: (from: string, to: string) => void;
   onNavigate: (tab: Nav) => void;
 }
 
-const HOME_DAY_OPTIONS = [1, 7, 14, 30];
-
-export default function HomeView({ dashboard, lang, isMock, homeDays, onHomeDaysChange, onNavigate }: HomeViewProps) {
+export default function HomeView({ dashboard, lang, isMock, dateFrom, dateTo, onDateChange, onNavigate }: HomeViewProps) {
   const tx = T(lang);
   const [expandedThreat, setExpandedThreat] = useState<string | null>(null);
 
-  const timelineData = getTimelineFromDashboard(dashboard);
+  const allTimelineData = getTimelineFromDashboard(dashboard);
+  const timelineData = allTimelineData.filter(item => item.date >= dateFrom && item.date <= dateTo);
+  const isSingleDay = dateFrom === dateTo && dateFrom.length > 0;
+  const timelineDataForChart = isSingleDay
+    ? getHourlyTimelineFromDashboard(dashboard, dateFrom)
+    : timelineData;
   const pieData = getThreatBreakdownFromDashboard(dashboard);
   const threatsList = getThreatsListFromDashboard(dashboard);
 
@@ -113,40 +117,57 @@ export default function HomeView({ dashboard, lang, isMock, homeDays, onHomeDays
         />
       </div>
 
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        {tx.dateFilters.map((label, i) => {
-          const dVal = HOME_DAY_OPTIONS[i] || 7;
-          const active = homeDays === dVal;
-          return (
-            <button
-              key={i}
-              onClick={() => onHomeDaysChange(dVal)}
-              style={{
-                padding: "5px 12px",
-                borderRadius: 20,
-                border: `1.5px solid ${active ? G.gold : G.border}`,
-                background: active ? G.goldSurface : "transparent",
-                color: active ? G.gold : G.muted,
-                cursor: "pointer",
-                fontSize: 11,
-                fontWeight: 700,
-                transition: "all 0.15s",
-              }}
-            >
-              <span className={kh(lang)}>{label}</span>
-            </button>
-          );
-        })}
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1 }}>
+          <span style={{ fontSize: 10, fontWeight: 600, color: G.muted }}>
+            <span className={kh(lang)}>{tx.fromDate}</span>
+          </span>
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={e => onDateChange(e.target.value, dateTo)}
+            style={{
+              padding: "6px 8px",
+              borderRadius: 8,
+              border: `1px solid ${G.border}`,
+              background: G.surface,
+              color: G.text,
+              fontSize: 12,
+              fontFamily: "inherit",
+              outline: "none",
+            }}
+          />
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1 }}>
+          <span style={{ fontSize: 10, fontWeight: 600, color: G.muted }}>
+            <span className={kh(lang)}>{tx.toDate}</span>
+          </span>
+          <input
+            type="date"
+            value={dateTo}
+            onChange={e => onDateChange(dateFrom, e.target.value)}
+            style={{
+              padding: "6px 8px",
+              borderRadius: 8,
+              border: `1px solid ${G.border}`,
+              background: G.surface,
+              color: G.text,
+              fontSize: 12,
+              fontFamily: "inherit",
+              outline: "none",
+            }}
+          />
+        </div>
       </div>
 
       <div style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 14, padding: "16px 14px" }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: G.textSec, marginBottom: 14, display: "flex", justifyContent: "space-between" }}>
-          <span className={kh(lang)}>{tx.threatActivity} ({homeDays} Days)</span>
+          <span className={kh(lang)}>{tx.threatActivity} ({dateFrom} ~ {dateTo})</span>
           <span style={{ fontSize: 11, color: G.gold, fontWeight: 700 }}>{totals.scanned} scans</span>
         </div>
-        {timelineData.length > 0 ? (
+        {timelineDataForChart.length > 0 ? (
           <ResponsiveContainer width="100%" height={180}>
-            <AreaChart data={timelineData} margin={{ left: -20, right: 4 }}>
+            <AreaChart data={timelineDataForChart} margin={{ left: -20, right: 4 }}>
               <defs>
                 <linearGradient id="tGrad" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor={G.danger} stopOpacity={0.3} />
@@ -158,35 +179,48 @@ export default function HomeView({ dashboard, lang, isMock, homeDays, onHomeDays
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke={G.border} />
-              <XAxis dataKey="day" stroke={G.muted} tick={{ fontSize: 10 }} />
+              <XAxis dataKey="day" stroke={G.muted} tick={{ fontSize: 10 }} interval={isSingleDay ? 3 : 0} />
               <YAxis stroke={G.muted} tick={{ fontSize: 10 }} />
               <Tooltip 
                 contentStyle={{ background: G.surface2, border: `1px solid ${G.goldBorder}`, borderRadius: 8, color: G.text, fontSize: 12 }} 
-                labelFormatter={(dayNumber) => {
+                labelFormatter={(raw) => {
+                  const dayNumber = String(raw ?? '');
+                  if (isSingleDay) {
+                    const [y, m, d] = dateFrom.split('-').map(Number);
+                    const dt = new Date(y, m - 1, d);
+                    const hour = parseInt(dayNumber.split(':')[0], 10);
+                    const h12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+                    const mm = dayNumber.split(':')[1];
+
+                    if (lang === 'km') {
+                      const kmWeekdays = ['អាទិត្យ', 'ចន្ទ', 'អង្គារ', 'ពុធ', 'ព្រហស្បតិ៍', 'សុក្រ', 'សៅរ៍'];
+                      const kmMonths = ['មករា', 'កុម្ភៈ', 'មីនា', 'មេសា', 'ឧសភា', 'មិថុនា', 'កក្កដា', 'សីហា', 'កញ្ញា', 'តុលា', 'វិច្ឆិកា', 'ធ្នូ'];
+                      const kmPeriod = hour < 12 ? 'ព្រឹក' : 'ល្ងាច';
+                      return `${kmWeekdays[dt.getDay()]} ${d} ${kmMonths[m - 1]} ${y} - ${h12}:${mm} ${kmPeriod}`;
+                    }
+
+                    const enWeekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                    const enMonths = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                    const enPeriod = hour < 12 ? 'AM' : 'PM';
+                    return `${enWeekdays[dt.getDay()]} ${d} ${enMonths[m - 1]} ${y} - ${h12}:${mm} ${enPeriod}`;
+                  }
+
                   const targetDate = new Date();
                   targetDate.setDate(targetDate.getDate() - Number(dayNumber));
 
                   if (lang === 'km') {
-                    // Array of native Khmer weekdays
                     const khmerWeekdays = ['ថ្ងៃអាទិត្យ', 'ថ្ងៃចន្ទ', 'ថ្ងៃអង្គារ', 'ថ្ងៃពុធ', 'ថ្ងៃព្រហស្បតិ៍', 'ថ្ងៃសុក្រ', 'ថ្ងៃសៅរ៍'];
                     const khmerMonths = ['មករា', 'កុម្ភៈ', 'មីនា', 'មេសា', 'ឧសភា', 'មិថុនា', 'កក្កដា', 'សីហា', 'កញ្ញា', 'តុលា', 'វិច្ឆិកា', 'ធ្នូ'];
-                    
                     const dayName = khmerWeekdays[targetDate.getDay()];
                     const dayIndex = targetDate.getDate();
                     const monthName = khmerMonths[targetDate.getMonth()];
                     const year = targetDate.getFullYear();
-
-                    // Outputs exactly: "ថ្ងៃសៅរ៍ 29 សីហា 2026" (Easy to read alongside charts)
                     return `${dayName} ${dayIndex} ${monthName} ${year}`;
                   }
 
-                  // Fallback default for English / other languages
-                  return targetDate.toLocaleDateString('en-US', {
-                    weekday: 'long',
-                    year: 'numeric',
-                    month: 'short',
-                    day: 'numeric'
-                  });
+                    const enDay = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][targetDate.getDay()];
+                    const enMon = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][targetDate.getMonth()];
+                    return `${enDay} ${targetDate.getDate()} ${enMon} ${targetDate.getFullYear()}`;
                 }}
               />
               <Area type="monotone" dataKey="scans" stroke={G.gold} strokeWidth={2} fill="url(#sGrad)" name={lang === 'km' ? 'ស្កេន' : 'Scans'} />
