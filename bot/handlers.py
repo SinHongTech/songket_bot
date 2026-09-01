@@ -11,6 +11,7 @@ Core update-processing logic — bilingual (Khmer + English) security bot.
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import time
 from typing import Optional
@@ -18,8 +19,13 @@ from typing import Optional
 from bot import config
 from bot.file_handler import fetch_and_validate
 from bot.redis_client import (
+    add_strike,
+    add_allowed_group,
+    add_group_handler,
+    clear_pending,
     get_group_lang,
     get_group_settings,
+    get_pending,
     get_scan_usage,
     get_daily_scan_usage,
     get_join_time,
@@ -28,12 +34,15 @@ from bot.redis_client import (
     get_user_lang,
     increment_daily_scan_usage,
     increment_scan_usage,
+    is_file_whitelisted,
     plan_scan_limit_runtime,
     record_first_seen,
     record_join_time,
     set_group_lang,
     set_group_settings,
+    set_pending,
     set_user_lang,
+    whitelist_file,
 )
 from bot.reports import record_report
 from bot.scanner import vt_scan_file, vt_scan_url
@@ -60,10 +69,23 @@ logger = logging.getLogger("BeydaBot.handlers")
 
 def get_msg_scanning(lang: str = "both") -> str:
     if lang == "kh":
-        return "🔍 <i>កំពុងស្កែនមាតិកា សូមរង់ចាំ...</i>"
+        return (
+            "🔍 កំពុងត្រួតពិនិត្យសុវត្ថិភាព...\n\n"
+            "⏳ សូមរង់ចាំបន្តិច ប្រព័ន្ធកំពុងវិភាគមាតិកា...\n"
+            "⚠️ សូមកុំទាន់ចុច ឬបើកឯកសារ/តំណភ្ជាប់នេះ រហូតដល់ការស្កេនចប់សព្វគ្រប់!"
+        )
     if lang == "en":
-        return "🔍 <i>Scanning content, please wait...</i>"
-    return "🔍 <i>កំពុងស្កែនមាតិកា សូមរង់ចាំ... | Scanning content...</i>"
+        return (
+            "🔍 Security Scan in Progress...\n\n"
+            "⏳ Please wait, the system is analyzing the content...\n"
+            "⚠️ Please DO NOT click or open this link/file until the security scan completes!"
+        )
+    return (
+        "🔍 កំពុងត្រួតពិនិត្យសុវត្ថិភាព | Security Scan in Progress...\n\n"
+        "⏳ សូមរង់ចាំបន្តិច ប្រព័ន្ធកំពុងវិភាគមាតិកា...\n"
+        "⚠️ សូមកុំទាន់ចុច ឬបើកឯកសារ/តំណភ្ជាប់នេះ រហូតដល់ការស្កេនចប់សព្វគ្រប់!\n"
+        "(Please DO NOT click or open this link/file until the security scan completes!)"
+    )
 
 
 def get_msg_safe(lang: str, user: str, target: str, timeout: int) -> str:
@@ -232,6 +254,31 @@ def engine_consensus(result: dict) -> str:
     )
 
 
+def classify_verdict(malicious: int, suspicious: int) -> str:
+    """Dual-band detection (doc 2.1/2.2): critical / suspicious / clean."""
+    if malicious >= config.VT_CRITICAL_THRESHOLD:
+        return "critical"
+    if malicious >= config.VT_MALICIOUS_THRESHOLD or suspicious >= config.VT_SUSPICIOUS_THRESHOLD:
+        return "suspicious"
+    return "clean"
+
+
+def apply_strike(api: TelegramAPI, chat_id: int, user_id: int, user_display: str) -> int:
+    """Increment a user's strike count; mute when a threshold is reached (doc section 3)."""
+    strikes = add_strike(chat_id, user_id)
+    duration = config.STRIKE_MUTE_RULES.get(strikes)
+    if duration:
+        hours = duration // 3600
+        api.restrict_chat_member(
+            chat_id, user_id, can_send_messages=False, until_date=int(time.time()) + duration
+        )
+        api.send_message(
+            chat_id,
+            f"📢 <b>{user_display}</b> is restricted for {hours}h due to {strikes} threat violations.",
+        )
+    return strikes
+
+
 def trust_label(chat_id: int, user_id: int, settings: dict) -> str:
     if not (config.TRUST_SCORE_ENABLED and settings.get("trust_score", True)):
         return ""
@@ -386,6 +433,8 @@ def _build_admin_menu_keyboard(managed_groups: list[dict]) -> dict:
     keyboard = []
     for grp in managed_groups:
         keyboard.append([{"text": f"👥 {grp['title']}", "callback_data": f"adm_grp:{grp['id']}"}])
+
+    keyboard.append([{"text": "➕ Link & Protect Group", "callback_data": "link_group"}])
 
     if config.WEB_APP_DASHBOARD_URL:
         keyboard.append([{"text": "🛡️ Open Security Mini App", "web_app": {"url": config.WEB_APP_DASHBOARD_URL}}])
@@ -555,27 +604,43 @@ INFO_TEXTS = {
     },
     "guide": {
         "both": (
-            "📖 <b>មគ្គុទ្ទេសក៍ប្រើប្រាស់ | User Guide</b>\n"
-            "\n"
-            "👤 ផ្ទាល់ខ្លួន (Personal):\n"
-            "• ផ្ញើ link ឬ file មក bot ក្នុង chat នេះ ដើម្បីស្កេន។\n"
-            "👥 ក្រុម (Group):\n"
-            "• បន្ថែម bot ជា Admin ក្នុងក្រុម → bot ស្កេនដោយស្វ័យប្រវត្តិ។\n"
-            "\n🤖 Songket Security Team | ក្រុមការងារសង្កេត\n"
+            "📖 <b>មគ្គុទ្ទេសក៍ប្រើប្រាស់ | User Guide</b>\n\n"
+            "👤 <b>ផ្ទាល់ខ្លួន (Personal)</b>:\n"
+            "1️⃣ ស្កេនតំណភ្ជាប់ (Scan Links): Forward/Copy link ផ្ញើមក bot។\n"
+            "2️⃣ ស្កេនឯកសារ (Scan Files): ផ្ញើ file មុន Download/Run។\n"
+            "3️⃣ ភាពឯកជន (Privacy First): ស្កេនផ្ទាល់ខ្លួនរក្សាការសម្ងាត់ ១០០%។\n\n"
+            "👥 <b>ក្រុម (Group)</b>:\n"
+            "1️⃣ បន្ថែម bot ជា Admin (Add bot as admin)។\n"
+            "2️⃣ ផ្ដល់សិទ្ធិ Delete Messages + Restrict Users។\n"
+            "3️⃣ Link & Protect Group តាម /settings។\n"
+            "4️⃣ Approve/Delete ឯកសារសង្ស័យតាមប៊ូតុង។\n\n"
+            "🤖 Songket Security Team | ក្រុមការងារសង្កេត"
         ),
         "kh": (
-            "📖 <b>មគ្គុទ្ទេសក៍ប្រើប្រាស់</b>\n"
-            "\n"
-            "👤 ផ្ទាល់ខ្លួន: ផ្ញើ link ឬ file មក bot ដើម្បីស្កេន។\n"
-            "👥 ក្រុម: បន្ថែម bot ជា Admin → ស្កេនដោយស្វ័យប្រវត្តិ។\n"
-            "\n🤖 Songket Security Team | ក្រុមការងារសង្កេត"
+            "📖 <b>មគ្គុទ្ទេសក៍ប្រើប្រាស់</b>\n\n"
+            "👤 <b>ផ្ទាល់ខ្លួន</b>:\n"
+            "1️⃣ ស្កេនតំណភ្ជាប់: Forward/Copy link ផ្ញើមក bot។\n"
+            "2️⃣ ស្កេនឯកសារ: ផ្ញើ file មុន Download/Run។\n"
+            "3️⃣ ភាពឯកជន: ស្កេនផ្ទាល់ខ្លួនរក្សាការសម្ងាត់ ១០០%។\n\n"
+            "👥 <b>ក្រុម</b>:\n"
+            "1️⃣ បន្ថែម bot ជា Admin។\n"
+            "2️⃣ ផ្ដល់សិទ្ធិ Delete Messages + Restrict Users។\n"
+            "3️⃣ Link & Protect Group តាម /settings។\n"
+            "4️⃣ Approve/Delete ឯកសារសង្ស័យតាមប៊ូតុង។\n\n"
+            "🤖 Songket Security Team | ក្រុមការងារសង្កេត"
         ),
         "en": (
-            "📖 <b>User Guide</b>\n"
-            "\n"
-            "👤 Personal: send a link or file to this chat to scan.\n"
-            "👥 Group: add the bot as admin → it scans automatically.\n"
-            "\n🤖 Songket Security Team"
+            "📖 <b>User Guide</b>\n\n"
+            "👤 <b>Personal</b>:\n"
+            "1️⃣ Scan Links: forward/copy a link to the bot.\n"
+            "2️⃣ Scan Files: send a file before download/run.\n"
+            "3️⃣ Privacy First: private scans stay 100% confidential.\n\n"
+            "👥 <b>Group</b>:\n"
+            "1️⃣ Add the bot as admin.\n"
+            "2️⃣ Grant Delete Messages + Restrict Users.\n"
+            "3️⃣ Link & Protect Group via /settings.\n"
+            "4️⃣ Approve/Delete suspicious files via buttons.\n\n"
+            "🤖 Songket Security Team"
         ),
     },
     "settings_intro": {
@@ -636,6 +701,24 @@ def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
         command = "/" + MENU_ALIASES[text]
 
     menu_kb = _menu_keyboard(whitelisted)
+
+    # Link & Protect Group: awaiting group ID (doc section 5)
+    if get_pending(user_id) == "link":
+        clear_pending(user_id)
+        try:
+            gid = int(text)
+        except (TypeError, ValueError):
+            api.send_message(chat_id, "❌ Invalid group ID. Try again with /settings → Link & Protect Group.", reply_markup=menu_kb)
+            return
+        chat = api.get_chat(gid)
+        if not chat:
+            api.send_message(chat_id, "❌ Bot is not in that group (or can't access it). Add the bot as admin first.", reply_markup=menu_kb)
+            return
+        add_allowed_group(gid)
+        add_group_handler(user_id, gid)
+        title = chat.get("title") or str(gid)
+        api.send_message(chat_id, f"✅ Linked & protected <b>{esc(title)}</b> ({gid}). Real-time protection active!", reply_markup=menu_kb)
+        return
 
     if command:
         # Whitelisted users get the admin commands scoped to their private chat.
@@ -778,6 +861,42 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
             set_user_lang(target_uid, new_lang)
             api.answer_callback_query(query_id, text=f"✅ Language set to {new_lang.upper()}")
             return
+
+    # 0.6 File whitelist approval (doc section 4)
+    if data.startswith("approve_file:"):
+        parts = data.split(":")
+        if len(parts) == 3:
+            gid = int(parts[1])
+            sha = parts[2]
+            if not (is_super_admin(user_id) or api.is_group_admin(user_id, gid)):
+                api.answer_callback_query(query_id, text="❌ Admin only.", show_alert=True)
+                return
+            whitelist_file(gid, sha)
+            api.answer_callback_query(query_id, text="✅ File approved for this group.")
+            api.edit_message_reply_markup(chat_id, msg_id, reply_markup=None)
+            return
+
+    if data.startswith("delete_file:"):
+        parts = data.split(":")
+        if len(parts) == 3:
+            gid = int(parts[1])
+            mid = int(parts[2])
+            if not (is_super_admin(user_id) or api.is_group_admin(user_id, gid)):
+                api.answer_callback_query(query_id, text="❌ Admin only.", show_alert=True)
+                return
+            api.delete_message(gid, mid)
+            api.answer_callback_query(query_id, text="🗑️ File deleted.")
+            return
+
+    # 0.7 Link & Protect Group (doc section 5)
+    if data == "link_group":
+        set_pending(user_id, "link")
+        api.answer_callback_query(query_id)
+        api.send_message(
+            chat_id,
+            "📨 សូមផ្ញើ Group ID ដែលអ្នកចង់ Link & Protect (Send the group ID, e.g. -1001234567890):",
+        )
+        return
 
     # 1. Non-technical explanation modal
     if data in {"explain_threat", "explain_suspicious"}:
@@ -989,6 +1108,7 @@ def process_update(api: TelegramAPI, update: dict) -> None:
 
         malicious = result.get("malicious", 0)
         suspicious = result.get("suspicious", 0)
+        verdict = classify_verdict(malicious, suspicious)
         record_report(chat_id, chat_title, "scanned")
         record_report(chat_id, chat_title, "urls")
         if malicious >= config.VT_MALICIOUS_THRESHOLD:
@@ -996,7 +1116,7 @@ def process_update(api: TelegramAPI, update: dict) -> None:
         if suspicious >= config.VT_SUSPICIOUS_THRESHOLD:
             record_report(chat_id, chat_title, "suspicious")
 
-        if malicious < config.VT_MALICIOUS_THRESHOLD and suspicious < config.VT_SUSPICIOUS_THRESHOLD:
+        if verdict == "clean":
             logger.info("URL clean | domain=%s", domain)
             scanned_clean_targets.append(domain)
             continue
@@ -1011,7 +1131,7 @@ def process_update(api: TelegramAPI, update: dict) -> None:
 
         consensus = "\n\n" + engine_consensus(result)
 
-        if malicious < config.VT_MALICIOUS_THRESHOLD and suspicious >= config.VT_SUSPICIOUS_THRESHOLD:
+        if verdict == "suspicious":
             delete_notice()
             warn_text = (
                 get_msg_suspicious_url(lang, sender_label, mask_domain(domain), timeout=15)
@@ -1033,6 +1153,7 @@ def process_update(api: TelegramAPI, update: dict) -> None:
             api, chat_id, sender_label, mask_domain(domain), deleted, lang=lang,
             extra=redirect_note + consensus,
         )
+        apply_strike(api, chat_id, sender_id, user_display)
         logger.warning("URL THREAT | domain=%s | malicious=%d | deleted=%s", domain, malicious, deleted)
         return
 
@@ -1060,6 +1181,15 @@ def process_update(api: TelegramAPI, update: dict) -> None:
             delete_notice()
         return
 
+    # Group-isolated whitelist (doc section 4): approved hash skips re-scan
+    sha256 = hashlib.sha256(decision.file_bytes).hexdigest()
+    if is_file_whitelisted(chat_id, sha256):
+        record_report(chat_id, chat_title, "scanned")
+        record_report(chat_id, chat_title, "files")
+        delete_notice()
+        api.send_message(chat_id, f"✅ <b>{esc(filename)}</b> — approved earlier by admin, skipped.")
+        return
+
     result = vt_scan_file(decision.file_bytes, filename)
     if "error" in result:
         logger.error("File scan error | %s | %s", filename, result["error"])
@@ -1069,6 +1199,7 @@ def process_update(api: TelegramAPI, update: dict) -> None:
 
     malicious = result.get("malicious", 0)
     suspicious = result.get("suspicious", 0)
+    verdict = classify_verdict(malicious, suspicious)
     record_report(chat_id, chat_title, "scanned")
     record_report(chat_id, chat_title, "files")
     if malicious >= config.VT_MALICIOUS_THRESHOLD:
@@ -1076,7 +1207,7 @@ def process_update(api: TelegramAPI, update: dict) -> None:
     if suspicious >= config.VT_SUSPICIOUS_THRESHOLD:
         record_report(chat_id, chat_title, "suspicious")
 
-    if malicious >= config.VT_MALICIOUS_THRESHOLD:
+    if verdict == "critical":
         delete_notice()
         deleted = api.delete_message(chat_id, msg_id)
         if deleted:
@@ -1085,13 +1216,22 @@ def process_update(api: TelegramAPI, update: dict) -> None:
             api, chat_id, sender_label, esc(filename), deleted, lang=lang,
             extra="\n\n" + engine_consensus(result),
         )
+        apply_strike(api, chat_id, sender_id, user_display)
         logger.warning("FILE THREAT | %s | malicious=%d | suspicious=%d | deleted=%s", filename, malicious, suspicious, deleted)
         return
 
-    if suspicious >= config.VT_SUSPICIOUS_THRESHOLD:
+    if verdict == "suspicious":
         delete_notice()
         warn_text = get_msg_suspicious_file(lang, sender_label, esc(filename)) + "\n\n" + engine_consensus(result)
-        api.send_message(chat_id, warn_text)
+        kb = {
+            "inline_keyboard": [
+                [
+                    {"text": "🛡️ Approve for Group", "callback_data": f"approve_file:{chat_id}:{sha256}"},
+                    {"text": "🗑️ Delete File", "callback_data": f"delete_file:{chat_id}:{msg_id}"},
+                ]
+            ]
+        }
+        api.send_message(chat_id, warn_text, reply_markup=kb)
         logger.warning("FILE SUSPICIOUS | %s | malicious=%d | suspicious=%d", filename, malicious, suspicious)
         return
 

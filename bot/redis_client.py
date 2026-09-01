@@ -179,6 +179,51 @@ def set_strikes(chat_id: int, user_id: int, strikes: int) -> None:
     kv_set(f"strikes:{chat_id}:{user_id}", str(strikes))
 
 
+def add_strike(chat_id: int, user_id: int) -> int:
+    strikes = get_strikes(chat_id, user_id) + 1
+    set_strikes(chat_id, user_id, strikes)
+    return strikes
+
+
+def is_file_whitelisted(chat_id: int, sha256: str) -> bool:
+    return kv_get(f"whitelist:file:{chat_id}:{sha256}") is not None
+
+
+def whitelist_file(chat_id: int, sha256: str) -> None:
+    kv_set(f"whitelist:file:{chat_id}:{sha256}", "1")
+
+
+def set_pending(user_id: int, value: str) -> None:
+    kv_set(f"pending:{user_id}", value)
+
+
+def get_pending(user_id: int) -> str:
+    return str(kv_get(f"pending:{user_id}") or "")
+
+
+def clear_pending(user_id: int) -> None:
+    kv_set(f"pending:{user_id}", "")
+
+
+def add_allowed_group(chat_id: int) -> None:
+    raw = kv_get("config:allowed_groups") or ""
+    ids = [x.strip() for x in str(raw).split(",") if x.strip()]
+    sid = str(chat_id)
+    if sid not in ids:
+        ids.append(sid)
+        kv_set("config:allowed_groups", ",".join(ids))
+
+
+def add_group_handler(user_id: int, chat_id: int) -> None:
+    data = kv_json_get("config:group_handlers") or {}
+    uid = str(user_id)
+    grps = [int(g) for g in data.get(uid, [])]
+    if chat_id not in grps:
+        grps.append(chat_id)
+        data[uid] = grps
+        kv_json_set("config:group_handlers", data)
+
+
 def record_first_seen(user_id: int) -> float:
     """Return the first-seen timestamp for a user (best-effort account age proxy)."""
     key = f"firstseen:{user_id}"

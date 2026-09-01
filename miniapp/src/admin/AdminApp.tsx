@@ -428,7 +428,7 @@ export default function AdminApp() {
     { id: "groups", icon: <MessageSquare size={20} />, label: tx.groups },
     { id: "threats", icon: <AlertTriangle size={20} />, label: tx.threats },
     { id: "history", icon: <Clock size={20} />, label: tx.history },
-    ...(isSuperAdmin ? [{ id: "manage" as Nav, icon: <Sliders size={20} />, label: tx.manage }] : []),
+    ...(isSuperAdmin || apiData?.authorized ? [{ id: "manage" as Nav, icon: <Sliders size={20} />, label: tx.manage }] : []),
     { id: "account", icon: <User size={20} />, label: tx.account },
   ];
 
@@ -442,7 +442,7 @@ export default function AdminApp() {
     groups: <GroupsView dashboard={dashboard} lang={lang} />,
     threats: <ThreatsView dashboard={dashboard} lang={lang} days={days} onDaysChange={handleDaysChange} />,
     history: <HistoryView dashboard={dashboard} lang={lang} days={days} onDaysChange={handleDaysChange} />,
-    manage: <ManageView config={apiData?.config} plans={apiData?.plans} subscriptions={apiData?.subscriptions} lang={lang} onRefresh={() => loadData(true, days)} />,
+    manage: <ManageView config={apiData?.config} plans={apiData?.plans} subscriptions={apiData?.subscriptions} lang={lang} isSuperAdmin={isSuperAdmin} onRefresh={() => loadData(true, days)} />,
     account: <AccountView user={user} dashboard={dashboard} dark={dark} setDark={setDark} lang={lang} setLang={setLang} />,
   };
 

@@ -135,6 +135,10 @@ def save_system_config(whitelist: list[int], allowed_groups: list[int], group_ha
     return bool(ok1 and ok2 and ok3)
 
 
+def save_allowed_groups(groups: list[int]) -> bool:
+    return kv_set("config:allowed_groups", ",".join(str(x) for x in groups))
+
+
 # ── Plans & subscriptions ────────────────────────────────────────────────────
 
 DEFAULT_PLAN_CATALOG: dict = {
