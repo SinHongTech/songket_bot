@@ -121,20 +121,14 @@ class handler(BaseHTTPRequestHandler):
             user, debug_str = verify_telegram_init_data(body.get("initData", ""))
             if not user:
                 logger.warning("[Dashboard API] Rejected POST request: %s (len=%d)", debug_str, init_len)
-                try:
-                    alert_super_admin(f"⚠️ [MiniApp Auth Failed]\nReason: {debug_str}\nAction: {action or 'fetch_dashboard'}\ninitData Length: {init_len}")
-                except Exception:
-                    pass
+                print(f"[Dashboard API] ⚠️ Auth Failed: {debug_str} (initData len={init_len})", flush=True)
                 return self._json(401, {"authorized": False, "error": f"Invalid or expired Telegram session ({debug_str})"})
 
             uid = int(user["id"])
             super_admin = is_super_admin(uid)
             is_admin = super_admin or uid in whitelist_ids()
             logger.info("[Dashboard API] User uid=%d (super_admin=%s, is_admin=%s)", uid, super_admin, is_admin)
-            try:
-                alert_super_admin(f"🟢 [MiniApp Auth Success]\nUser: {uid} (@{user.get('username', 'none')})\nSuperAdmin: {super_admin} | Admin: {is_admin}\nAction: {action or 'fetch_dashboard'}")
-            except Exception:
-                pass
+            print(f"[Dashboard API] 🟢 Auth Success: uid={uid} (@{user.get('username', 'none')}) super_admin={super_admin} is_admin={is_admin} action={action or 'fetch_dashboard'}", flush=True)
 
             # ── PIN Actions (Dedicated for Manage Tab) ────────────────────
             if action == "check_pin":
