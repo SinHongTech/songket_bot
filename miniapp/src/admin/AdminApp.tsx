@@ -429,7 +429,20 @@ export default function AdminApp() {
   }, [homeDays]);
 
   useEffect(() => {
+    let mounted = true;
     loadData(false, homeDays);
+
+    // Auto-retry once after 1s in case Telegram native webview bridge initialized slightly late
+    const timer = setTimeout(() => {
+      if (mounted) {
+        loadData(false, homeDays);
+      }
+    }, 1000);
+
+    return () => {
+      mounted = false;
+      clearTimeout(timer);
+    };
   }, [homeDays, loadData]);
 
   const handleDaysChange = (newDays: number) => {
@@ -592,7 +605,7 @@ export default function AdminApp() {
 
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <button
-            onClick={() => loadData(true, days)}
+            onClick={() => loadData(true, homeDays)}
             style={{
               background: "transparent",
               border: `1px solid ${G.border}`,
