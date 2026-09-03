@@ -13,4 +13,4 @@ telegram-bot-api \
 
 sleep 5
 
-exec python -m bot.main
+exec python3 -m bot.main
