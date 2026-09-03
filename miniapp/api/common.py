@@ -319,6 +319,16 @@ KNOWN_BOT_TOKENS = [
 ]
 
 
+def _compact_user_fmt(k: str, v: str) -> str:
+    if k == "user":
+        try:
+            from urllib.parse import unquote
+            return f"user={json.dumps(json.loads(unquote(v)), separators=(',', ':'))}"
+        except Exception:
+            pass
+    return f"{k}={v}"
+
+
 def verify_telegram_init_data(init_data: str, max_age_seconds: int = 7 * 86400) -> tuple[Optional[dict], str]:
     """Validate Telegram WebApp initData using the official HMAC scheme across all encoding formats."""
     tokens = list(dict.fromkeys([t.strip() for t in [
@@ -350,10 +360,11 @@ def verify_telegram_init_data(init_data: str, max_age_seconds: int = 7 * 86400) 
     last_debug = "No valid candidate found"
     for cand in candidates:
         cand_clean = cand.lstrip("#?").strip()
-        from urllib.parse import parse_qsl, unquote
+        from urllib.parse import parse_qsl, unquote, unquote_plus
         for parse_fn in (
             lambda s: parse_qsl(s, keep_blank_values=True),
             lambda s: parse_qsl(unquote(s), keep_blank_values=True),
+            lambda s: parse_qsl(unquote_plus(s), keep_blank_values=True),
         ):
             try:
                 pairs = parse_fn(cand_clean)
@@ -369,18 +380,25 @@ def verify_telegram_init_data(init_data: str, max_age_seconds: int = 7 * 86400) 
             for extra_key in ("tgWebAppVersion", "tgWebAppPlatform", "tgWebAppThemeParams", "tgWebAppData", "tgWebAppBotInline"):
                 data.pop(extra_key, None)
 
-            data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(data.items()))
+            check_variants = [
+                "\n".join(f"{k}={v}" for k, v in sorted(data.items())),
+                "\n".join(f"{k}={unquote(v)}" for k, v in sorted(data.items())),
+                "\n".join(_compact_user_fmt(k, v) for k, v in sorted(data.items())),
+            ]
 
-            verified = False
-            for tok in tokens:
-                secret_key = hmac.new(b"WebAppData", tok.encode(), hashlib.sha256).digest()
-                calculated = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
-                if hmac.compare_digest(calculated, received_hash):
-                    verified = True
+            matched = False
+            for check_str in check_variants:
+                for tok in tokens:
+                    secret_key = hmac.new(b"WebAppData", tok.encode(), hashlib.sha256).digest()
+                    calculated = hmac.new(secret_key, check_str.encode(), hashlib.sha256).hexdigest()
+                    if hmac.compare_digest(calculated, received_hash):
+                        matched = True
+                        break
+                if matched:
                     break
 
-            if not verified:
-                last_debug = f"HMAC mismatch: keys={list(data.keys())} check_str_len={len(data_check_string)} hash={received_hash[:8]}... tested_{len(tokens)}_tokens"
+            if not matched:
+                last_debug = f"HMAC mismatch: keys={list(data.keys())} check_str_len={len(check_variants[0])} hash={received_hash[:8]}... tested_{len(tokens)}_tokens"
                 continue
 
             try:
@@ -395,7 +413,8 @@ def verify_telegram_init_data(init_data: str, max_age_seconds: int = 7 * 86400) 
                 continue
 
             try:
-                user = json.loads(data.get("user", "{}"))
+                raw_user_str = unquote(data.get("user", "{}"))
+                user = json.loads(raw_user_str)
             except json.JSONDecodeError as exc:
                 last_debug = f"user JSON parse error: {exc}"
                 continue
