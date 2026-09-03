@@ -319,8 +319,8 @@ KNOWN_BOT_TOKENS = [
 ]
 
 
-def verify_telegram_init_data(init_data: str, max_age_seconds: int = 7 * 86400) -> Optional[dict]:
-    """Validate Telegram WebApp initData using the official HMAC scheme."""
+def verify_telegram_init_data(init_data: str, max_age_seconds: int = 7 * 86400) -> tuple[Optional[dict], str]:
+    """Validate Telegram WebApp initData using the official HMAC scheme across all encoding formats."""
     tokens = list(dict.fromkeys([t.strip() for t in [
         BOT_TOKEN,
         os.environ.get("BOT_TOKEN", ""),
@@ -330,72 +330,85 @@ def verify_telegram_init_data(init_data: str, max_age_seconds: int = 7 * 86400) 
     ] if t and t.strip()]))
     if not tokens:
         logger.error("[Auth] No bot tokens configured for Telegram HMAC verification.")
-        return None
+        return None, "No bot tokens configured"
     if not init_data:
         logger.warning("[Auth] Empty initData received.")
-        return None
+        return None, "Empty initData received"
 
-    clean_init = init_data.lstrip("#?").strip()
-    if "tgWebAppData=" in clean_init:
-        parsed = dict(parse_qsl(clean_init, keep_blank_values=True))
-        if "tgWebAppData" in parsed:
-            clean_init = parsed["tgWebAppData"]
-        else:
-            import re
-            from urllib.parse import unquote
-            m = re.search(r"tgWebAppData=([^&]+)", clean_init)
-            if m:
-                clean_init = unquote(m.group(1))
+    clean_raw = init_data.lstrip("#?").strip()
+    candidates = [clean_raw]
+    
+    if "tgWebAppData=" in clean_raw:
+        import re
+        from urllib.parse import unquote, unquote_plus
+        m = re.search(r"tgWebAppData=([^&]+)", clean_raw)
+        if m:
+            candidates.append(unquote(m.group(1)))
+            candidates.append(unquote_plus(m.group(1)))
+            candidates.append(m.group(1))
 
-    pairs = parse_qsl(clean_init, keep_blank_values=True)
-    data = dict(pairs)
-    received_hash = data.pop("hash", None)
-    if not received_hash:
-        logger.warning("[Auth] No hash found in initData payload.")
-        return None
+    last_debug = "No valid candidate found"
+    for cand in candidates:
+        cand_clean = cand.lstrip("#?").strip()
+        from urllib.parse import parse_qsl, unquote
+        for parse_fn in (
+            lambda s: parse_qsl(s, keep_blank_values=True),
+            lambda s: parse_qsl(unquote(s), keep_blank_values=True),
+        ):
+            try:
+                pairs = parse_fn(cand_clean)
+            except Exception:
+                continue
+            data = dict(pairs)
+            received_hash = data.pop("hash", None)
+            if not received_hash:
+                continue
 
-    # Remove signature and client query parameters
-    data.pop("signature", None)
-    for extra_key in ("tgWebAppVersion", "tgWebAppPlatform", "tgWebAppThemeParams", "tgWebAppData", "tgWebAppBotInline"):
-        data.pop(extra_key, None)
+            # Remove signature and client query parameters
+            data.pop("signature", None)
+            for extra_key in ("tgWebAppVersion", "tgWebAppPlatform", "tgWebAppThemeParams", "tgWebAppData", "tgWebAppBotInline"):
+                data.pop(extra_key, None)
 
-    data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(data.items()))
+            data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(data.items()))
 
-    verified = False
-    for tok in tokens:
-        secret_key = hmac.new(b"WebAppData", tok.encode(), hashlib.sha256).digest()
-        calculated = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
-        if hmac.compare_digest(calculated, received_hash):
-            verified = True
-            break
+            verified = False
+            for tok in tokens:
+                secret_key = hmac.new(b"WebAppData", tok.encode(), hashlib.sha256).digest()
+                calculated = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+                if hmac.compare_digest(calculated, received_hash):
+                    verified = True
+                    break
 
-    if not verified:
-        logger.warning("[Auth] HMAC verification mismatch against candidate bot tokens.")
-        return None
+            if not verified:
+                last_debug = f"HMAC mismatch: keys={list(data.keys())} check_str_len={len(data_check_string)} hash={received_hash[:8]}... tested_{len(tokens)}_tokens"
+                continue
 
-    try:
-        auth_date = int(data.get("auth_date", "0"))
-        if auth_date > 100_000_000_000:
-            auth_date = auth_date // 1000
-        if auth_date <= 0 or (time.time() - auth_date > max_age_seconds):
-            logger.warning("[Auth] auth_date expired or out of bounds: %s", auth_date)
-            return None
-    except ValueError:
-        logger.warning("[Auth] auth_date unparseable: %s", data.get("auth_date"))
-        return None
+            try:
+                auth_date = int(data.get("auth_date", "0"))
+                if auth_date > 100_000_000_000:
+                    auth_date = auth_date // 1000
+                if auth_date <= 0 or (time.time() - auth_date > max_age_seconds):
+                    last_debug = f"auth_date expired: {auth_date}"
+                    continue
+            except ValueError:
+                last_debug = f"auth_date unparseable: {data.get('auth_date')}"
+                continue
 
-    try:
-        user = json.loads(data.get("user", "{}"))
-    except json.JSONDecodeError as exc:
-        logger.warning("[Auth] user JSON parse error: %s", exc)
-        return None
+            try:
+                user = json.loads(data.get("user", "{}"))
+            except json.JSONDecodeError as exc:
+                last_debug = f"user JSON parse error: {exc}"
+                continue
 
-    if not isinstance(user, dict) or not user.get("id"):
-        logger.warning("[Auth] user dict missing id: %s", user)
-        return None
+            if not isinstance(user, dict) or not user.get("id"):
+                last_debug = f"user dict missing id: {user}"
+                continue
 
-    logger.info("[Auth] Telegram session verified: user_id=%s username=%s", user.get("id"), user.get("username"))
-    return user
+            logger.info("[Auth] Telegram session verified: user_id=%s username=%s", user.get("id"), user.get("username"))
+            return user, "OK"
+
+    logger.warning("[Auth] All candidates failed verification. Debug: %s", last_debug)
+    return None, last_debug
 
 
 def whitelist_ids() -> set[int]:
