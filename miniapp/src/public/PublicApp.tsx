@@ -50,7 +50,14 @@ export default function PublicApp() {
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <Link to="/dashboard" style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 12px", borderRadius: 8, border: "1.5px solid var(--border-gold)", background: "rgba(212,167,44,0.06)", color: "var(--gold)", fontSize: 11, fontWeight: 700, textDecoration: "none", letterSpacing: "0.04em" }}>
+          <Link
+            to={{
+              pathname: "/dashboard",
+              search: typeof window !== "undefined" ? window.location.search : "",
+              hash: typeof window !== "undefined" ? window.location.hash : "",
+            }}
+            style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 12px", borderRadius: 8, border: "1.5px solid var(--border-gold)", background: "rgba(212,167,44,0.06)", color: "var(--gold)", fontSize: 11, fontWeight: 700, textDecoration: "none", letterSpacing: "0.04em" }}
+          >
             <LayoutDashboard size={12} />
             Admin
           </Link>
