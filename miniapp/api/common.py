@@ -442,7 +442,8 @@ def verify_telegram_init_data(init_data: str, max_age_seconds: int = 7 * 86400) 
                     f"HMAC mismatch!\n"
                     f"Recv Hash: {received_hash}\n"
                     f"Calc Hashes: {', '.join(calc_hashes)}\n"
-                    f"CheckStr:\n{check_variants[0]}"
+                    f"CheckStr:\n{check_variants[0]}\n"
+                    f"RawCand:\n{cand_clean[:180]}"
                 )
                 logger.error("[Auth Failure Details]\n%s", last_debug)
                 continue
