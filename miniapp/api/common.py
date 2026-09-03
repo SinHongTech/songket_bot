@@ -431,8 +431,20 @@ def verify_telegram_init_data(init_data: str, max_age_seconds: int = 7 * 86400) 
                 if matched:
                     break
 
+            calc_hashes = []
+            for tok in tokens:
+                secret_key = hmac.new(b"WebAppData", tok.encode(), hashlib.sha256).digest()
+                calc_h = hmac.new(secret_key, check_variants[0].encode(), hashlib.sha256).hexdigest()
+                calc_hashes.append(f"{tok[:8]}..->{calc_h[:8]}")
+
             if not matched:
-                last_debug = f"HMAC mismatch: keys={list(data.keys())} check_str_len={len(check_variants[0])} hash={received_hash[:8]}... tested_{len(tokens)}_tokens"
+                last_debug = (
+                    f"HMAC mismatch!\n"
+                    f"Recv Hash: {received_hash}\n"
+                    f"Calc Hashes: {', '.join(calc_hashes)}\n"
+                    f"CheckStr:\n{check_variants[0]}"
+                )
+                logger.error("[Auth Failure Details]\n%s", last_debug)
                 continue
 
             try:
