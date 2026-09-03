@@ -13,7 +13,6 @@ import {
   RefreshCw,
   ShieldAlert,
   Loader2,
-  Copy,
   Sliders,
   Lock,
   LogOut,
@@ -372,7 +371,6 @@ export default function AdminApp() {
     }
   });
   const [upgradeOpen, setUpgradeOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
 
   // Dashboard API state
   const [loading, setLoading] = useState(true);
@@ -457,23 +455,6 @@ export default function AdminApp() {
     loadData(true, newDays);
   };
 
-  const handleCopyId = (id: number) => {
-    try {
-      navigator.clipboard.writeText(String(id));
-    } catch {
-      const ta = document.createElement("textarea");
-      ta.value = String(id);
-      ta.style.position = "fixed";
-      ta.style.opacity = "0";
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
-    }
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
   const handleLogout = () => {
     setSessionToken("");
     setManageUnlocked(false);
@@ -508,40 +489,9 @@ export default function AdminApp() {
         <div style={{ fontSize: 17, fontWeight: 800, color: G.text, marginBottom: 8 }}>
           <span className={kh(lang)}>{tx.unauthorizedTitle}</span>
         </div>
-        <div style={{ fontSize: 13, color: G.textSec, lineHeight: 1.5, marginBottom: 20 }}>
+        <div style={{ fontSize: 13, color: G.textSec, lineHeight: 1.5, marginBottom: 24 }}>
           <span className={kh(lang)}>{tx.unauthorizedDesc}</span>
         </div>
-
-        {user?.id && (
-          <div style={{ background: G.surface2, border: `1px solid ${G.border}`, borderRadius: 10, padding: "14px", marginBottom: 20, textAlign: "left" }}>
-            <div style={{ fontSize: 11, color: G.muted, marginBottom: 6 }}>
-              <span className={kh(lang)}>{tx.whitelistPrompt}</span>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-              <span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 14, fontWeight: 700, color: G.gold }}>
-                {user.id}
-              </span>
-              <button
-                onClick={() => handleCopyId(user.id)}
-                style={{
-                  background: "transparent",
-                  border: `1px solid ${G.goldBorder}`,
-                  color: G.gold,
-                  borderRadius: 6,
-                  padding: "4px 8px",
-                  fontSize: 11,
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 4,
-                }}
-              >
-                {copied ? <Check size={12} /> : <Copy size={12} />}
-                {copied ? "Copied" : "Copy"}
-              </button>
-            </div>
-          </div>
-        )}
 
         <button
           onClick={() => openTelegramDirect("Sin_Hong")}
@@ -557,7 +507,7 @@ export default function AdminApp() {
             width: "100%",
           }}
         >
-          💬 Contact @Sin_Hong to Unlock
+          💬 {lang === "km" ? "ទាក់ទងទៅ @Sin_Hong ដើម្បីបើកដំណើរការ" : "Contact @Sin_Hong to Unlock"}
         </button>
       </div>
     ) : !manageUnlocked ? (
@@ -668,18 +618,12 @@ export default function AdminApp() {
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <ShieldAlert size={16} color={G.warn} />
             <div style={{ fontSize: 12, color: G.text }}>
-              <strong style={{ color: G.gold }}>Preview Mode</strong> — Send ID <code style={{ color: G.gold, background: G.surface2, padding: "2px 6px", borderRadius: 4, fontFamily: "monospace" }}>{user?.id}</code> to <strong>@Sin_Hong</strong> for live protection.
+              <strong style={{ color: G.gold }}>Preview Mode</strong> — Contact <strong>@Sin_Hong</strong> to enable live protection for your group.
             </div>
           </div>
-          <div style={{ display: "flex", gap: 6 }}>
-            <button onClick={() => handleCopyId(user?.id || 0)} style={{ background: G.gold, color: "#1a1200", border: "none", borderRadius: 6, padding: "5px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
-              {copied ? <Check size={12} /> : <Copy size={12} />}
-              {copied ? "Copied" : "Copy ID"}
-            </button>
-            <button onClick={() => openTelegramDirect("Sin_Hong")} style={{ background: "transparent", border: `1px solid ${G.goldBorder}`, color: G.gold, borderRadius: 6, padding: "5px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
-              DM @Sin_Hong
-            </button>
-          </div>
+          <button onClick={() => openTelegramDirect("Sin_Hong")} style={{ background: G.gold, color: "#1a1200", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+            Contact @Sin_Hong
+          </button>
         </div>
       )}
 
