@@ -3,7 +3,7 @@ import type { DashboardData, DashboardGroup, TelegramUser } from "./types";
 export const PIE_COLORS = ["#D4A72C", "#3b82f6", "#e04040", "#d07820"];
 
 export const mockUser: TelegramUser = {
-  id: 719283921,
+  id: 123456789,
   first_name: "Security Admin",
   username: "khmertech_admin",
 };
