@@ -85,7 +85,7 @@ export function getInitData(): string {
   return _cachedInitData || "";
 }
 
-export async function waitForTelegramInitData(timeoutMs: number = 800): Promise<string> {
+export async function waitForTelegramInitData(timeoutMs: number = 2500): Promise<string> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     const data = getInitData();
@@ -149,7 +149,7 @@ export async function fetchDashboardData(days: number = 7): Promise<DashboardApi
     }
   }
 
-  const initData = await waitForTelegramInitData(800);
+  const initData = await waitForTelegramInitData(2500);
   console.log("[MiniApp] fetchDashboardData initData present:", Boolean(initData), "length:", initData.length);
 
   // If outside Telegram or no initData available:
@@ -185,6 +185,7 @@ export async function fetchDashboardData(days: number = 7): Promise<DashboardApi
           dashboard: mockDashboardData(days),
           isMock: true,
           pin_exists: data.pin_exists ?? false,
+          error: data.error,
         };
       }
       return { ...data, isMock: false };
@@ -197,8 +198,9 @@ export async function fetchDashboardData(days: number = 7): Promise<DashboardApi
       authorized: false,
       user: getTelegramUser() || mockUser,
       dashboard: mockDashboardData(days),
-      isMock: false,
+      isMock: true,
       pin_exists: false,
+      error: err?.message || "Network error",
     };
   }
 }
