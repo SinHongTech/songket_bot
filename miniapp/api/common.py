@@ -361,6 +361,39 @@ def verify_telegram_init_data(init_data: str, max_age_seconds: int = 7 * 86400) 
     for cand in candidates:
         cand_clean = cand.lstrip("#?").strip()
         from urllib.parse import parse_qsl, unquote, unquote_plus
+        
+        # 1. Direct raw parameter split without parsing
+        raw_items = [p for p in cand_clean.split("&") if "=" in p]
+        raw_map = {}
+        for it in raw_items:
+            k, v = it.split("=", 1)
+            raw_map[k] = v
+        
+        h_raw = raw_map.pop("hash", None)
+        if h_raw:
+            for extra_key in ("tgWebAppVersion", "tgWebAppPlatform", "tgWebAppThemeParams", "tgWebAppData", "tgWebAppBotInline", "signature"):
+                raw_map.pop(extra_key, None)
+            
+            raw_variants = [
+                "\n".join(f"{k}={raw_map[k]}" for k in sorted(raw_map.keys())),
+                "\n".join(f"{k}={unquote(raw_map[k])}" for k in sorted(raw_map.keys())),
+                "\n".join(f"{k}={unquote_plus(raw_map[k])}" for k in sorted(raw_map.keys())),
+                "\n".join(_compact_user_fmt(k, raw_map[k]) for k in sorted(raw_map.keys())),
+            ]
+            for cs in raw_variants:
+                for tok in tokens:
+                    secret_key = hmac.new(b"WebAppData", tok.encode(), hashlib.sha256).digest()
+                    calculated = hmac.new(secret_key, cs.encode(), hashlib.sha256).hexdigest()
+                    if hmac.compare_digest(calculated, h_raw):
+                        try:
+                            user = json.loads(unquote(unquote(raw_map.get("user", "{}"))))
+                            if isinstance(user, dict) and user.get("id"):
+                                logger.info("[Auth] Telegram session verified via raw map: user_id=%s", user.get("id"))
+                                return user, "OK"
+                        except Exception:
+                            pass
+
+        # 2. Parsed key-value pairs
         for parse_fn in (
             lambda s: parse_qsl(s, keep_blank_values=True),
             lambda s: parse_qsl(unquote(s), keep_blank_values=True),
@@ -383,6 +416,7 @@ def verify_telegram_init_data(init_data: str, max_age_seconds: int = 7 * 86400) 
             check_variants = [
                 "\n".join(f"{k}={v}" for k, v in sorted(data.items())),
                 "\n".join(f"{k}={unquote(v)}" for k, v in sorted(data.items())),
+                "\n".join(f"{k}={unquote_plus(v)}" for k, v in sorted(data.items())),
                 "\n".join(_compact_user_fmt(k, v) for k, v in sorted(data.items())),
             ]
 
