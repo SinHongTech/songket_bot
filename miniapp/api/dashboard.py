@@ -118,14 +118,14 @@ class handler(BaseHTTPRequestHandler):
             init_len = len(body.get("initData", ""))
             logger.info("[Dashboard API] POST incoming action='%s', initData length=%d", action or "fetch_dashboard", init_len)
 
-            user = verify_telegram_init_data(body.get("initData", ""))
+            user, debug_str = verify_telegram_init_data(body.get("initData", ""))
             if not user:
-                logger.warning("[Dashboard API] Rejected POST request: unauthorized initData (len=%d)", init_len)
+                logger.warning("[Dashboard API] Rejected POST request: %s (len=%d)", debug_str, init_len)
                 try:
-                    alert_super_admin(f"⚠️ [MiniApp Auth Failed]\nAction: {action or 'fetch_dashboard'}\ninitData Length: {init_len}")
+                    alert_super_admin(f"⚠️ [MiniApp Auth Failed]\nReason: {debug_str}\nAction: {action or 'fetch_dashboard'}\ninitData Length: {init_len}")
                 except Exception:
                     pass
-                return self._json(401, {"authorized": False, "error": "Invalid or expired Telegram session"})
+                return self._json(401, {"authorized": False, "error": f"Invalid or expired Telegram session ({debug_str})"})
 
             uid = int(user["id"])
             super_admin = is_super_admin(uid)
