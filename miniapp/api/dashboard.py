@@ -10,6 +10,7 @@ from http.server import BaseHTTPRequestHandler
 try:
     from api.common import (
         PIN_AUTH_ENABLED,
+        alert_super_admin,
         create_session,
         get_allowed_groups,
         get_chat,
@@ -38,6 +39,7 @@ try:
 except ImportError:
     from common import (
         PIN_AUTH_ENABLED,
+        alert_super_admin,
         create_session,
         get_allowed_groups,
         get_chat,
@@ -119,12 +121,20 @@ class handler(BaseHTTPRequestHandler):
             user = verify_telegram_init_data(body.get("initData", ""))
             if not user:
                 logger.warning("[Dashboard API] Rejected POST request: unauthorized initData (len=%d)", init_len)
+                try:
+                    alert_super_admin(f"⚠️ [MiniApp Auth Failed]\nAction: {action or 'fetch_dashboard'}\ninitData Length: {init_len}")
+                except Exception:
+                    pass
                 return self._json(401, {"authorized": False, "error": "Invalid or expired Telegram session"})
 
             uid = int(user["id"])
             super_admin = is_super_admin(uid)
             is_admin = super_admin or uid in whitelist_ids()
             logger.info("[Dashboard API] User uid=%d (super_admin=%s, is_admin=%s)", uid, super_admin, is_admin)
+            try:
+                alert_super_admin(f"🟢 [MiniApp Auth Success]\nUser: {uid} (@{user.get('username', 'none')})\nSuperAdmin: {super_admin} | Admin: {is_admin}\nAction: {action or 'fetch_dashboard'}")
+            except Exception:
+                pass
 
             # ── PIN Actions (Dedicated for Manage Tab) ────────────────────
             if action == "check_pin":
