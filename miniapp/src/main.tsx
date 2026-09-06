@@ -2,10 +2,15 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App'
 import './index.css'
-import { getInitData } from './admin/api'
+import { getTelegramWebApp, getInitData } from './admin/api'
 
-// Capture and cache Telegram session immediately before React boots
+// Initialize Telegram WebApp bridge immediately before React boots
 try {
+  const tg = getTelegramWebApp();
+  if (tg) {
+    tg.ready();
+    tg.expand();
+  }
   getInitData();
 } catch {}
 
