@@ -13,9 +13,11 @@
           var s = window.location.search || '';
           if (h && (h.indexOf('hash=') !== -1 || h.indexOf('tgWebAppData=') !== -1)) {
             sessionStorage.setItem('songket_init_raw', h);
+            localStorage.setItem('songket_init_raw', h);
           }
           if (s && (s.indexOf('hash=') !== -1 || s.indexOf('tgWebAppData=') !== -1)) {
             sessionStorage.setItem('songket_init_raw', s);
+            localStorage.setItem('songket_init_raw', s);
           }
         } catch (e) {}
       })();
