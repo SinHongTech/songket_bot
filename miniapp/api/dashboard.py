@@ -98,8 +98,8 @@ logger = logging.getLogger("BeydaWebApp")
 METRICS = ("scanned", "files", "urls", "malicious", "deleted", "suspicious", "errors", "oversize")
 
 
-def build_dashboard(user_id: int, days: int = 7) -> dict:
-    days = max(1, min(31, days))
+def build_dashboard(user_id: int, days: int = 31) -> dict:
+    history_days = max(31, min(90, int(days or 31)))
     allowed_groups = get_allowed_groups()
     group_ids = groups_for_user(user_id, allowed_groups)
     groups = []
@@ -109,7 +109,7 @@ def build_dashboard(user_id: int, days: int = 7) -> dict:
     for gid in group_ids:
         daily = []
         title = None
-        for offset in range(days - 1, -1, -1):
+        for offset in range(history_days - 1, -1, -1):
             day = (today - timedelta(days=offset)).isoformat()
             report = kv_json_get(f"report:{day}:{gid}") or {}
             if not title:
@@ -123,7 +123,7 @@ def build_dashboard(user_id: int, days: int = 7) -> dict:
             title = (chat or {}).get("title") or str(gid)
         groups.append({"id": gid, "title": title, "daily": daily})
 
-    return {"authorized": True, "user_id": user_id, "groups": groups, "totals": totals, "days": days}
+    return {"authorized": True, "user_id": user_id, "groups": groups, "totals": totals, "days": history_days}
 
 
 class handler(BaseHTTPRequestHandler):

@@ -8,7 +8,7 @@ export const mockUser: TelegramUser = {
   username: "khmertech_admin",
 };
 
-export function mockDashboardData(days: number = 7): DashboardData {
+export function mockDashboardData(days: number = 31): DashboardData {
   const dates: string[] = [];
   const now = new Date();
   for (let i = days - 1; i >= 0; i--) {
