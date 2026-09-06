@@ -2,6 +2,11 @@ import { Mail, Send, Briefcase, Code, Palette, Lock, Monitor, ClipboardList, Meg
 import lika from "../assets/SaoSochealika.png";
 import gekleang from "../assets/MongGekleang.png";
 import smey from "../assets/KongLeakSmey.png";
+import pich from "../assets/BetSreypich.jpg";
+import neath from "../assets/Chanmonyneath.jpg";
+import nuphea from "../assets/ThongNuphea.png";
+import hong from "../assets/SinHong.jpg";
+import panha from "../assets/panha.jpg"
 import { FaLinkedin } from "../assets/FaLinkedin";
 
 
@@ -53,7 +58,7 @@ const TEAM = [
     descEn: "Researches emerging threats and keeps the protection database up to date.",
     descKm: "ស្រាវជ្រាវការគំរាមកំហែងថ្មី និងធ្វើបច្ចុប្បន្នភាពមូលដ្ឋានទិន្នន័យការការពារ។",
     icon: <Lock size={28} color="var(--gold)" />,
-    img: gekleang,
+    img: pich,
     linkedin: "https://www.linkedin.com/feed/",
   },
   {
@@ -64,7 +69,7 @@ const TEAM = [
     descEn: "Builds Songket's core scanning engine and server infrastructure that keeps groups safe in real time.",
     descKm: "បង្កើតម៉ាស៊ីនស្កែន និងហេដ្ឋារចនាសម្ព័ន្ធស្នូលរបស់ Songket។",
     icon: <Monitor size={28} color="var(--gold)" />,
-    img: gekleang,
+    img: hong,
     linkedin: "https://www.linkedin.com/feed/",
   },
   {
@@ -75,7 +80,7 @@ const TEAM = [
     descEn: "Coordinates the team and ensures every feature shipped delivers real value to communities.",
     descKm: "ធ្វើសមស្របការងារក្រុម និងធានាថា Songket ផ្តល់តម្លៃដល់អ្នកប្រើប្រាស់។",
     icon: <ClipboardList size={28} color="var(--gold)" />,
-    img: gekleang,
+    img: panha,
     linkedin: "https://www.linkedin.com/feed/",
   },
   {
@@ -86,8 +91,8 @@ const TEAM = [
     descEn: "Spreads the word about Songket and connects the product with communities that need it most.",
     descKm: "រីករាលដាល Songket ទៅកាន់ក្រុម Telegram ដែលត្រូវការការការពារ។",
     icon: <Megaphone size={28} color="var(--gold)" />,
-    img: gekleang,
-    linkedin: "https://www.linkedin.com/feed/",
+    img: neath,
+    linkedin: "https://www.linkedin.com/in/po-chan-monyneath-78b8a7393?utm_source=share_via&utm_content=profile&utm_medium=member_ios",
   },
   {
     num: "08",
@@ -97,8 +102,8 @@ const TEAM = [
     descEn: "Helps users set up Songket, answers questions, and builds a trusted community around the product.",
     descKm: "ជួយអ្នកប្រើប្រាស់ដំឡើង Songket និងឆ្លើយតបនឹងសំណួររបស់ពួកគេ។",
     icon: <Users size={28} color="var(--gold)" />,
-    img: gekleang,
-    linkedin: "https://www.linkedin.com/feed/",
+    img: nuphea,
+    linkedin: "https://www.linkedin.com/in/thong-nuphea-b39216374/",
   },
 ];
 

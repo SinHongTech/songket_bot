@@ -1,4 +1,4 @@
-import { useState, useLayoutEffect, useRef } from "react";
+import { useState, useLayoutEffect, useEffect, useRef } from "react";
 import { Link } from "react-router";
 import { Sun, Moon, Globe, ChevronDown, LayoutDashboard } from "lucide-react";
 import LogoMark from "@/shared/components/LogoMark";
@@ -13,17 +13,24 @@ import LogoSplash from "@/public/components/LogoSplash";
 import FAQ from "@/public/components/FAQ";
 
 export default function PublicApp() {
-  const [lang, setLang] = useState<Lang>("en");
+  const [lang, setLang] = useState<Lang>(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("songket.lang") === "km" ? "km" : "en";
+    }
+    return "en";
+  });
   const [dark, setDark] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsRef = useRef<HTMLDivElement>(null);
-  const t = T[lang];
-  const isKm = lang === "km";
-  const bodyFont = isKm ? "'Kantumruy Pro', sans-serif" : "'Outfit', sans-serif";
+  const [showSplash, setShowSplash] = useState(false);
 
   useLayoutEffect(() => {
     document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
   }, [dark]);
+
+  useEffect(() => {
+    localStorage.setItem("songket.lang", lang);
+  }, [lang]);
 
   useLayoutEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -35,8 +42,16 @@ export default function PublicApp() {
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
-  function scrollTo(id: string) {
+  const t = T[lang];
+  const isKm = lang === "km";
+  const bodyFont = isKm ? "'Kantumruy Pro', sans-serif" : "'Outfit', sans-serif";
+
+  const scrollTo = (id: string) => {
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
+  };
+
+  if (showSplash) {
+    return <LogoSplash onFinish={() => setShowSplash(false)} />;
   }
 
   return (
@@ -70,37 +85,37 @@ export default function PublicApp() {
               <div style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "10px", minWidth: 180, zIndex: 100, boxShadow: "0 8px 32px rgba(0,0,0,0.4)" }}>
                 <div style={{ fontSize: 10, color: "var(--muted)", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 6, paddingLeft: 4 }}>THEME</div>
                 <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
-                  {(["dark", "light"] as const).map(val => (
-                    <button key={val} onClick={() => setDark(val === "dark")} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 5, padding: "7px 0", borderRadius: 8, border: `1.5px solid ${dark === (val === "dark") ? "var(--gold)" : "var(--border)"}`, background: dark === (val === "dark") ? "rgba(212,167,44,0.12)" : "transparent", color: dark === (val === "dark") ? "var(--gold)" : "var(--muted)", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
-                      {val === "dark" ? <Moon size={13} /> : <Sun size={13} />}
-                      {val === "dark" ? "Dark" : "Light"}
-                    </button>
-                  ))}
+                  <button onClick={() => setDark(false)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "7px 0", borderRadius: 8, border: !dark ? "1.5px solid var(--gold)" : "1px solid var(--border)", background: !dark ? "rgba(212,167,44,0.1)" : "var(--surface2)", color: !dark ? "var(--gold)" : "var(--muted)", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
+                    <Sun size={13} /> Light
+                  </button>
+                  <button onClick={() => setDark(true)} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "7px 0", borderRadius: 8, border: dark ? "1.5px solid var(--gold)" : "1px solid var(--border)", background: dark ? "rgba(212,167,44,0.1)" : "var(--surface2)", color: dark ? "var(--gold)" : "var(--muted)", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
+                    <Moon size={13} /> Dark
+                  </button>
                 </div>
                 <div style={{ fontSize: 10, color: "var(--muted)", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 6, paddingLeft: 4 }}>LANGUAGE</div>
                 <div style={{ display: "flex", gap: 6 }}>
-                  {(["en", "km"] as Lang[]).map(l => (
-                    <button key={l} onClick={() => setLang(l)} style={{ flex: 1, padding: "7px 0", borderRadius: 8, border: `1.5px solid ${lang === l ? "var(--gold)" : "var(--border)"}`, background: lang === l ? "rgba(212,167,44,0.12)" : "transparent", color: lang === l ? "var(--gold)" : "var(--muted)", cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: l === "km" ? "'Kantumruy Pro', sans-serif" : "'Outfit', sans-serif" }}>
-                      {l === "en" ? "EN" : "ខ្មែរ"}
-                    </button>
-                  ))}
+                  <button onClick={() => setLang("en")} style={{ flex: 1, padding: "7px 0", borderRadius: 8, border: lang === "en" ? "1.5px solid var(--gold)" : "1px solid var(--border)", background: lang === "en" ? "rgba(212,167,44,0.1)" : "var(--surface2)", color: lang === "en" ? "var(--gold)" : "var(--muted)", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
+                    EN
+                  </button>
+                  <button onClick={() => setLang("km")} style={{ flex: 1, padding: "7px 0", borderRadius: 8, border: lang === "km" ? "1.5px solid var(--gold)" : "1px solid var(--border)", background: lang === "km" ? "rgba(212,167,44,0.1)" : "var(--surface2)", color: lang === "km" ? "var(--gold)" : "var(--muted)", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
+                    ខ្មែរ
+                  </button>
                 </div>
               </div>
             )}
           </div>
         </div>
       </header>
-      <div style={{ borderBottom: "1px solid var(--border)", background: "var(--bg)" }}>
-        <LogoSplash compact />
-      </div>
       <div style={{ maxWidth: 480, margin: "0 auto", padding: "0 18px 60px" }}>
         <Hero t={t} isKm={isKm} bodyFont={bodyFont} onScrollTo={scrollTo} />
         <Features t={t} isKm={isKm} bodyFont={bodyFont} />
-        <HowItWorks t={t} isKm={isKm} bodyFont={bodyFont} />
+        <HowItWorks t={t} isKm={isKm} bodyFont={bodyFont} dark={dark} />
         <Pricing t={t} isKm={isKm} bodyFont={bodyFont} />
         <About t={t} isKm={isKm} bodyFont={bodyFont} />
-        <Footer isKm={isKm} bodyFont={bodyFont} />
         <FAQ t={t} isKm={isKm} bodyFont={bodyFont} />
+        <section id="privacy" style={{ paddingBottom: 32 }}>
+          <Footer isKm={isKm} bodyFont={bodyFont} />
+        </section>
       </div>
     </div>
   );

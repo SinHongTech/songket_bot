@@ -14,7 +14,7 @@ interface FeaturesProps {
 
 export default function Features({ t, isKm, bodyFont }: FeaturesProps) {
   return (
-    <section style={{ paddingBottom: 40 }}>
+    <section id="features" style={{ paddingBottom: 40 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 22 }}>
         <span style={{ width: 3, height: 18, background: "var(--gold)", borderRadius: 2, flexShrink: 0 }} />
         <h2 style={{ fontSize: 20, fontWeight: 700, letterSpacing: isKm ? 0 : "-0.01em", fontFamily: bodyFont }}>{t.features_h}</h2>

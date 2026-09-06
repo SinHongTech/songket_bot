@@ -35,6 +35,19 @@ try:
         verify_pin,
         verify_telegram_init_data,
         whitelist_ids,
+        is_totp_enabled,
+        get_user_totp_secret,
+        set_pending_totp,
+        get_pending_totp,
+        save_user_totp,
+        disable_user_totp,
+        verify_user_totp_or_backup,
+    )
+    from api.totp import (
+        generate_totp_secret,
+        get_totp_uri,
+        verify_totp_code,
+        generate_backup_codes,
     )
 except ImportError:
     from common import (
@@ -64,6 +77,19 @@ except ImportError:
         verify_pin,
         verify_telegram_init_data,
         whitelist_ids,
+        is_totp_enabled,
+        get_user_totp_secret,
+        set_pending_totp,
+        get_pending_totp,
+        save_user_totp,
+        disable_user_totp,
+        verify_user_totp_or_backup,
+    )
+    from totp import (
+        generate_totp_secret,
+        get_totp_uri,
+        verify_totp_code,
+        generate_backup_codes,
     )
 
 logging.basicConfig(level=logging.INFO)
@@ -130,21 +156,76 @@ class handler(BaseHTTPRequestHandler):
             logger.info("[Dashboard API] User uid=%d (super_admin=%s, is_admin=%s)", uid, super_admin, is_admin)
             print(f"[Dashboard API] 🟢 Auth Success: uid={uid} (@{user.get('username', 'none')}) super_admin={super_admin} is_admin={is_admin} action={action or 'fetch_dashboard'}", flush=True)
 
-            # ── PIN Actions (Dedicated for Manage Tab) ────────────────────
+            # ── PIN & TOTP Actions (Dedicated for Manage Tab) ───────────
             if action == "check_pin":
                 exists = pin_exists(uid)
                 locked = pin_lock_seconds(uid)
-                logger.info("[PIN] check_pin uid=%d exists=%s locked=%ds", uid, exists, locked)
+                totp_on = is_totp_enabled(uid)
+                logger.info("[PIN] check_pin uid=%d exists=%s locked=%ds totp=%s", uid, exists, locked, totp_on)
                 return self._json(
                     200,
                     {
                         "ok": True,
                         "pin_exists": exists,
                         "locked": locked,
+                        "totp_enabled": totp_on,
                     },
                 )
 
+            if action == "totp_status":
+                return self._json(200, {"ok": True, "totp_enabled": is_totp_enabled(uid)})
+
+            if action == "setup_totp":
+                sec = generate_totp_secret()
+                set_pending_totp(uid, sec)
+                uname = user.get("username") or user.get("first_name") or f"Admin_{uid}"
+                uri = get_totp_uri(sec, uname, "Songket")
+                logger.info("[TOTP] setup_totp initiated for uid=%d", uid)
+                return self._json(200, {"ok": True, "secret": sec, "uri": uri})
+
+            if action == "confirm_setup_totp":
+                code = body.get("code", "")
+                pending = get_pending_totp(uid)
+                if not pending:
+                    return self._json(400, {"ok": False, "error": "Setup session expired. Please tap setup again."})
+                if not verify_totp_code(pending, code, window=1):
+                    return self._json(400, {"ok": False, "error": "Invalid 6-digit code. Please check your Google Authenticator app."})
+                backups = generate_backup_codes(3)
+                save_user_totp(uid, pending, backups)
+                logger.info("[TOTP] 2FA enabled for uid=%d", uid)
+                return self._json(200, {"ok": True, "totp_enabled": True, "backup_codes": backups})
+
+            if action == "reset_pin_with_totp":
+                code = body.get("code", "")
+                if not is_totp_enabled(uid):
+                    return self._json(400, {"ok": False, "error": "Google Authenticator (2FA) is not enabled on this account."})
+                if not verify_user_totp_or_backup(uid, code):
+                    fails = record_pin_fail(uid)
+                    logger.warning("[TOTP] reset_pin_with_totp FAILED for uid=%d (attempt=%s)", uid, fails.get("count", 0))
+                    return self._json(400, {"ok": False, "error": "Invalid 6-digit code or backup code."})
+                reset_user_pin(uid)
+                reset_pin_fail(uid)
+                logger.info("[TOTP] reset_pin_with_totp SUCCESS for uid=%d", uid)
+                return self._json(200, {"ok": True, "pin_exists": False, "message": "PIN reset successfully! Please create your new PIN."})
+
+            if action == "disable_totp":
+                code = body.get("code", "")
+                pin = body.get("pin", "")
+                valid = False
+                if pin and verify_pin(uid, pin):
+                    valid = True
+                elif code and verify_user_totp_or_backup(uid, code):
+                    valid = True
+                if not valid:
+                    return self._json(400, {"ok": False, "error": "Verification failed. Incorrect PIN or code."})
+                disable_user_totp(uid)
+                logger.info("[TOTP] 2FA disabled for uid=%d", uid)
+                return self._json(200, {"ok": True, "totp_enabled": False})
+
             if action == "reset_pin":
+                # Legacy open reset - only if TOTP is NOT enabled
+                if is_totp_enabled(uid):
+                    return self._json(400, {"ok": False, "totp_required": True, "error": "2FA is active. Please use your Google Authenticator code to reset."})
                 logger.info("[PIN] reset_pin requested for uid=%d", uid)
                 reset_user_pin(uid)
                 reset_pin_fail(uid)
@@ -269,6 +350,7 @@ class handler(BaseHTTPRequestHandler):
             "plans": get_plan_catalog() if super_admin else None,
             "subscriptions": list_subscriptions() if super_admin else None,
             "pin_exists": pin_exists(uid),
+            "totp_enabled": is_totp_enabled(uid),
         }
         if session:
             payload["session"] = session

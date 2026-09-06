@@ -1,9 +1,11 @@
-import { useState } from "react";
-import { Moon, Sun, UserCheck } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Moon, Sun, LogOut, ShieldCheck, KeyRound } from "lucide-react";
 import { G, type Lang } from "../palette";
 import { t as T, kh } from "../i18n";
 import type { DashboardData, TelegramUser } from "../types";
 import { SectionHeader } from "./Badges";
+import TotpModal from "./TotpModal";
+import { getTotpStatus } from "../api";
 
 interface AccountViewProps {
   user?: TelegramUser;
@@ -12,21 +14,29 @@ interface AccountViewProps {
   setDark: (v: boolean) => void;
   lang: Lang;
   setLang: (l: Lang) => void;
+  onLogout: () => void;
 }
 
-export default function AccountView({ user, dashboard, dark, setDark, lang, setLang }: AccountViewProps) {
+export default function AccountView({ user, dashboard, dark, setDark, lang, setLang, onLogout }: AccountViewProps) {
   const tx = T(lang);
   const [org, setOrg] = useState("Group Security Admin");
   const [email, setEmail] = useState("admin@telegram.security");
   const [telegram, setTelegram] = useState(user?.username ? `@${user.username}` : user?.first_name || "@admin");
   const [notifTelegram, setNotifTelegram] = useState(true);
   const [notifPDF, setNotifPDF] = useState(false);
-  // const [saved, setSaved] = useState(false);
+  const [totpEnabled, setTotpEnabled] = useState(false);
+  const [totpModalOpen, setTotpModalOpen] = useState(false);
+  const [totpModalMode, setTotpModalMode] = useState<"setup" | "disable">("setup");
 
-  // function handleSave() {
-  //   setSaved(true);
-  //   setTimeout(() => setSaved(false), 2000);
-  // }
+  const isKm = lang === "km";
+
+  useEffect(() => {
+    getTotpStatus().then(res => {
+      if (res.ok && res.totp_enabled !== undefined) {
+        setTotpEnabled(res.totp_enabled);
+      }
+    });
+  }, []);
 
   const inputStyle = {
     background: G.surface2,
@@ -74,13 +84,24 @@ export default function AccountView({ user, dashboard, dark, setDark, lang, setL
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+      {totpModalOpen && (
+        <TotpModal
+          mode={totpModalMode}
+          lang={lang}
+          onClose={() => setTotpModalOpen(false)}
+          onSuccess={enabled => {
+            setTotpEnabled(enabled);
+          }}
+        />
+      )}
+
       <SectionHeader title={tx.account} sub={tx.accountSub} lang={lang} />
 
       {/* User Telegram Identity Card */}
       <div style={{ background: G.surface, border: `1px solid ${G.goldBorder}`, borderRadius: 14, padding: "18px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{ width: 44, height: 44, borderRadius: 12, background: G.goldSurface, border: `1px solid ${G.goldBorder}`, display: "flex", alignItems: "center", justifyContent: "center", color: G.gold }}>
-            <UserCheck size={22} />
+          <div style={{ width: 44, height: 44, borderRadius: "50%", background: "#3b9eef", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 16, fontWeight: 700, fontFamily: "Outfit, sans-serif" }}>
+            {user?.first_name ? user.first_name.charAt(0).toUpperCase() : "A"}{user?.last_name ? user.last_name.charAt(0).toUpperCase() : ""}
           </div>
           <div>
             <div style={{ fontWeight: 700, fontSize: 16, color: G.text }}>
@@ -91,6 +112,88 @@ export default function AccountView({ user, dashboard, dark, setDark, lang, setL
             </div>
           </div>
         </div>
+      </div>
+
+      {/* 2FA Security Card */}
+      <div style={{ background: G.surface, border: `1px solid ${totpEnabled ? "rgba(34,197,94,0.4)" : G.border}`, borderRadius: 14, padding: "18px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <ShieldCheck size={20} color={totpEnabled ? G.safe : G.muted} />
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: G.text }}>
+                <span className={kh(lang)}>{isKm ? "ផ្ទៀងផ្ទាត់ ២ ជាន់ (2FA)" : "Two-Factor Auth (2FA)"}</span>
+              </div>
+              <div style={{ fontSize: 11, color: G.muted, marginTop: 2 }}>
+                <span className={kh(lang)}>{isKm ? "Google Authenticator / RFC 6238" : "Google Authenticator / 1Password"}</span>
+              </div>
+            </div>
+          </div>
+          <span
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              padding: "3px 8px",
+              borderRadius: 6,
+              background: totpEnabled ? "rgba(34,197,94,0.15)" : G.surface2,
+              color: totpEnabled ? G.safe : G.muted,
+              border: `1px solid ${totpEnabled ? G.safe : G.border}`,
+            }}
+          >
+            {totpEnabled ? (isKm ? "🟢 បានភ្ជាប់" : "🟢 Enabled") : (isKm ? "⚪ មិនទាន់ភ្ជាប់" : "⚪ Disabled")}
+          </span>
+        </div>
+
+        <p style={{ fontSize: 12, color: G.textSec, lineHeight: 1.5, margin: "0 0 14px" }}>
+          <span className={kh(lang)}>
+            {isKm
+              ? "ការពារការកំណត់ PIN ឡើងវិញ និងសុវត្ថិភាពផ្ទាំងគ្រប់គ្រងដោយប្រើកូដ ៦ ខ្ទង់ពីទូរស័ព្ទដៃរបស់អ្នក។"
+              : "Protect your PIN resets and admin panel with live 6-digit rolling codes from your physical phone."}
+          </span>
+        </p>
+
+        {totpEnabled ? (
+          <button
+            onClick={() => {
+              setTotpModalMode("disable");
+              setTotpModalOpen(true);
+            }}
+            style={{
+              background: "transparent",
+              border: `1px solid ${G.danger}`,
+              color: G.danger,
+              borderRadius: 8,
+              padding: "7px 14px",
+              fontSize: 11,
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            <span className={kh(lang)}>{isKm ? "បិទដំណើរការ 2FA" : "Disable 2FA"}</span>
+          </button>
+        ) : (
+          <button
+            onClick={() => {
+              setTotpModalMode("setup");
+              setTotpModalOpen(true);
+            }}
+            style={{
+              background: G.gold,
+              color: "#1a1200",
+              border: "none",
+              borderRadius: 8,
+              padding: "8px 16px",
+              fontSize: 12,
+              fontWeight: 800,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            <KeyRound size={13} />
+            <span className={kh(lang)}>{isKm ? "+ ភ្ជាប់ Google Authenticator" : "+ Enable Google Authenticator"}</span>
+          </button>
+        )}
       </div>
 
       <div style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 14, padding: "18px" }}>
@@ -205,23 +308,28 @@ export default function AccountView({ user, dashboard, dark, setDark, lang, setL
         </div>
       </div>
 
-      {/* <button
-        onClick={handleSave}
+      <button
+        onClick={onLogout}
         style={{
-          background: saved ? G.safe : G.gold,
-          color: "#1a1200",
-          border: "none",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 8,
+          background: "transparent",
+          border: `1.5px solid ${G.danger}`,
+          color: G.danger,
           borderRadius: 10,
           padding: "12px 0",
           fontWeight: 700,
           cursor: "pointer",
-          fontSize: 14,
+          fontSize: 13,
           width: "100%",
           transition: "background 0.2s",
         }}
       >
-        <span className={kh(lang)}>{saved ? tx.saved : tx.save}</span>
-      </button> */}
+        <LogOut size={16} />
+        <span className={kh(lang)}>{tx.logout}</span>
+      </button>
     </div>
   );
 }

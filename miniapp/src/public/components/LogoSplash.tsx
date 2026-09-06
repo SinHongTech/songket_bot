@@ -2,6 +2,7 @@ import logoImg from "../../shared/assets/Logo.svg";
 
 interface LogoSplashProps {
   compact?: boolean;
+  onFinish?: () => void;
 }
 
 /* Small blip dot that travels with its parent ring */
@@ -56,7 +57,7 @@ export default function LogoSplash({ compact = false }: LogoSplashProps) {
       }}
     >
       {/* Orbit root — all rings + logo share this 420×420 relative container */}
-      <div style={{ position: "relative", width: 420, height: 260 }}>
+      <div style={{ position: "relative", width: 420, height: 272 }}>
 
         {/* Ambient radial background glow */}
         <div
