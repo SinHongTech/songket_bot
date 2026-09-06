@@ -604,16 +604,19 @@ export default function AdminApp() {
     let mounted = true;
     loadData(false, 31);
 
-    // Auto-retry once after 1s in case Telegram native webview bridge initialized slightly late
-    const timer = setTimeout(() => {
-      if (mounted) {
-        loadData(false, 31);
-      }
-    }, 1000);
+    // Auto-retry at 800ms and 2200ms in case Telegram Desktop native webview bridge initialized late
+    const t1 = setTimeout(() => {
+      if (mounted) loadData(false, 31);
+    }, 800);
+
+    const t2 = setTimeout(() => {
+      if (mounted) loadData(false, 31);
+    }, 2200);
 
     return () => {
       mounted = false;
-      clearTimeout(timer);
+      clearTimeout(t1);
+      clearTimeout(t2);
     };
   }, [loadData]);
 
