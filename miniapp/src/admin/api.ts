@@ -20,6 +20,10 @@ declare global {
         close: () => void;
         setHeaderColor?: (color: string) => void;
         setBackgroundColor?: (color: string) => void;
+        version?: string;
+        platform?: string;
+        openTelegramLink?: (url: string) => void;
+        requestWriteAccess?: (callback: (allowed: boolean) => void) => void;
       };
     };
   }
@@ -27,6 +31,16 @@ declare global {
 
 let _sessionToken = "";
 let _cachedInitData = "";
+
+// Initialize session token from storage
+if (typeof window !== "undefined") {
+  try {
+    _sessionToken =
+      sessionStorage.getItem("songket_session_token") ||
+      localStorage.getItem("songket_session_token") ||
+      "";
+  } catch {}
+}
 
 if (typeof window !== "undefined") {
   window.addEventListener("message", (event) => {
@@ -158,19 +172,60 @@ export function getTelegramUser() {
 }
 
 export function getSessionToken(): string {
+  if (_sessionToken) return _sessionToken;
+  if (typeof window !== "undefined") {
+    try {
+      _sessionToken =
+        sessionStorage.getItem("songket_session_token") ||
+        localStorage.getItem("songket_session_token") ||
+        "";
+    } catch {}
+  }
   return _sessionToken;
 }
 
 export function setSessionToken(token: string) {
   _sessionToken = token;
+  if (typeof window !== "undefined") {
+    try {
+      if (token) {
+        sessionStorage.setItem("songket_session_token", token);
+        localStorage.setItem("songket_session_token", token);
+      } else {
+        sessionStorage.removeItem("songket_session_token");
+        localStorage.removeItem("songket_session_token");
+      }
+    } catch {}
+  }
+}
+
+export function getAuthPayload(extra: Record<string, unknown> = {}) {
+  const tg = getTelegramWebApp();
+  const initData = getInitData();
+  const rawHash = typeof window !== "undefined" ? window.location.hash : "";
+  const rawSearch = typeof window !== "undefined" ? window.location.search : "";
+  const initDataUnsafe = tg?.initDataUnsafe || null;
+  const platform = (tg as any)?.platform || "";
+  const version = (tg as any)?.version || "";
+
+  return {
+    initData: initData || "",
+    rawHash,
+    rawSearch,
+    initDataUnsafe,
+    platform,
+    version,
+    session: getSessionToken(),
+    ...extra,
+  };
 }
 
 export function requestTelegramWriteAccess(): Promise<boolean> {
   return new Promise((resolve) => {
     const tg = getTelegramWebApp();
-    if (tg && typeof (tg as any).requestWriteAccess === "function") {
+    if (tg && typeof tg.requestWriteAccess === "function") {
       try {
-        (tg as any).requestWriteAccess((allowed: boolean) => {
+        tg.requestWriteAccess((allowed: boolean) => {
           console.log("[MiniApp] requestWriteAccess response:", allowed);
           resolve(Boolean(allowed));
         });
@@ -194,20 +249,23 @@ export async function fetchDashboardData(days: number = 7): Promise<DashboardApi
     }
   }
 
-  const initData = await waitForTelegramInitData(2500);
-  console.log("[MiniApp] fetchDashboardData initData present:", Boolean(initData), "length:", initData.length);
+  // Poll briefly for initData
+  const initData = await waitForTelegramInitData(1200);
+  console.log(
+    "[MiniApp] fetchDashboardData initData present:",
+    Boolean(initData),
+    "length:",
+    initData.length
+  );
 
-  // If outside Telegram or no initData available:
-  if (!initData) {
-    console.log("[MiniApp] fetchDashboardData: No initData available, loading preview mock data");
-    return {
-      authorized: false,
-      user: mockUser,
-      dashboard: mockDashboardData(days),
-      isMock: true,
-      pin_exists: false,
-    };
-  }
+  const payload = getAuthPayload({ days });
+  console.log("[MiniApp] fetchDashboardData dispatching POST /api/dashboard payload:", {
+    initData_len: payload.initData.length,
+    has_rawHash: Boolean(payload.rawHash),
+    platform: payload.platform,
+    has_unsafe_user: Boolean(payload.initDataUnsafe?.user),
+    has_session: Boolean(payload.session),
+  });
 
   try {
     const response = await fetch("/api/dashboard", {
@@ -215,25 +273,44 @@ export async function fetchDashboardData(days: number = 7): Promise<DashboardApi
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ initData, days, session: getSessionToken() }),
+      body: JSON.stringify(payload),
     });
 
     console.log("[MiniApp] fetchDashboardData HTTP status:", response.status);
 
-    if (response.ok || response.status === 401) {
+    if (response.ok) {
       const data: DashboardApiResponse = await response.json();
-      console.log("[MiniApp] fetchDashboardData received payload:", data);
-      if (data && !data.authorized) {
-        return {
-          authorized: false,
-          user: data.user || getTelegramUser() || mockUser,
-          dashboard: mockDashboardData(days),
-          isMock: true,
-          pin_exists: data.pin_exists ?? false,
-          error: data.error,
-        };
+      console.log("[MiniApp] fetchDashboardData received success payload:", data);
+      if (data && data.authorized) {
+        if ((data as any).session) {
+          setSessionToken((data as any).session);
+        }
+        return { ...data, isMock: false };
       }
-      return { ...data, isMock: false };
+      return {
+        authorized: false,
+        user: data.user || getTelegramUser() || mockUser,
+        dashboard: mockDashboardData(days),
+        isMock: true,
+        pin_exists: data.pin_exists ?? false,
+        error: data.error,
+      };
+    }
+
+    if (response.status === 401) {
+      let data: any = null;
+      try {
+        data = await response.json();
+      } catch {}
+      console.warn("[MiniApp] fetchDashboardData 401 Unauthorized:", data);
+      return {
+        authorized: false,
+        user: data?.user || getTelegramUser() || mockUser,
+        dashboard: mockDashboardData(days),
+        isMock: true,
+        pin_exists: data?.pin_exists ?? false,
+        error: data?.error || "Unauthorized",
+      };
     }
 
     throw new Error(`Failed to fetch dashboard data (HTTP ${response.status})`);
@@ -250,15 +327,18 @@ export async function fetchDashboardData(days: number = 7): Promise<DashboardApi
   }
 }
 
-export async function resetPin(): Promise<{ ok: boolean; pin_exists?: boolean; error?: string; message?: string; totp_required?: boolean }> {
-  const initData = await waitForTelegramInitData(500);
-  console.log("[MiniApp] resetPin initData present:", Boolean(initData));
-  if (!initData) return { ok: false, error: "Telegram initData required" };
+export async function resetPin(): Promise<{
+  ok: boolean;
+  pin_exists?: boolean;
+  error?: string;
+  message?: string;
+  totp_required?: boolean;
+}> {
   try {
     const response = await fetch("/api/dashboard", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ initData, action: "reset_pin" }),
+      body: JSON.stringify(getAuthPayload({ action: "reset_pin" })),
     });
     const res = await response.json();
     console.log("[MiniApp] resetPin response:", res);
@@ -269,14 +349,16 @@ export async function resetPin(): Promise<{ ok: boolean; pin_exists?: boolean; e
   }
 }
 
-export async function getTotpStatus(): Promise<{ ok: boolean; totp_enabled?: boolean; error?: string }> {
-  const initData = await waitForTelegramInitData(500);
-  if (!initData) return { ok: true, totp_enabled: false };
+export async function getTotpStatus(): Promise<{
+  ok: boolean;
+  totp_enabled?: boolean;
+  error?: string;
+}> {
   try {
     const response = await fetch("/api/dashboard", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ initData, action: "totp_status" }),
+      body: JSON.stringify(getAuthPayload({ action: "totp_status" })),
     });
     return await response.json();
   } catch (err: any) {
@@ -284,14 +366,17 @@ export async function getTotpStatus(): Promise<{ ok: boolean; totp_enabled?: boo
   }
 }
 
-export async function setupTotp(): Promise<{ ok: boolean; secret?: string; uri?: string; error?: string }> {
-  const initData = await waitForTelegramInitData(500);
-  if (!initData) return { ok: false, error: "Telegram session required" };
+export async function setupTotp(): Promise<{
+  ok: boolean;
+  secret?: string;
+  uri?: string;
+  error?: string;
+}> {
   try {
     const response = await fetch("/api/dashboard", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ initData, action: "setup_totp" }),
+      body: JSON.stringify(getAuthPayload({ action: "setup_totp" })),
     });
     return await response.json();
   } catch (err: any) {
@@ -299,14 +384,19 @@ export async function setupTotp(): Promise<{ ok: boolean; secret?: string; uri?:
   }
 }
 
-export async function confirmSetupTotp(code: string): Promise<{ ok: boolean; totp_enabled?: boolean; backup_codes?: string[]; error?: string }> {
-  const initData = await waitForTelegramInitData(500);
-  if (!initData) return { ok: false, error: "Telegram session required" };
+export async function confirmSetupTotp(
+  code: string
+): Promise<{
+  ok: boolean;
+  totp_enabled?: boolean;
+  backup_codes?: string[];
+  error?: string;
+}> {
   try {
     const response = await fetch("/api/dashboard", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ initData, action: "confirm_setup_totp", code }),
+      body: JSON.stringify(getAuthPayload({ action: "confirm_setup_totp", code })),
     });
     return await response.json();
   } catch (err: any) {
@@ -314,14 +404,14 @@ export async function confirmSetupTotp(code: string): Promise<{ ok: boolean; tot
   }
 }
 
-export async function resetPinWithTotp(code: string): Promise<{ ok: boolean; pin_exists?: boolean; message?: string; error?: string }> {
-  const initData = await waitForTelegramInitData(500);
-  if (!initData) return { ok: false, error: "Telegram session required" };
+export async function resetPinWithTotp(
+  code: string
+): Promise<{ ok: boolean; pin_exists?: boolean; message?: string; error?: string }> {
   try {
     const response = await fetch("/api/dashboard", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ initData, action: "reset_pin_with_totp", code }),
+      body: JSON.stringify(getAuthPayload({ action: "reset_pin_with_totp", code })),
     });
     return await response.json();
   } catch (err: any) {
@@ -329,14 +419,15 @@ export async function resetPinWithTotp(code: string): Promise<{ ok: boolean; pin
   }
 }
 
-export async function disableTotp(code?: string, pin?: string): Promise<{ ok: boolean; totp_enabled?: boolean; error?: string }> {
-  const initData = await waitForTelegramInitData(500);
-  if (!initData) return { ok: false, error: "Telegram session required" };
+export async function disableTotp(
+  code?: string,
+  pin?: string
+): Promise<{ ok: boolean; totp_enabled?: boolean; error?: string }> {
   try {
     const response = await fetch("/api/dashboard", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ initData, action: "disable_totp", code, pin }),
+      body: JSON.stringify(getAuthPayload({ action: "disable_totp", code, pin })),
     });
     return await response.json();
   } catch (err: any) {
@@ -344,10 +435,10 @@ export async function disableTotp(code?: string, pin?: string): Promise<{ ok: bo
   }
 }
 
-export function openTelegramDirect(username: string = "Sin_Hong") {
+export function openTelegramDirect(target: string = "Sin_Hong") {
   const tg = getTelegramWebApp() as any;
-  const clean = username.replace(/^@/, "");
-  const url = `https://t.me/${clean}`;
+  const clean = target.replace(/^@/, "").replace(/^https:\/\/t\.me\//, "");
+  const url = clean.startsWith("http") ? clean : `https://t.me/${clean}`;
   if (tg && typeof tg.openTelegramLink === "function") {
     try {
       tg.openTelegramLink(url);
@@ -360,17 +451,11 @@ export function openTelegramDirect(username: string = "Sin_Hong") {
 }
 
 async function postAction(payload: Record<string, unknown>) {
-  const initData = await waitForTelegramInitData(500);
-  if (!initData) {
-    // Local dev preview mode
-    return { ok: true, session: "preview_session_token", ...payload };
-  }
-
   try {
     const response = await fetch("/api/dashboard", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ initData, session: getSessionToken(), ...payload }),
+      body: JSON.stringify(getAuthPayload(payload)),
     });
 
     if (!response.ok) {
@@ -384,15 +469,11 @@ async function postAction(payload: Record<string, unknown>) {
 }
 
 export async function checkPinStatus() {
-  const initData = await waitForTelegramInitData(500);
-  if (!initData) {
-    return { ok: true, pin_exists: false, locked: 0 };
-  }
   try {
     const response = await fetch("/api/dashboard", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ initData, action: "check_pin" }),
+      body: JSON.stringify(getAuthPayload({ action: "check_pin" })),
     });
     const res = await response.json();
     console.log("[MiniApp] checkPinStatus response:", res);
@@ -403,22 +484,17 @@ export async function checkPinStatus() {
 }
 
 export async function setupPin(pin: string, confirm: string) {
-  const initData = await waitForTelegramInitData(500);
-  console.log("[MiniApp] setupPin calling, initData present:", Boolean(initData));
-  if (!initData) {
-    if (pin !== confirm) {
-      return { ok: false, error: "PINs do not match" };
-    }
-    return { ok: true, session: "preview_session_token" };
-  }
   try {
     const response = await fetch("/api/dashboard", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ initData, action: "setup_pin", pin, confirm }),
+      body: JSON.stringify(getAuthPayload({ action: "setup_pin", pin, confirm })),
     });
     const res = await response.json();
     console.log("[MiniApp] setupPin response (HTTP " + response.status + "):", res);
+    if (res && res.session) {
+      setSessionToken(res.session);
+    }
     return res;
   } catch (err: any) {
     console.warn("[MiniApp] setupPin error:", err);
@@ -427,19 +503,17 @@ export async function setupPin(pin: string, confirm: string) {
 }
 
 export async function loginPin(pin: string) {
-  const initData = await waitForTelegramInitData(500);
-  console.log("[MiniApp] loginPin calling, initData present:", Boolean(initData));
-  if (!initData) {
-    return { ok: true, session: "preview_session_token" };
-  }
   try {
     const response = await fetch("/api/dashboard", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ initData, action: "login_pin", pin }),
+      body: JSON.stringify(getAuthPayload({ action: "login_pin", pin })),
     });
     const res = await response.json();
     console.log("[MiniApp] loginPin response (HTTP " + response.status + "):", res);
+    if (res && res.session) {
+      setSessionToken(res.session);
+    }
     return res;
   } catch (err: any) {
     console.warn("[MiniApp] loginPin error:", err);
