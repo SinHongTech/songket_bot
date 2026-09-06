@@ -142,19 +142,43 @@ class handler(BaseHTTPRequestHandler):
             body = json.loads(self.rfile.read(length) or b"{}")
             action = body.get("action", "")
             init_raw = body.get("initData", "")
+            raw_hash = body.get("rawHash", "")
+            platform = body.get("platform", "")
+            unsafe_user = body.get("initDataUnsafe", {}).get("user") if isinstance(body.get("initDataUnsafe"), dict) else None
             init_len = len(init_raw)
-            logger.info("[Dashboard API] POST incoming action='%s', initData length=%d", action or "fetch_dashboard", init_len)
-            print(f"[Dashboard API] 📥 Incoming POST action='{action or 'fetch_dashboard'}' initData_len={init_len}", flush=True)
+
+            logger.info("[Dashboard API] POST incoming action='%s', initData length=%d, platform=%s", action or "fetch_dashboard", init_len, platform)
+            print(f"[Dashboard API] 📥 Incoming POST action='{action or 'fetch_dashboard'}' initData_len={init_len} platform='{platform}' unsafe_user={repr(unsafe_user)}", flush=True)
             if init_raw:
                 print(f"[Dashboard API] 📥 initData snippet: {repr(init_raw[:160])}", flush=True)
-            else:
-                print(f"[Dashboard API] ⚠️ EMPTY initData received in POST body!", flush=True)
 
-            user, debug_str = verify_telegram_init_data(init_raw)
+            user, debug_str = verify_telegram_init_data(init_raw, raw_hash=raw_hash, unsafe_user=unsafe_user)
             if not user:
-                logger.warning("[Dashboard API] Rejected POST request: %s (len=%d)", debug_str, init_len)
-                print(f"[Dashboard API] ❌ Auth Failed: {debug_str} (initData len={init_len})", flush=True)
-                return self._json(401, {"authorized": False, "error": f"Auth failed: {debug_str}"})
+                session_tok = body.get("session", "")
+                if session_tok:
+                    s_uid = validate_session(session_tok)
+                    if s_uid and (s_uid in super_admin_ids() or s_uid in whitelist_ids()):
+                        user = {"id": s_uid, "first_name": f"Admin_{s_uid}", "username": "admin"}
+                        debug_str = "OK (session)"
+                        logger.info("[Dashboard API] Telegram session authenticated via active PIN session for uid=%d", s_uid)
+                        print(f"[Dashboard API] 🟢 Authenticated via active PIN session for uid={s_uid}", flush=True)
+
+            if not user:
+                logger.warning("[Dashboard API] Rejected POST request: %s (len=%d, platform=%s)", debug_str, init_len, platform)
+                print(f"[Dashboard API] ❌ Auth Failed: {debug_str} (initData len={init_len}, platform={platform})", flush=True)
+                return self._json(
+                    401,
+                    {
+                        "authorized": False,
+                        "error": f"Auth failed: {debug_str}",
+                        "debug": {
+                            "platform": platform,
+                            "initData_len": init_len,
+                            "has_raw_hash": bool(raw_hash),
+                            "has_unsafe_user": bool(unsafe_user),
+                        },
+                    },
+                )
 
             uid = int(user["id"])
             super_admin = is_super_admin(uid)
