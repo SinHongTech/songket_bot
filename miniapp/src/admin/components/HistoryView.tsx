@@ -10,14 +10,14 @@ type TypeFilter = "all" | "URL" | "File" | "All";
 interface HistoryViewProps {
   dashboard: DashboardData | null;
   lang: Lang;
-  days: number;
-  onDaysChange: (d: number) => void;
+  dateFrom: string;
+  dateTo: string;
+  onDateChange: (from: string, to: string) => void;
 }
 
 const TYPE_FILTERS: TypeFilter[] = ["all", "URL", "File"];
-const DAY_OPTIONS = [1, 7, 14, 30];
 
-export default function HistoryView({ dashboard, lang, days, onDaysChange }: HistoryViewProps) {
+export default function HistoryView({ dashboard, lang, dateFrom, dateTo, onDateChange }: HistoryViewProps) {
   const tx = T(lang);
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
@@ -25,12 +25,13 @@ export default function HistoryView({ dashboard, lang, days, onDaysChange }: His
   const scanHistory = getScanHistoryFromDashboard(dashboard);
 
   const filtered = scanHistory.filter(s => {
+    const inDateRange = s.date >= dateFrom && s.date <= dateTo;
     const matchText =
       s.group.toLowerCase().includes(query.toLowerCase()) ||
       s.content.toLowerCase().includes(query.toLowerCase()) ||
       s.date.includes(query);
     const matchType = typeFilter === "all" || s.type === typeFilter;
-    return matchText && matchType;
+    return inDateRange && matchText && matchType;
   });
 
   return (
@@ -55,30 +56,47 @@ export default function HistoryView({ dashboard, lang, days, onDaysChange }: His
       />
 
       {/* Date filter */}
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        {tx.dateFilters.map((label, i) => {
-          const dVal = DAY_OPTIONS[i] || 7;
-          const active = days === dVal;
-          return (
-            <button
-              key={i}
-              onClick={() => onDaysChange(dVal)}
-              style={{
-                padding: "5px 12px",
-                borderRadius: 20,
-                border: `1.5px solid ${active ? G.gold : G.border}`,
-                background: active ? G.goldSurface : "transparent",
-                color: active ? G.gold : G.muted,
-                cursor: "pointer",
-                fontSize: 11,
-                fontWeight: 700,
-                transition: "all 0.15s",
-              }}
-            >
-              <span className={kh(lang)}>{label}</span>
-            </button>
-          );
-        })}
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1 }}>
+          <span style={{ fontSize: 10, fontWeight: 600, color: G.muted }}>
+            <span className={kh(lang)}>{tx.fromDate}</span>
+          </span>
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={e => onDateChange(e.target.value, dateTo)}
+            style={{
+              padding: "6px 8px",
+              borderRadius: 8,
+              border: `1px solid ${G.border}`,
+              background: G.surface,
+              color: G.text,
+              fontSize: 12,
+              fontFamily: "inherit",
+              outline: "none",
+            }}
+          />
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1 }}>
+          <span style={{ fontSize: 10, fontWeight: 600, color: G.muted }}>
+            <span className={kh(lang)}>{tx.toDate}</span>
+          </span>
+          <input
+            type="date"
+            value={dateTo}
+            onChange={e => onDateChange(dateFrom, e.target.value)}
+            style={{
+              padding: "6px 8px",
+              borderRadius: 8,
+              border: `1px solid ${G.border}`,
+              background: G.surface,
+              color: G.text,
+              fontSize: 12,
+              fontFamily: "inherit",
+              outline: "none",
+            }}
+          />
+        </div>
       </div>
 
       {/* Type filter */}

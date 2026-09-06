@@ -205,7 +205,7 @@ export async function fetchDashboardData(days: number = 7): Promise<DashboardApi
   }
 }
 
-export async function resetPin(): Promise<{ ok: boolean; pin_exists?: boolean; error?: string; message?: string }> {
+export async function resetPin(): Promise<{ ok: boolean; pin_exists?: boolean; error?: string; message?: string; totp_required?: boolean }> {
   const initData = await waitForTelegramInitData(500);
   console.log("[MiniApp] resetPin initData present:", Boolean(initData));
   if (!initData) return { ok: false, error: "Telegram initData required" };
@@ -221,6 +221,81 @@ export async function resetPin(): Promise<{ ok: boolean; pin_exists?: boolean; e
   } catch (err: any) {
     console.warn("[MiniApp] resetPin error:", err);
     return { ok: false, error: err?.message || "Reset failed" };
+  }
+}
+
+export async function getTotpStatus(): Promise<{ ok: boolean; totp_enabled?: boolean; error?: string }> {
+  const initData = await waitForTelegramInitData(500);
+  if (!initData) return { ok: true, totp_enabled: false };
+  try {
+    const response = await fetch("/api/dashboard", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ initData, action: "totp_status" }),
+    });
+    return await response.json();
+  } catch (err: any) {
+    return { ok: false, error: err?.message };
+  }
+}
+
+export async function setupTotp(): Promise<{ ok: boolean; secret?: string; uri?: string; error?: string }> {
+  const initData = await waitForTelegramInitData(500);
+  if (!initData) return { ok: false, error: "Telegram session required" };
+  try {
+    const response = await fetch("/api/dashboard", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ initData, action: "setup_totp" }),
+    });
+    return await response.json();
+  } catch (err: any) {
+    return { ok: false, error: err?.message };
+  }
+}
+
+export async function confirmSetupTotp(code: string): Promise<{ ok: boolean; totp_enabled?: boolean; backup_codes?: string[]; error?: string }> {
+  const initData = await waitForTelegramInitData(500);
+  if (!initData) return { ok: false, error: "Telegram session required" };
+  try {
+    const response = await fetch("/api/dashboard", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ initData, action: "confirm_setup_totp", code }),
+    });
+    return await response.json();
+  } catch (err: any) {
+    return { ok: false, error: err?.message };
+  }
+}
+
+export async function resetPinWithTotp(code: string): Promise<{ ok: boolean; pin_exists?: boolean; message?: string; error?: string }> {
+  const initData = await waitForTelegramInitData(500);
+  if (!initData) return { ok: false, error: "Telegram session required" };
+  try {
+    const response = await fetch("/api/dashboard", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ initData, action: "reset_pin_with_totp", code }),
+    });
+    return await response.json();
+  } catch (err: any) {
+    return { ok: false, error: err?.message };
+  }
+}
+
+export async function disableTotp(code?: string, pin?: string): Promise<{ ok: boolean; totp_enabled?: boolean; error?: string }> {
+  const initData = await waitForTelegramInitData(500);
+  if (!initData) return { ok: false, error: "Telegram session required" };
+  try {
+    const response = await fetch("/api/dashboard", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ initData, action: "disable_totp", code, pin }),
+    });
+    return await response.json();
+  } catch (err: any) {
+    return { ok: false, error: err?.message };
   }
 }
 

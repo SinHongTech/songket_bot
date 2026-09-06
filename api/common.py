@@ -302,6 +302,68 @@ def validate_session(token: str) -> Optional[int]:
         return None
 
 
+# ── TOTP 2FA Helpers ────────────────────────────────────────────────────────
+def is_totp_enabled(user_id: int) -> bool:
+    secret = kv_get(f"totp:secret:{user_id}")
+    return bool(secret and secret.strip())
+
+
+def get_user_totp_secret(user_id: int) -> Optional[str]:
+    val = kv_get(f"totp:secret:{user_id}")
+    return val.strip() if val else None
+
+
+def set_pending_totp(user_id: int, secret: str) -> None:
+    kv_set(f"totp:pending:{user_id}", secret, ttl=600)
+
+
+def get_pending_totp(user_id: int) -> Optional[str]:
+    val = kv_get(f"totp:pending:{user_id}")
+    return val.strip() if val else None
+
+
+def save_user_totp(user_id: int, secret: str, backup_codes: list) -> None:
+    from api.totp import hash_backup_code
+    hashed_backups = [hash_backup_code(c) for c in backup_codes]
+    kv_set(f"totp:secret:{user_id}", secret)
+    kv_set(f"totp:backup:{user_id}", json.dumps(hashed_backups))
+    kv_delete(f"totp:pending:{user_id}")
+
+
+def disable_user_totp(user_id: int) -> None:
+    kv_delete(f"totp:secret:{user_id}")
+    kv_delete(f"totp:backup:{user_id}")
+    kv_delete(f"totp:pending:{user_id}")
+
+
+def verify_user_totp_or_backup(user_id: int, code_or_backup: str) -> bool:
+    from api.totp import verify_totp_code, hash_backup_code
+    clean = code_or_backup.strip().replace(" ", "").replace("-", "")
+    secret = get_user_totp_secret(user_id)
+
+    # 1. Try TOTP code if secret exists
+    if secret and len(clean) == 6 and clean.isdigit():
+        if verify_totp_code(secret, clean, window=1):
+            return True
+
+    # 2. Try single-use backup code
+    raw_backups = kv_get(f"totp:backup:{user_id}")
+    if raw_backups:
+        try:
+            hashed_list = json.loads(raw_backups)
+            if isinstance(hashed_list, list):
+                incoming_hash = hash_backup_code(clean)
+                if incoming_hash in hashed_list:
+                    hashed_list.remove(incoming_hash)
+                    kv_set(f"totp:backup:{user_id}", json.dumps(hashed_list))
+                    logger.info("[TOTP] Backup code used and consumed for uid=%d", user_id)
+                    return True
+        except Exception as e:
+            logger.warning("[TOTP] Backup code check error: %s", e)
+
+    return False
+
+
 def alert_super_admin(text: str) -> None:
     raw = os.environ.get("ADMIN_CHAT_ID", "")
     for item in raw.split(","):
