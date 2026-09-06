@@ -964,10 +964,10 @@ export default function AdminApp() {
                     if (granted) {
                       loadData(true, 31);
                     } else {
-                      openTelegramDirect("Songket_bot");
+                      openTelegramDirect("songket_beyda_bot?startapp=1");
                     }
                   } catch {
-                    openTelegramDirect("Songket_bot");
+                    openTelegramDirect("songket_beyda_bot?startapp=1");
                   }
                 }}
                 style={{
