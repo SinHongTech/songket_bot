@@ -18,6 +18,7 @@ try:
         get_system_config,
         groups_for_user,
         is_super_admin,
+        super_admin_ids,
         kv_json_get,
         list_subscriptions,
         local_date,
@@ -60,6 +61,7 @@ except ImportError:
         get_system_config,
         groups_for_user,
         is_super_admin,
+        super_admin_ids,
         kv_json_get,
         list_subscriptions,
         local_date,
@@ -152,6 +154,68 @@ class handler(BaseHTTPRequestHandler):
             if init_raw:
                 print(f"[Dashboard API] 📥 initData snippet: {repr(init_raw[:160])}", flush=True)
 
+            # ── 1. Unauthenticated Login Endpoints (PIN / TOTP) ──────────────
+            if action == "login_pin":
+                pin = str(body.get("pin", "")).strip()
+                target_uid = int(body.get("user_id") or 0)
+                
+                # Check target user or all candidate admin UIDs
+                candidate_uids = [target_uid] if target_uid else list(super_admin_ids()) + list(whitelist_ids())
+                matched_uid = None
+                locked_sec = 0
+
+                for candidate in candidate_uids:
+                    lock = pin_lock_seconds(candidate)
+                    if lock > 0:
+                        locked_sec = max(locked_sec, lock)
+                        continue
+                    if verify_pin(candidate, pin):
+                        matched_uid = candidate
+                        break
+
+                if matched_uid:
+                    reset_pin_fail(matched_uid)
+                    token = create_session(matched_uid)
+                    logger.info("[PIN] login_pin SUCCESS for uid=%d", matched_uid)
+                    print(f"[Dashboard API] 🟢 PIN Login SUCCESS for uid={matched_uid}, session={token[:8]}..", flush=True)
+                    return self._json(200, {"ok": True, "session": token, "user_id": matched_uid})
+
+                rec_uid = candidate_uids[0] if candidate_uids else 1221693150
+                fails = record_pin_fail(rec_uid)
+                curr_lock = pin_lock_seconds(rec_uid)
+                logger.warning("[PIN] login_pin INCORRECT (attempt=%s, locked=%ds)", fails.get("count", 0), curr_lock)
+                print(f"[Dashboard API] ❌ PIN Login INCORRECT (attempt={fails.get('count', 0)}, locked={curr_lock}s)", flush=True)
+                return self._json(
+                    200,
+                    {
+                        "ok": False,
+                        "locked": curr_lock,
+                        "attempts": fails.get("count", 0),
+                        "error": "Incorrect PIN",
+                    },
+                )
+
+            if action == "login_totp":
+                code = str(body.get("code", "")).strip()
+                candidate_uids = list(super_admin_ids()) + list(whitelist_ids())
+                matched_uid = None
+
+                for candidate in candidate_uids:
+                    if verify_user_totp_or_backup(candidate, code):
+                        matched_uid = candidate
+                        break
+
+                if matched_uid:
+                    reset_pin_fail(matched_uid)
+                    token = create_session(matched_uid)
+                    logger.info("[TOTP] login_totp SUCCESS for uid=%d", matched_uid)
+                    print(f"[Dashboard API] 🟢 TOTP Login SUCCESS for uid={matched_uid}, session={token[:8]}..", flush=True)
+                    return self._json(200, {"ok": True, "session": token, "user_id": matched_uid})
+
+                print(f"[Dashboard API] ❌ TOTP Login failed: invalid code", flush=True)
+                return self._json(400, {"ok": False, "error": "Invalid 2FA code or backup code"})
+
+            # ── 2. Authenticate via Telegram HMAC, Unsafe User or PIN Session ─
             user, debug_str = verify_telegram_init_data(init_raw, raw_hash=raw_hash, unsafe_user=unsafe_user)
             if not user:
                 session_tok = body.get("session", "")
@@ -373,6 +437,7 @@ class handler(BaseHTTPRequestHandler):
             return self._json(500, {"authorized": False, "error": "Server error"})
 
     def _full_payload(self, uid: int, user: dict, super_admin: bool, body: dict, session: str = "") -> dict:
+        tok = session or body.get("session") or create_session(uid)
         payload = {
             "authorized": True,
             "is_super_admin": super_admin,
@@ -383,9 +448,8 @@ class handler(BaseHTTPRequestHandler):
             "subscriptions": list_subscriptions() if super_admin else None,
             "pin_exists": pin_exists(uid),
             "totp_enabled": is_totp_enabled(uid),
+            "session": tok,
         }
-        if session:
-            payload["session"] = session
         return payload
 
     def _json(self, status: int, obj: dict) -> None:
