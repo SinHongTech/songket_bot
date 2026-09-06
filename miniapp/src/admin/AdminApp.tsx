@@ -528,6 +528,7 @@ export default function AdminApp() {
   const [historyDateTo, setHistoryDateTo] = useState<string>(() => getToday());
 
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showDebug, setShowDebug] = useState(false);
   const [readNotifications, setReadNotifications] = useState<Set<string>>(() => {
     try {
       const saved = localStorage.getItem("songket.admin.readNotifications");
@@ -944,16 +945,42 @@ export default function AdminApp() {
       )}
 
       {apiData && !apiData.authorized && (
-        <div style={{ background: "rgba(212,167,44,0.12)", borderBottom: `1px solid ${G.goldBorder}`, padding: "10px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, flexShrink: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <ShieldAlert size={16} color={G.warn} />
-            <div style={{ fontSize: 12, color: G.text }}>
-              <strong style={{ color: G.gold }}>Preview Mode</strong> — Contact <strong>@Sin_Hong</strong> to enable live protection for your group.
+        <div style={{ background: "rgba(212,167,44,0.12)", borderBottom: `1px solid ${G.goldBorder}`, padding: "10px 16px", display: "flex", flexDirection: "column", gap: 6, flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <ShieldAlert size={16} color={G.warn} />
+              <div style={{ fontSize: 12, color: G.text }}>
+                <strong style={{ color: G.gold }}>Preview Mode</strong> — Contact <strong>@Sin_Hong</strong> to enable live protection for your group.
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <button
+                onClick={() => setShowDebug(s => !s)}
+                style={{
+                  background: "transparent",
+                  border: `1px solid ${G.border}`,
+                  color: G.muted,
+                  borderRadius: 6,
+                  padding: "4px 8px",
+                  fontSize: 10,
+                  cursor: "pointer",
+                }}
+              >
+                {showDebug ? "Hide Debug" : "🔍 Debug Log"}
+              </button>
+              <button onClick={() => openTelegramDirect("Sin_Hong")} style={{ background: G.gold, color: "#1a1200", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                Contact @Sin_Hong
+              </button>
             </div>
           </div>
-          <button onClick={() => openTelegramDirect("Sin_Hong")} style={{ background: G.gold, color: "#1a1200", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
-            Contact @Sin_Hong
-          </button>
+          {showDebug && (
+            <div style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 8, padding: "8px 10px", fontSize: 10, fontFamily: "monospace", color: G.muted, marginTop: 4, wordBreak: "break-all" }}>
+              <div><strong>User ID:</strong> {user?.id || "None"} (@{user?.username || "none"})</div>
+              <div><strong>API Error:</strong> {apiData.error || "None"}</div>
+              <div><strong>InitData cached:</strong> {typeof window !== "undefined" ? (sessionStorage.getItem("songket_init_data") || localStorage.getItem("songket_init_data") ? "Yes (length " + (sessionStorage.getItem("songket_init_data") || localStorage.getItem("songket_init_data") || "").length + ")" : "None") : "SSR"}</div>
+              <div><strong>URL:</strong> {typeof window !== "undefined" ? window.location.href : ""}</div>
+            </div>
+          )}
         </div>
       )}
 
