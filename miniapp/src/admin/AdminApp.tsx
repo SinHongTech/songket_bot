@@ -502,19 +502,31 @@ export default function AdminApp() {
   });
   const [upgradeOpen, setUpgradeOpen] = useState(false);
 
+  // Helper date functions
+  const getDaysAgo = (d: number) => {
+    const dt = new Date();
+    dt.setDate(dt.getDate() - d);
+    return dt.toISOString().split("T")[0];
+  };
+  const getToday = () => new Date().toISOString().split("T")[0];
+
   // Dashboard API state
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [apiData, setApiData] = useState<DashboardApiResponse | null>(null);
   const [manageUnlocked, setManageUnlocked] = useState(false);
-  const days = 7;
-  const [dateFrom, setDateFrom] = useState<string>(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 7);
-    return d.toISOString().split("T")[0];
-  });
-  const [dateTo, setDateTo] = useState<string>(() => new Date().toISOString().split("T")[0]);
+
+  // Independent date states for each tab
+  const [homeDateFrom, setHomeDateFrom] = useState<string>(() => getDaysAgo(7));
+  const [homeDateTo, setHomeDateTo] = useState<string>(() => getToday());
+
+  const [threatsDateFrom, setThreatsDateFrom] = useState<string>(() => getDaysAgo(7));
+  const [threatsDateTo, setThreatsDateTo] = useState<string>(() => getToday());
+
+  const [historyDateFrom, setHistoryDateFrom] = useState<string>(() => getDaysAgo(7));
+  const [historyDateTo, setHistoryDateTo] = useState<string>(() => getToday());
+
   const [showNotifications, setShowNotifications] = useState(false);
   const [readNotifications, setReadNotifications] = useState<Set<string>>(() => {
     try {
@@ -547,7 +559,24 @@ export default function AdminApp() {
     }
   }, [lang]);
 
-  const loadData = useCallback(async (isRefresh = false, queryDays = days) => {
+  const calcDaysNeeded = useCallback(() => {
+    const checkRange = (from: string, to: string) => {
+      try {
+        const diffMs = new Date(to).getTime() - new Date(from).getTime();
+        return Math.max(31, Math.ceil(diffMs / (1000 * 60 * 60 * 24)) + 1);
+      } catch {
+        return 31;
+      }
+    };
+    return Math.max(
+      31,
+      checkRange(homeDateFrom, homeDateTo),
+      checkRange(threatsDateFrom, threatsDateTo),
+      checkRange(historyDateFrom, historyDateTo)
+    );
+  }, [homeDateFrom, homeDateTo, threatsDateFrom, threatsDateTo, historyDateFrom, historyDateTo]);
+
+  const loadData = useCallback(async (isRefresh = false, queryDays = 31) => {
     if (isRefresh) {
       setRefreshing(true);
     } else {
@@ -568,16 +597,16 @@ export default function AdminApp() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [days]);
+  }, []);
 
   useEffect(() => {
     let mounted = true;
-    loadData(false, days);
+    loadData(false, 31);
 
     // Auto-retry once after 1s in case Telegram native webview bridge initialized slightly late
     const timer = setTimeout(() => {
       if (mounted) {
-        loadData(false, days);
+        loadData(false, 31);
       }
     }, 1000);
 
@@ -585,46 +614,21 @@ export default function AdminApp() {
       mounted = false;
       clearTimeout(timer);
     };
-  }, [days, loadData]);
+  }, [loadData]);
 
-  const loadHomeData = useCallback(async (isRefresh = false, from = dateFrom, to = dateTo) => {
-    if (isRefresh) {
-      setRefreshing(true);
-    } else {
-      setLoading(true);
-    }
-    setError(null);
-
-    try {
-      const diffMs = new Date(to).getTime() - new Date(from).getTime();
-      const queryDays = Math.max(1, Math.ceil(diffMs / (1000 * 60 * 60 * 24)) + 1);
-      const data = await fetchDashboardData(queryDays);
-      if (data && data.dashboard) {
-        data.dashboard.days = queryDays;
-      }
-      setApiData(data);
-    } catch (err: any) {
-      console.error("Home graph fetch error:", err);
-      setError(err?.message || "Failed to load dashboard data");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [dateFrom, dateTo]);
-
+  // Expand history data if any date filter requires more days than currently loaded
   useEffect(() => {
-    loadHomeData(false, dateFrom, dateTo);
-  }, [dateFrom, dateTo, loadHomeData]);
-
-  const handleDateChange = (from: string, to: string) => {
-    setDateFrom(from);
-    setDateTo(to);
-  };
+    const needed = calcDaysNeeded();
+    const current = apiData?.dashboard?.days || 0;
+    if (needed > current && current > 0) {
+      loadData(false, needed);
+    }
+  }, [calcDaysNeeded, apiData?.dashboard?.days, loadData]);
 
   const handleLogout = () => {
     setSessionToken("");
     setManageUnlocked(false);
-    loadData(false, days);
+    loadData(false, 31);
   };
 
   const tg = getTelegramWebApp();
@@ -654,9 +658,12 @@ export default function AdminApp() {
         dashboard={dashboard}
         lang={lang}
         isMock={isMock}
-        dateFrom={dateFrom}
-        dateTo={dateTo}
-        onDateChange={handleDateChange}
+        dateFrom={homeDateFrom}
+        dateTo={homeDateTo}
+        onDateChange={(from, to) => {
+          setHomeDateFrom(from);
+          setHomeDateTo(to);
+        }}
         onNavigate={tab => setNav(tab)}
       />
     ),
@@ -665,18 +672,24 @@ export default function AdminApp() {
       <ThreatsView
         dashboard={dashboard}
         lang={lang}
-        dateFrom={dateFrom}
-        dateTo={dateTo}
-        onDateChange={handleDateChange}
+        dateFrom={threatsDateFrom}
+        dateTo={threatsDateTo}
+        onDateChange={(from, to) => {
+          setThreatsDateFrom(from);
+          setThreatsDateTo(to);
+        }}
       />
     ),
     history: (
       <HistoryView
         dashboard={dashboard}
         lang={lang}
-        dateFrom={dateFrom}
-        dateTo={dateTo}
-        onDateChange={handleDateChange}
+        dateFrom={historyDateFrom}
+        dateTo={historyDateTo}
+        onDateChange={(from, to) => {
+          setHistoryDateFrom(from);
+          setHistoryDateTo(to);
+        }}
       />
     ),
     manage: !apiData?.authorized ? (
@@ -722,7 +735,7 @@ export default function AdminApp() {
         subscriptions={apiData?.subscriptions}
         lang={lang}
         isSuperAdmin={isSuperAdmin}
-        onRefresh={() => loadData(true, days)}
+        onRefresh={() => loadData(true, 31)}
       />
     ),
     account: <AccountView user={user} dashboard={dashboard} dark={dark} setDark={setDark} lang={lang} setLang={setLang} onLogout={handleLogout} />,
@@ -751,7 +764,7 @@ export default function AdminApp() {
 
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <button
-            onClick={() => loadData(true, days)}
+            onClick={() => loadData(true, calcDaysNeeded())}
             style={{
               background: "transparent",
               border: `1px solid ${G.border}`,
@@ -960,7 +973,7 @@ export default function AdminApp() {
             </div>
             <div style={{ fontSize: 12, color: G.muted, marginBottom: 16 }}>{error}</div>
             <button
-              onClick={() => loadData(false, days)}
+              onClick={() => loadData(false, calcDaysNeeded())}
               style={{
                 background: G.gold,
                 color: "#1a1200",
