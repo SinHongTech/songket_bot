@@ -25,10 +25,27 @@ declare global {
   }
 }
 
-// In-memory session: cleared on every fresh WebApp open, so PIN is required
-// each time the app is (re)opened. Not persisted to storage.
 let _sessionToken = "";
 let _cachedInitData = "";
+
+if (typeof window !== "undefined") {
+  window.addEventListener("message", (event) => {
+    try {
+      let data = event.data;
+      if (typeof data === "string") {
+        try { data = JSON.parse(data); } catch {}
+      }
+      if (data && data.eventType === "web_app_setup_data" && data.eventData?.initData) {
+        console.log("[MiniApp] Captured web_app_setup_data from Telegram Desktop!");
+        _cachedInitData = data.eventData.initData;
+        try {
+          sessionStorage.setItem("songket_init_data", data.eventData.initData);
+          localStorage.setItem("songket_init_data", data.eventData.initData);
+        } catch {}
+      }
+    } catch {}
+  });
+}
 
 export function getTelegramWebApp() {
   if (typeof window !== "undefined" && window.Telegram?.WebApp) {
