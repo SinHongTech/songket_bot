@@ -41,14 +41,17 @@ export function getInitData(): string {
   const tg = getTelegramWebApp();
   if (tg?.initData) {
     _cachedInitData = tg.initData;
-    try { sessionStorage.setItem("songket_init_data", tg.initData); } catch {}
+    try {
+      sessionStorage.setItem("songket_init_data", tg.initData);
+      localStorage.setItem("songket_init_data", tg.initData);
+    } catch {}
     return tg.initData;
   }
 
   if (typeof window !== "undefined") {
     // 1. Fallback from cached decoded session
     try {
-      const saved = sessionStorage.getItem("songket_init_data");
+      const saved = sessionStorage.getItem("songket_init_data") || localStorage.getItem("songket_init_data");
       if (saved) {
         _cachedInitData = saved;
         return saved;
@@ -60,6 +63,7 @@ export function getInitData(): string {
       window.location.hash,
       window.location.search,
       sessionStorage.getItem("songket_init_raw") || "",
+      localStorage.getItem("songket_init_raw") || "",
     ];
 
     for (const rawCandidate of candidates) {
@@ -70,13 +74,19 @@ export function getInitData(): string {
         const rawVal = params.get("tgWebAppData");
         if (rawVal) {
           _cachedInitData = rawVal;
-          try { sessionStorage.setItem("songket_init_data", rawVal); } catch {}
+          try {
+            sessionStorage.setItem("songket_init_data", rawVal);
+            localStorage.setItem("songket_init_data", rawVal);
+          } catch {}
           return rawVal;
         }
       }
       if (clean.includes("hash=") && (clean.includes("user=") || clean.includes("query_id=") || clean.includes("auth_date="))) {
         _cachedInitData = clean;
-        try { sessionStorage.setItem("songket_init_data", clean); } catch {}
+        try {
+          sessionStorage.setItem("songket_init_data", clean);
+          localStorage.setItem("songket_init_data", clean);
+        } catch {}
         return clean;
       }
     }
