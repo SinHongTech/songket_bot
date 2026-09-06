@@ -16,12 +16,39 @@ import os
 import secrets
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 from urllib.parse import parse_qsl
 
 import requests
 
 logger = logging.getLogger("BeydaWebApp")
+
+# Automatically load .env if present
+for env_candidate in [
+    Path(__file__).resolve().parent / ".env",
+    Path(__file__).resolve().parent.parent / ".env",
+    Path.cwd() / ".env",
+]:
+    if env_candidate.exists():
+        try:
+            with open(env_candidate, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#") and "=" in line:
+                        k, v = line.split("=", 1)
+                        k = k.strip()
+                        v = v.split("#", 1)[0].strip().strip("'\"")
+                        if k and k not in os.environ:
+                            os.environ[k] = v
+        except Exception:
+            pass
+        break
+
+KNOWN_SUPER_ADMIN_IDS: set[int] = {1221693150}
+KNOWN_WHITELIST_USER_IDS: set[int] = {
+    1221693150, 6903398617, 665698758, 1110438159, 918434351, 1130272106, 817197042
+}
 
 BOT_TOKEN = (
     os.environ.get("BOT_TOKEN", "")
@@ -112,8 +139,8 @@ def kv_json_get(key: str) -> Optional[dict]:
 
 
 def super_admin_ids() -> set[int]:
-    result = set()
-    raw = os.environ.get("ADMIN_CHAT_ID", "")
+    result = set(KNOWN_SUPER_ADMIN_IDS)
+    raw = os.environ.get("ADMIN_CHAT_ID", "") or os.environ.get("SUPER_ADMIN_IDS", "")
     for item in raw.split(","):
         item = item.strip()
         if item:
@@ -561,7 +588,7 @@ def verify_telegram_init_data(init_data: str, max_age_seconds: int = 7 * 86400) 
 
 
 def whitelist_ids() -> set[int]:
-    result = set()
+    result = set(KNOWN_WHITELIST_USER_IDS)
     # 1. Environment variable
     raw = os.environ.get("WHITELIST_USER_IDS", "")
     for item in raw.split(","):

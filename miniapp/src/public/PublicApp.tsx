@@ -1,8 +1,9 @@
 import { useState, useLayoutEffect, useEffect, useRef } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { Sun, Moon, Globe, ChevronDown, LayoutDashboard } from "lucide-react";
 import LogoMark from "@/shared/components/LogoMark";
 import { T, type Lang } from "@/public/i18n";
+import { getTelegramWebApp, getInitData } from "@/admin/api";
 import Hero from "@/public/components/Hero";
 import Features from "@/public/components/Features";
 import HowItWorks from "@/public/components/HowItWorks";
@@ -13,6 +14,7 @@ import LogoSplash from "@/public/components/LogoSplash";
 import FAQ from "@/public/components/FAQ";
 
 export default function PublicApp() {
+  const navigate = useNavigate();
   const [lang, setLang] = useState<Lang>(() => {
     if (typeof window !== "undefined") {
       return localStorage.getItem("songket.lang") === "km" ? "km" : "en";
@@ -23,6 +25,28 @@ export default function PublicApp() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsRef = useRef<HTMLDivElement>(null);
   const [showSplash, setShowSplash] = useState(false);
+
+  // Auto-redirect to live dashboard when opened directly inside Telegram WebApp
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const search = window.location.search || "";
+      if (search.includes("home=1") || search.includes("preview=1")) {
+        return;
+      }
+      const tg = getTelegramWebApp();
+      const initData = getInitData();
+      if (initData || tg?.initData || tg?.initDataUnsafe?.user?.id) {
+        navigate(
+          {
+            pathname: "/dashboard",
+            search: window.location.search,
+            hash: window.location.hash,
+          },
+          { replace: true }
+        );
+      }
+    }
+  }, [navigate]);
 
   useLayoutEffect(() => {
     document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
