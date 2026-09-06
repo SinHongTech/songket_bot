@@ -21,7 +21,7 @@ import {
 import LogoMark from "@/shared/components/LogoMark";
 import { G, type Nav, type Lang } from "@/admin/palette";
 import { t as T, kh } from "@/admin/i18n";
-import { fetchDashboardData, setupPin, loginPin, resetPin, resetPinWithTotp, setSessionToken, openTelegramDirect, getTelegramUser, getTelegramWebApp } from "@/admin/api";
+import { fetchDashboardData, setupPin, loginPin, resetPin, resetPinWithTotp, setSessionToken, openTelegramDirect, getTelegramUser, getTelegramWebApp, requestTelegramWriteAccess } from "@/admin/api";
 import type { DashboardApiResponse } from "@/admin/types";
 import { mockUser, getThreatsListFromDashboard } from "@/admin/data";
 import HomeView from "@/admin/components/HomeView";
@@ -956,7 +956,36 @@ export default function AdminApp() {
                 <strong style={{ color: G.gold }}>Preview Mode</strong> — Contact <strong>@Sin_Hong</strong> to enable live protection for your group.
               </div>
             </div>
-            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+              <button
+                onClick={async () => {
+                  try {
+                    const granted = await requestTelegramWriteAccess();
+                    if (granted) {
+                      loadData(true, 31);
+                    } else {
+                      openTelegramDirect("Songket_bot");
+                    }
+                  } catch {
+                    openTelegramDirect("Songket_bot");
+                  }
+                }}
+                style={{
+                  background: G.gold,
+                  color: "#1a1200",
+                  border: "none",
+                  borderRadius: 6,
+                  padding: "5px 12px",
+                  fontSize: 11,
+                  fontWeight: 800,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                }}
+              >
+                ⚡ {lang === "km" ? "ភ្ជាប់គណនី Telegram" : "Connect Telegram"}
+              </button>
               <button
                 onClick={() => setShowDebug(s => !s)}
                 style={{
@@ -971,7 +1000,7 @@ export default function AdminApp() {
               >
                 {showDebug ? "Hide Debug" : "🔍 Debug Log"}
               </button>
-              <button onClick={() => openTelegramDirect("Sin_Hong")} style={{ background: G.gold, color: "#1a1200", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+              <button onClick={() => openTelegramDirect("Sin_Hong")} style={{ background: "transparent", border: `1px solid ${G.goldBorder}`, color: G.gold, borderRadius: 6, padding: "5px 10px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
                 Contact @Sin_Hong
               </button>
             </div>

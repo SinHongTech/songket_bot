@@ -165,6 +165,24 @@ export function setSessionToken(token: string) {
   _sessionToken = token;
 }
 
+export function requestTelegramWriteAccess(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const tg = getTelegramWebApp();
+    if (tg && typeof (tg as any).requestWriteAccess === "function") {
+      try {
+        (tg as any).requestWriteAccess((allowed: boolean) => {
+          console.log("[MiniApp] requestWriteAccess response:", allowed);
+          resolve(Boolean(allowed));
+        });
+        return;
+      } catch (e) {
+        console.warn("[MiniApp] requestWriteAccess error:", e);
+      }
+    }
+    resolve(false);
+  });
+}
+
 export async function fetchDashboardData(days: number = 7): Promise<DashboardApiResponse> {
   const tg = getTelegramWebApp();
   if (tg) {
