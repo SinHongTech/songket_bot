@@ -141,14 +141,20 @@ class handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length) or b"{}")
             action = body.get("action", "")
-            init_len = len(body.get("initData", ""))
+            init_raw = body.get("initData", "")
+            init_len = len(init_raw)
             logger.info("[Dashboard API] POST incoming action='%s', initData length=%d", action or "fetch_dashboard", init_len)
+            print(f"[Dashboard API] 📥 Incoming POST action='{action or 'fetch_dashboard'}' initData_len={init_len}", flush=True)
+            if init_raw:
+                print(f"[Dashboard API] 📥 initData snippet: {repr(init_raw[:160])}", flush=True)
+            else:
+                print(f"[Dashboard API] ⚠️ EMPTY initData received in POST body!", flush=True)
 
-            user, debug_str = verify_telegram_init_data(body.get("initData", ""))
+            user, debug_str = verify_telegram_init_data(init_raw)
             if not user:
                 logger.warning("[Dashboard API] Rejected POST request: %s (len=%d)", debug_str, init_len)
-                print(f"[Dashboard API] ⚠️ Auth Failed: {debug_str} (initData len={init_len})", flush=True)
-                return self._json(401, {"authorized": False, "error": f"Invalid or expired Telegram session ({debug_str})"})
+                print(f"[Dashboard API] ❌ Auth Failed: {debug_str} (initData len={init_len})", flush=True)
+                return self._json(401, {"authorized": False, "error": f"Auth failed: {debug_str}"})
 
             uid = int(user["id"])
             super_admin = is_super_admin(uid)
@@ -326,12 +332,14 @@ class handler(BaseHTTPRequestHandler):
                 return self._json(200, {"ok": ok, "subscriptions": list_subscriptions()})
 
             if not super_admin and uid not in whitelist_ids():
+                print(f"[Dashboard API] ⚠️ Access denied for uid={uid} (@{user.get('username')}) - not in whitelist. Whitelist: {whitelist_ids()}", flush=True)
                 return self._json(
                     200,
                     {
                         "authorized": False,
                         "is_super_admin": False,
                         "user": {"id": uid, "first_name": user.get("first_name", ""), "username": user.get("username", "")},
+                        "error": f"User {uid} not in whitelist",
                     },
                 )
 
