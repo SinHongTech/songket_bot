@@ -480,6 +480,9 @@ def _handle_personal_scan(api: TelegramAPI, chat_id: int, message: dict, user_id
     urls = extract_urls(content)
     doc = message.get("document") or {}
     file_id = doc.get("file_id", "")
+    filename = doc.get("file_name", "")
+    filesize = doc.get("file_size", 0)
+    mime = doc.get("mime_type", "")
     has_file = bool(file_id)
     lang = get_user_lang(user_id)
 
@@ -487,6 +490,7 @@ def _handle_personal_scan(api: TelegramAPI, chat_id: int, message: dict, user_id
     photos = message.get("photo") or []
     sticker = message.get("sticker") or {}
     qr_image_bytes = None
+    doc_decision = None
 
     if photos:
         largest_photo = photos[-1]
@@ -497,6 +501,19 @@ def _handle_personal_scan(api: TelegramAPI, chat_id: int, message: dict, user_id
         sticker_file_id = sticker.get("file_id")
         if sticker_file_id:
             qr_image_bytes = api.download_file(sticker_file_id)
+
+    if has_file:
+        doc_decision = fetch_and_validate(api, file_id, filename, filesize, mime)
+        if doc_decision.file_bytes and (
+            mime.startswith("image/")
+            or any(filename.lower().endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tif", ".tiff", ".svg", ".ico", ".heic", ".heif"))
+            or not filename
+        ):
+            from bot.qr_scanner import extract_urls_from_qr
+            doc_qr_urls = extract_urls_from_qr(doc_decision.file_bytes)
+            for qu in doc_qr_urls:
+                if qu not in urls:
+                    urls.append(qu)
 
     if qr_image_bytes:
         from bot.qr_scanner import extract_urls_from_qr
@@ -552,33 +569,21 @@ def _handle_personal_scan(api: TelegramAPI, chat_id: int, message: dict, user_id
     results = []
     scanned = 0
 
-    if has_file:
-        filename = doc.get("file_name", "")
-        filesize = doc.get("file_size", 0)
-        mime = doc.get("mime_type", "")
-        decision = fetch_and_validate(api, file_id, filename, filesize, mime)
-
-        # If document is an image (e.g. .png, .jpg), also extract QR code from file bytes!
-        if decision.file_bytes and any(filename.lower().endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".webp", ".bmp")):
-            from bot.qr_scanner import extract_urls_from_qr
-            qr_urls = extract_urls_from_qr(decision.file_bytes)
-            for qu in qr_urls:
-                if qu not in urls:
-                    urls.append(qu)
-
-        if decision.oversize:
-            results.append(("file", filename, {"error": "File too large to scan"}))
-        elif decision.ok:
-            results.append(("file", filename, vt_scan_file(decision.file_bytes, filename)))
-        elif not urls:
-            results.append(("file", filename, {"malicious": 0, "suspicious": 0, "harmless": 100, "undetected": 0}))
-        scanned += 1
-
     for url in urls:
         if is_whitelisted(url):
             continue
         domain = extract_domain(url)
-        results.append(("link", domain, vt_scan_url(url)))
+        target_label = f"{domain} (QR code inside {filename})" if (has_file and filename) else domain
+        results.append(("link", target_label, vt_scan_url(url)))
+        scanned += 1
+
+    if has_file and doc_decision:
+        if doc_decision.oversize:
+            results.append(("file", filename, {"error": "File too large to scan"}))
+        elif doc_decision.ok:
+            results.append(("file", filename, vt_scan_file(doc_decision.file_bytes, filename)))
+        elif not urls:
+            results.append(("file", filename, {"malicious": 0, "suspicious": 0, "harmless": 100, "undetected": 0}))
         scanned += 1
 
     if not results and (photos or sticker):
@@ -600,21 +605,25 @@ def _handle_personal_scan(api: TelegramAPI, chat_id: int, message: dict, user_id
     else:
         rem_summary = f"{updated_status['remaining_month']} scans left" if updated_status["remaining_month"] is not None else "Unlimited"
 
-    for kind, target, r in results:
-        if "error" in r:
-            if notice_id:
-                api.delete_message(chat_id, notice_id)
+    # Separate threat, suspicious, and safe results
+    threat_items = [item for item in results if item[2].get("malicious", 0) >= config.VT_MALICIOUS_THRESHOLD]
+    susp_items = [item for item in results if item[2].get("suspicious", 0) >= config.VT_SUSPICIOUS_THRESHOLD and item not in threat_items]
+    error_items = [item for item in results if "error" in item[2]]
+
+    if error_items and not threat_items and not susp_items:
+        if notice_id:
+            api.delete_message(chat_id, notice_id)
+        for _, target, r in error_items:
             api.send_message(chat_id, f"⚠️ Could not scan <code>{target}</code>: {r['error']}")
-            continue
+        return
 
-        mal = r.get("malicious", 0)
-        susp = r.get("suspicious", 0)
-        display = mask_domain(target) if kind == "link" else esc(target)
-        consensus = engine_consensus(r)
-
-        if mal >= config.VT_MALICIOUS_THRESHOLD:
-            if notice_id:
-                api.delete_message(chat_id, notice_id)
+    # 1. Threat detected: ONLY send threat alerts, suppress safe messages for container files
+    if threat_items:
+        if notice_id:
+            api.delete_message(chat_id, notice_id)
+        for kind, target, r in threat_items:
+            display = mask_domain(target) if (kind == "link" and "(" not in target) else esc(target)
+            consensus = engine_consensus(r)
             if lang == "kh":
                 threat_text = (
                     "🚨 <b>រកឃើញមាតិកាគ្រោះថ្នាក់ (Dangerous Threat)</b>\n\n"
@@ -648,10 +657,15 @@ def _handle_personal_scan(api: TelegramAPI, chat_id: int, message: dict, user_id
                 ]
             }
             api.send_message(chat_id, threat_text, reply_markup=kb)
+        return
 
-        elif susp >= config.VT_SUSPICIOUS_THRESHOLD:
-            if notice_id:
-                api.delete_message(chat_id, notice_id)
+    # 2. Suspicious detected: ONLY send suspicious warnings
+    if susp_items:
+        if notice_id:
+            api.delete_message(chat_id, notice_id)
+        for kind, target, r in susp_items:
+            display = mask_domain(target) if (kind == "link" and "(" not in target) else esc(target)
+            consensus = engine_consensus(r)
             if lang == "kh":
                 susp_text = (
                     "⚠️ <b>មាតិកាសង្ស័យ (Suspicious Content)</b>\n\n"
@@ -683,42 +697,54 @@ def _handle_personal_scan(api: TelegramAPI, chat_id: int, message: dict, user_id
                 ]
             }
             api.send_message(chat_id, susp_text, reply_markup=kb)
+        return
 
-        else:
-            # Clean safe result
-            if lang == "kh":
-                safe_text = (
-                    "✅ <b>មាតិកាមានសុវត្ថិភាព</b>\n\n"
-                    f"🔹 <b>គោលដៅ :</b> <code>{display}</code>\n"
-                    f"🛡️ <b>លទ្ធផល :</b> {consensus}\n"
-                    f"⚡ <b>កូតាស្កេន :</b> <code>{rem_summary}</code>"
-                )
-            elif lang == "en":
-                safe_text = (
-                    "✅ <b>Content Verified Safe</b>\n\n"
-                    f"🔹 <b>Target :</b> <code>{display}</code>\n"
-                    f"🛡️ <b>Result :</b> {consensus}\n"
-                    f"⚡ <b>Scan Quota :</b> <code>{rem_summary}</code>"
-                )
-            else:
-                safe_text = (
-                    "✅ <b>មាតិកាមានសុវត្ថិភាព | Content Verified Safe</b>\n\n"
-                    f"🔹 <b>គោលដៅ (Target) :</b> <code>{display}</code>\n"
-                    f"🛡️ <b>លទ្ធផល (Result) :</b> {consensus}\n"
-                    f"⚡ <b>កូតាស្កេន (Quota) :</b> <code>{rem_summary}</code>"
-                )
-            kb = {
-                "inline_keyboard": [
-                    [
-                        {"text": "🔍 ស្កេនទៀត | Scan Another", "callback_data": "prompt_scan"},
-                        {"text": "📊 ពិនិត្យកូតា | Quota", "callback_data": "my_plan"},
-                    ]
-                ]
-            }
-            if notice_id:
-                api.edit_message_text(chat_id, notice_id, safe_text, reply_markup=kb)
-            else:
-                api.send_message(chat_id, safe_text, reply_markup=kb)
+    # 3. Clean safe result: send 1 unified safe verification
+    clean_targets = []
+    first_consensus = ""
+    for kind, target, r in results:
+        disp = mask_domain(target) if (kind == "link" and "(" not in target) else esc(target)
+        clean_targets.append(disp)
+        if not first_consensus and "harmless" in r:
+            first_consensus = engine_consensus(r)
+
+    if not first_consensus:
+        first_consensus = "🟢 Safe = 100% (100/100)\n🟡 Suspicious = 0% (0/100)\n⚪ Undetected = 0% (0/100)"
+
+    display_all = ", ".join(clean_targets) if clean_targets else "Content"
+    if lang == "kh":
+        safe_text = (
+            "✅ <b>មាតិកាមានសុវត្ថិភាព</b>\n\n"
+            f"🔹 <b>គោលដៅ :</b> <code>{display_all}</code>\n"
+            f"🛡️ <b>លទ្ធផល :</b> {first_consensus}\n"
+            f"⚡ <b>កូតាស្កេន :</b> <code>{rem_summary}</code>"
+        )
+    elif lang == "en":
+        safe_text = (
+            "✅ <b>Content Verified Safe</b>\n\n"
+            f"🔹 <b>Target :</b> <code>{display_all}</code>\n"
+            f"🛡️ <b>Result :</b> {first_consensus}\n"
+            f"⚡ <b>Scan Quota :</b> <code>{rem_summary}</code>"
+        )
+    else:
+        safe_text = (
+            "✅ <b>មាតិកាមានសុវត្ថិភាព | Content Verified Safe</b>\n\n"
+            f"🔹 <b>គោលដៅ (Target) :</b> <code>{display_all}</code>\n"
+            f"🛡️ <b>លទ្ធផល (Result) :</b> {first_consensus}\n"
+            f"⚡ <b>កូតាស្កេន (Quota) :</b> <code>{rem_summary}</code>"
+        )
+    kb = {
+        "inline_keyboard": [
+            [
+                {"text": "🔍 ស្កេនទៀត | Scan Another", "callback_data": "prompt_scan"},
+                {"text": "📊 ពិនិត្យកូតា | Quota", "callback_data": "my_plan"},
+            ]
+        ]
+    }
+    if notice_id:
+        api.edit_message_text(chat_id, notice_id, safe_text, reply_markup=kb)
+    else:
+        api.send_message(chat_id, safe_text, reply_markup=kb)
 
 
 def _handle_new_members(api: TelegramAPI, chat_id: int, new_members: list, settings: dict) -> None:
@@ -2023,9 +2049,16 @@ def process_update(api: TelegramAPI, update: dict) -> None:
 
     urls = extract_urls(content)
 
-    # 6.1 Extract QR Code from Photos or Stickers
+    # 6.1 Extract QR Code from Photos, Stickers, or Document Images
     photos = message.get("photo") or []
     sticker = message.get("sticker") or {}
+    doc = message.get("document") or {}
+    filename = doc.get("file_name", "")
+    file_id = doc.get("file_id", "")
+    filesize = doc.get("file_size", 0)
+    mime_type = doc.get("mime_type", "")
+    has_file = bool(file_id)
+    doc_decision = None
     qr_urls = []
 
     if photos:
@@ -2035,7 +2068,7 @@ def process_update(api: TelegramAPI, update: dict) -> None:
             photo_bytes = api.download_file(photo_file_id)
             if photo_bytes:
                 from bot.qr_scanner import extract_urls_from_qr
-                qr_urls = extract_urls_from_qr(photo_bytes)
+                qr_urls.extend(extract_urls_from_qr(photo_bytes))
                 if qr_urls:
                     logger.info("Decoded QR URLs from photo: %s", qr_urls)
     elif sticker and not sticker.get("is_animated") and not sticker.get("is_video"):
@@ -2044,20 +2077,26 @@ def process_update(api: TelegramAPI, update: dict) -> None:
             sticker_bytes = api.download_file(sticker_file_id)
             if sticker_bytes:
                 from bot.qr_scanner import extract_urls_from_qr
-                qr_urls = extract_urls_from_qr(sticker_bytes)
+                qr_urls.extend(extract_urls_from_qr(sticker_bytes))
                 if qr_urls:
                     logger.info("Decoded QR URLs from sticker: %s", qr_urls)
+
+    if has_file:
+        doc_decision = fetch_and_validate(api, file_id, filename, filesize, mime_type)
+        if doc_decision.file_bytes and (
+            mime_type.startswith("image/")
+            or any(filename.lower().endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif", ".tif", ".tiff", ".svg", ".ico", ".heic", ".heif"))
+            or not filename
+        ):
+            from bot.qr_scanner import extract_urls_from_qr
+            doc_qr_urls = extract_urls_from_qr(doc_decision.file_bytes)
+            if doc_qr_urls:
+                logger.info("Decoded QR URLs from document %s: %s", filename, doc_qr_urls)
+                qr_urls.extend(doc_qr_urls)
 
     for qu in qr_urls:
         if qu not in urls:
             urls.append(qu)
-
-    doc = message.get("document") or {}
-    filename = doc.get("file_name", "")
-    file_id = doc.get("file_id", "")
-    filesize = doc.get("file_size", 0)
-    mime_type = doc.get("mime_type", "")
-    has_file = bool(file_id)
 
     has_scannable_url = any(not is_whitelisted(u) for u in urls)
     if not has_scannable_url and not has_file:
@@ -2133,7 +2172,7 @@ def process_update(api: TelegramAPI, update: dict) -> None:
                 chat_id=chat_id,
                 chat_title=chat_title,
                 sender=sender,
-                target=domain,
+                target=f"{domain} (QR in {filename})" if (has_file and filename) else domain,
                 threat_type="suspicious_link",
                 risk="medium",
                 action_taken="warned",
@@ -2154,12 +2193,13 @@ def process_update(api: TelegramAPI, update: dict) -> None:
         deleted = api.delete_message(chat_id, msg_id)
         if deleted:
             record_report(chat_id, chat_title, "deleted")
+        threat_type_val = "qr_phishing" if (has_file or photos) else ("phishing" if (result.get("heuristic") or "phish" in str(result)) else "malware")
         record_threat_event(
             chat_id=chat_id,
             chat_title=chat_title,
             sender=sender,
-            target=domain,
-            threat_type="phishing" if (result.get("heuristic") or "phish" in str(result)) else "malware",
+            target=f"{domain} (QR in {filename})" if (has_file and filename) else domain,
+            threat_type=threat_type_val,
             risk="critical",
             action_taken="deleted" if deleted else "alerted",
         )
@@ -2182,7 +2222,7 @@ def process_update(api: TelegramAPI, update: dict) -> None:
         return
 
     logger.info("Scanning file | %s | user=%s", filename, user_display)
-    decision = fetch_and_validate(api, file_id, filename, filesize, mime_type)
+    decision = doc_decision or fetch_and_validate(api, file_id, filename, filesize, mime_type)
 
     if decision.oversize:
         record_report(chat_id, chat_title, "oversize")
@@ -2192,9 +2232,9 @@ def process_update(api: TelegramAPI, update: dict) -> None:
 
     if not decision.ok:
         if scanned_clean_targets:
-            display_safe_feedback(", ".join(scanned_clean_targets))
+            display_safe_feedback(", ".join(scanned_clean_targets + [filename]))
         else:
-            delete_notice()
+            display_safe_feedback(filename)
         return
 
     # Group-isolated whitelist (doc section 4): approved hash skips re-scan

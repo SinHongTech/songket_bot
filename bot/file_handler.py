@@ -42,6 +42,6 @@ def fetch_and_validate(api: TelegramAPI, file_id: str, filename: str, filesize: 
     scannable = is_file_candidate(filename, mime_type)
     if not scannable and not looks_dangerous_bytes(file_bytes):
         logger.info("Safe file prefilter | %s", filename)
-        return FileDecision(ok=False, reason="prefiltered_safe")
+        return FileDecision(ok=False, reason="prefiltered_safe", file_bytes=file_bytes)
 
     return FileDecision(ok=True, reason="scan", file_bytes=file_bytes)
