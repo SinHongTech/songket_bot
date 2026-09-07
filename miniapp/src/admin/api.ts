@@ -1,5 +1,6 @@
 import type { DashboardApiResponse, PlanEntry } from "./types";
 import { mockDashboardData, mockUser } from "./data";
+import { safeStorage } from "../shared/storage";
 
 declare global {
   interface Window {
@@ -35,10 +36,7 @@ let _cachedInitData = "";
 // Initialize session token from storage
 if (typeof window !== "undefined") {
   try {
-    _sessionToken =
-      sessionStorage.getItem("songket_session_token") ||
-      localStorage.getItem("songket_session_token") ||
-      "";
+    _sessionToken = safeStorage.getItem("songket_session_token") || "";
   } catch {}
 }
 
@@ -52,8 +50,7 @@ if (typeof window !== "undefined") {
       if (data && data.eventType === "web_app_setup_data" && data.eventData?.initData) {
         _cachedInitData = data.eventData.initData;
         try {
-          sessionStorage.setItem("songket_init_data", data.eventData.initData);
-          localStorage.setItem("songket_init_data", data.eventData.initData);
+          safeStorage.setItem("songket_init_data", data.eventData.initData);
         } catch {}
       }
     } catch {}
@@ -72,8 +69,7 @@ export function getInitData(): string {
   if (tg?.initData) {
     _cachedInitData = tg.initData;
     try {
-      sessionStorage.setItem("songket_init_data", tg.initData);
-      localStorage.setItem("songket_init_data", tg.initData);
+      safeStorage.setItem("songket_init_data", tg.initData);
     } catch {}
     return tg.initData;
   }
@@ -81,7 +77,7 @@ export function getInitData(): string {
   if (typeof window !== "undefined") {
     // 1. Fallback from cached decoded session
     try {
-      const saved = sessionStorage.getItem("songket_init_data") || localStorage.getItem("songket_init_data");
+      const saved = safeStorage.getItem("songket_init_data");
       if (saved) {
         _cachedInitData = saved;
         return saved;
@@ -92,8 +88,7 @@ export function getInitData(): string {
     const candidates = [
       window.location.hash,
       window.location.search,
-      sessionStorage.getItem("songket_init_raw") || "",
-      localStorage.getItem("songket_init_raw") || "",
+      safeStorage.getItem("songket_init_raw") || "",
     ];
 
     for (const rawCandidate of candidates) {
@@ -105,8 +100,7 @@ export function getInitData(): string {
         if (rawVal) {
           _cachedInitData = rawVal;
           try {
-            sessionStorage.setItem("songket_init_data", rawVal);
-            localStorage.setItem("songket_init_data", rawVal);
+            safeStorage.setItem("songket_init_data", rawVal);
           } catch {}
           return rawVal;
         }
@@ -114,8 +108,7 @@ export function getInitData(): string {
       if (clean.includes("hash=") && (clean.includes("user=") || clean.includes("query_id=") || clean.includes("auth_date="))) {
         _cachedInitData = clean;
         try {
-          sessionStorage.setItem("songket_init_data", clean);
-          localStorage.setItem("songket_init_data", clean);
+          safeStorage.setItem("songket_init_data", clean);
         } catch {}
         return clean;
       }
@@ -190,10 +183,7 @@ export function getSessionToken(): string {
   if (_sessionToken) return _sessionToken;
   if (typeof window !== "undefined") {
     try {
-      _sessionToken =
-        sessionStorage.getItem("songket_session_token") ||
-        localStorage.getItem("songket_session_token") ||
-        "";
+      _sessionToken = safeStorage.getItem("songket_session_token") || "";
     } catch {}
   }
   return _sessionToken;
@@ -204,11 +194,9 @@ export function setSessionToken(token: string) {
   if (typeof window !== "undefined") {
     try {
       if (token) {
-        sessionStorage.setItem("songket_session_token", token);
-        localStorage.setItem("songket_session_token", token);
+        safeStorage.setItem("songket_session_token", token);
       } else {
-        sessionStorage.removeItem("songket_session_token");
-        localStorage.removeItem("songket_session_token");
+        safeStorage.removeItem("songket_session_token");
       }
     } catch {}
   }

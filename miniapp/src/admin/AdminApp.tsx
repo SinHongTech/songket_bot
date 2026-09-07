@@ -22,6 +22,7 @@ import LogoMark from "@/shared/components/LogoMark";
 import { G, type Nav, type Lang } from "@/admin/palette";
 import { t as T, kh } from "@/admin/i18n";
 import { fetchDashboardData, setupPin, loginPin, resetPin, resetPinWithTotp, setSessionToken, openTelegramDirect, getTelegramUser, getTelegramWebApp } from "@/admin/api";
+import { safeStorage } from "@/shared/storage";
 import type { DashboardApiResponse } from "@/admin/types";
 import { mockUser, getThreatsListFromDashboard } from "@/admin/data";
 import HomeView from "@/admin/components/HomeView";
@@ -487,20 +488,12 @@ function PinGate({
 export default function AdminApp() {
   const [nav, setNav] = useState<Nav>("dashboard");
   const [dark, setDark] = useState<boolean>(() => {
-    try {
-      const v = localStorage.getItem("songket.admin.dark") || sessionStorage.getItem("songket.admin.dark") || localStorage.getItem("songket.dark");
-      return v === null ? true : v === "1";
-    } catch {
-      return true;
-    }
+    const v = safeStorage.getItem("songket.admin.dark") || safeStorage.getItem("songket.dark");
+    return v === null ? true : v === "1";
   });
   const [lang, setLang] = useState<Lang>(() => {
-    try {
-      const v = localStorage.getItem("songket.admin.lang") || sessionStorage.getItem("songket.admin.lang") || localStorage.getItem("songket.lang");
-      return v === "km" || v === "en" ? v : "km";
-    } catch {
-      return "km";
-    }
+    const v = safeStorage.getItem("songket.admin.lang") || safeStorage.getItem("songket.lang");
+    return v === "km" || v === "en" ? v : "km";
   });
   const [upgradeOpen, setUpgradeOpen] = useState(false);
 
@@ -527,7 +520,7 @@ export default function AdminApp() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [readNotifications, setReadNotifications] = useState<Set<string>>(() => {
     try {
-      const saved = localStorage.getItem("songket.admin.readNotifications");
+      const saved = safeStorage.getItem("songket.admin.readNotifications");
       return saved ? new Set(JSON.parse(saved)) : new Set();
     } catch {
       return new Set();
@@ -541,23 +534,13 @@ export default function AdminApp() {
   }, [dark]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem("songket.admin.dark", dark ? "1" : "0");
-      localStorage.setItem("songket.dark", dark ? "1" : "0");
-      sessionStorage.setItem("songket.admin.dark", dark ? "1" : "0");
-    } catch {
-      // ignore storage errors
-    }
+    safeStorage.setItem("songket.admin.dark", dark ? "1" : "0");
+    safeStorage.setItem("songket.dark", dark ? "1" : "0");
   }, [dark]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem("songket.admin.lang", lang);
-      localStorage.setItem("songket.lang", lang);
-      sessionStorage.setItem("songket.admin.lang", lang);
-    } catch {
-      // ignore storage errors
-    }
+    safeStorage.setItem("songket.admin.lang", lang);
+    safeStorage.setItem("songket.lang", lang);
   }, [lang]);
 
   const calcDaysNeeded = useCallback(() => {
@@ -951,9 +934,7 @@ export default function AdminApp() {
                     const next = new Set(readNotifications);
                     allIds.forEach(id => next.add(id));
                     setReadNotifications(next);
-                    try {
-                      localStorage.setItem("songket.admin.readNotifications", JSON.stringify([...next]));
-                    } catch {}
+                    safeStorage.setItem("songket.admin.readNotifications", JSON.stringify([...next]));
                   }}
                   style={{ background: "transparent", border: "none", color: G.gold, cursor: "pointer", fontSize: 10, fontWeight: 600, padding: 0 }}
                 >
@@ -981,9 +962,7 @@ export default function AdminApp() {
                   const next = new Set(readNotifications);
                   next.add(tr.id);
                   setReadNotifications(next);
-                  try {
-                    localStorage.setItem("songket.admin.readNotifications", JSON.stringify([...next]));
-                  } catch {}
+                  safeStorage.setItem("songket.admin.readNotifications", JSON.stringify([...next]));
                   setShowNotifications(false);
                   setNav("history");
                 }}
