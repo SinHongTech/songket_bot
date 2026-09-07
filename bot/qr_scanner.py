@@ -48,15 +48,37 @@ def decode_qr_from_bytes(image_bytes: bytes) -> list[str]:
             if _QR_BACKEND == "pyzbar":
                 try:
                     from pyzbar.pyzbar import decode
-                    results = decode(img)
-                    for res in results:
-                        if res.data:
-                            try:
-                                decoded_texts.append(res.data.decode("utf-8", errors="ignore"))
-                            except Exception:
-                                pass
-                    if decoded_texts:
-                        return decoded_texts
+                    # Attempt decode directly, in grayscale, and in RGB
+                    candidates = [img]
+                    try:
+                        candidates.append(img.convert("L"))
+                    except Exception:
+                        pass
+                    try:
+                        candidates.append(img.convert("RGB"))
+                    except Exception:
+                        pass
+                    try:
+                        from PIL import ImageOps
+                        candidates.append(ImageOps.invert(img.convert("L")))
+                    except Exception:
+                        pass
+
+                    for candidate in candidates:
+                        try:
+                            results = decode(candidate)
+                            for res in results:
+                                if res.data:
+                                    try:
+                                        text = res.data.decode("utf-8", errors="ignore").strip()
+                                        if text and text not in decoded_texts:
+                                            decoded_texts.append(text)
+                                    except Exception:
+                                        pass
+                            if decoded_texts:
+                                return decoded_texts
+                        except Exception:
+                            continue
                 except Exception as e:
                     logger.debug("pyzbar decode failed: %s", e)
 
