@@ -261,11 +261,9 @@ export default function ManageView({
       setErrorMsg(isKm ? "សូមបញ្ចូល Group ID ត្រឹមត្រូវ (ឧ. -1003917025719)" : "Enter a valid numeric Group ID (e.g. -1003917025719)");
       return;
     }
-    // If user entered a positive supergroup ID starting with 100, normalize to negative
-    if (num > 0 && String(num).startsWith("100")) {
+    // If user entered a positive ID without minus, negate it
+    if (num > 0) {
       num = -num;
-    } else if (num > 0) {
-      num = -parseInt(`100${num}`, 10);
     }
 
     setAddingGroup(true);
@@ -1606,12 +1604,14 @@ export default function ManageView({
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 14 }}>
-              {Object.keys(groupHandlers).length === 0 ? (
+              {whitelist.length === 0 ? (
                 <div style={{ fontSize: 12, color: G.muted, fontStyle: "italic" }}>
-                  All whitelisted admins can monitor all configured groups.
+                  No whitelisted admins configured.
                 </div>
               ) : (
-                Object.entries(groupHandlers).map(([uid, gids]) => {
+                whitelist.map((uidNum) => {
+                  const uid = String(uidNum);
+                  const gids = groupHandlers[uid] || [];
                   const formatted = formatUser(uid);
                   return (
                     <div key={uid} style={{ background: G.surface2, border: `1px solid ${G.border}`, borderRadius: 8, padding: "10px 12px" }}>
@@ -1623,31 +1623,37 @@ export default function ManageView({
                           </span>
                         )}
                       </div>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                        {(gids || []).map((gid) => (
-                          <span
-                            key={gid}
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: 4,
-                              background: G.surface,
-                              border: `1px solid ${G.border}`,
-                              borderRadius: 6,
-                              padding: "3px 8px",
-                              fontSize: 11,
-                              fontFamily: "JetBrains Mono, monospace",
-                            }}
-                          >
-                            {getGroupTitle(gid)}
-                            <button
-                              onClick={() => handleRemoveHandlerMapping(uid, gid)}
-                              style={{ background: "transparent", border: "none", color: G.danger, cursor: "pointer", padding: "0 2px", display: "flex", alignItems: "center" }}
-                            >
-                              ×
-                            </button>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+                        {gids.length === 0 ? (
+                          <span style={{ fontSize: 11, color: G.muted, fontStyle: "italic" }}>
+                            {uid === "1221693150" ? "All Groups (Super Admin)" : "No specific groups assigned"}
                           </span>
-                        ))}
+                        ) : (
+                          gids.map((gid) => (
+                            <span
+                              key={gid}
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 4,
+                                background: G.surface,
+                                border: `1px solid ${G.border}`,
+                                borderRadius: 6,
+                                padding: "3px 8px",
+                                fontSize: 11,
+                                fontFamily: "JetBrains Mono, monospace",
+                              }}
+                            >
+                              {getGroupTitle(gid)}
+                              <button
+                                onClick={() => handleRemoveHandlerMapping(uid, gid)}
+                                style={{ background: "transparent", border: "none", color: G.danger, cursor: "pointer", padding: "0 2px", display: "flex", alignItems: "center" }}
+                              >
+                                ×
+                              </button>
+                            </span>
+                          ))
+                        )}
                       </div>
                     </div>
                   );
