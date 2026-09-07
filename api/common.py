@@ -125,17 +125,21 @@ def kv_delete(key: str) -> bool:
     return True
 
 
-def kv_json_get(key: str) -> Optional[dict]:
+def kv_json_get(key: str):
     value = kv_get(key)
     if value is None:
         return None
-    if isinstance(value, dict):
+    if isinstance(value, (dict, list)):
         return value
     try:
         obj = json.loads(value)
-        return obj if isinstance(obj, dict) else None
+        return obj if isinstance(obj, (dict, list)) else None
     except Exception:
         return None
+
+
+def kv_json_set(key: str, value, ttl: Optional[int] = None) -> bool:
+    return kv_set(key, value, ttl)
 
 
 def super_admin_ids() -> set[int]:
@@ -249,7 +253,7 @@ def list_subscriptions() -> list[dict]:
 PIN_AUTH_ENABLED = os.environ.get("PIN_AUTH_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
 PIN_SESSION_TTL_SECONDS = int(os.environ.get("PIN_SESSION_TTL_DAYS", "30")) * 86400
 
-_PIN_ATTEMPTS_LOCKOUTS = {3: 5 * 60, 5: 60 * 60, 10: 24 * 3600}
+_PIN_ATTEMPTS_LOCKOUTS = {3: 1 * 3600, 5: 8 * 3600, 10: 24 * 3600}
 
 
 def pin_exists(user_id: int) -> bool:
@@ -295,14 +299,20 @@ def pin_fail_count(user_id: int) -> int:
 def record_pin_fail(user_id: int) -> dict:
     fails = kv_json_get(f"pin:fail:{user_id}") or {}
     count = int(fails.get("count", 0) or 0) + 1
+    now = int(time.time())
     lock_until = int(fails.get("lock_until", 0) or 0)
-    if count in _PIN_ATTEMPTS_LOCKOUTS:
-        lock_until = int(time.time()) + _PIN_ATTEMPTS_LOCKOUTS[count]
-    if count == 10:
+
+    if count >= 10:
+        lock_until = now + 24 * 3600
         alert_super_admin(
-            f"🔒 Security alert: user {user_id} reached 10 failed PIN attempts. "
-            f"Account locked for 24h. Approve, remove, or contact the user."
+            f"🔒 Security alert: user {user_id} reached {count} failed PIN attempts. "
+            f"Account locked for 24 hours to prevent brute-force attacks."
         )
+    elif count >= 5:
+        lock_until = now + 8 * 3600
+    elif count >= 3:
+        lock_until = now + 1 * 3600
+
     fails["count"] = count
     fails["lock_until"] = lock_until
     kv_set(f"pin:fail:{user_id}", json.dumps(fails))
@@ -768,3 +778,147 @@ def local_date() -> str:
         return datetime.now(ZoneInfo(REPORT_TIMEZONE)).date().isoformat()
     except Exception:
         return datetime.utcnow().date().isoformat()
+
+
+# ── Domain Whitelist ────────────────────────────────────────────────────────
+
+DEFAULT_DOMAIN_WHITELIST = [
+    "google.com",
+    "youtube.com",
+    "telegram.org",
+    "t.me",
+    "github.com",
+    "facebook.com",
+    "instagram.com",
+    "twitter.com",
+    "x.com",
+    "tiktok.com",
+    "linkedin.com",
+    "microsoft.com",
+    "apple.com",
+    "cloudflare.com",
+    "wikipedia.org",
+]
+
+
+def get_domain_whitelist() -> list[str]:
+    data = kv_json_get("whitelist:domains")
+    if isinstance(data, list):
+        return [str(d).strip().lower() for d in data if str(d).strip()]
+    return list(DEFAULT_DOMAIN_WHITELIST)
+
+
+def save_domain_whitelist(domains: list[str]) -> bool:
+    clean = list(dict.fromkeys(str(d).strip().lower() for d in domains if str(d).strip()))
+    return kv_json_set("whitelist:domains", clean)
+
+
+def add_domain_whitelist(domain: str) -> bool:
+    clean = domain.strip().lower()
+    if not clean:
+        return False
+    current = get_domain_whitelist()
+    if clean not in current:
+        current.append(clean)
+        return save_domain_whitelist(current)
+    return True
+
+
+def remove_domain_whitelist(domain: str) -> bool:
+    clean = domain.strip().lower()
+    current = get_domain_whitelist()
+    if clean in current:
+        current.remove(clean)
+        return save_domain_whitelist(current)
+    return True
+
+
+# ── Threat Events ───────────────────────────────────────────────────────────
+
+def get_threat_events(chat_ids: list[int], days: int = 1) -> list[dict]:
+    """Retrieve threat events for specified group IDs across the requested days."""
+    from datetime import date, timedelta
+    try:
+        today = date.fromisoformat(local_date())
+    except Exception:
+        today = date.today()
+
+    events: list[dict] = []
+    seen_ids = set()
+
+    days_to_check = max(1, min(90, int(days or 1)))
+    for offset in range(days_to_check):
+        day_str = (today - timedelta(days=offset)).isoformat()
+        for gid in chat_ids:
+            key = f"threat_events:{day_str}:{gid}"
+            day_events = kv_json_get(key) or []
+            if isinstance(day_events, list):
+                for ev in day_events:
+                    if isinstance(ev, dict) and ev.get("id") and ev["id"] not in seen_ids:
+                        seen_ids.add(ev["id"])
+                        events.append(ev)
+
+    # Fallback to recent events if empty
+    if not events:
+        recent = kv_json_get("threat_events:recent") or []
+        if isinstance(recent, list):
+            for ev in recent:
+                if isinstance(ev, dict) and (not chat_ids or ev.get("group_id") in chat_ids):
+                    if ev.get("id") and ev["id"] not in seen_ids:
+                        seen_ids.add(ev["id"])
+                        events.append(ev)
+
+    events.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
+    return events
+
+
+def record_threat_event(
+    chat_id: int,
+    chat_title: str,
+    sender: dict,
+    target: str,
+    threat_type: str,
+    risk: str = "critical",
+    action_taken: str = "deleted",
+) -> None:
+    now = time.time()
+    day = local_date()
+    t_id = f"th_{int(now * 1000)}"
+    time_str = time.strftime("%H:%M:%S")
+
+    sender_username = sender.get("username") or ""
+    sender_first = sender.get("first_name") or ""
+    sender_last = sender.get("last_name") or ""
+    sender_full = f"{sender_first} {sender_last}".strip() or sender_username or f"User_{sender.get('id', 'unknown')}"
+
+    event = {
+        "id": t_id,
+        "timestamp": int(now),
+        "date": day,
+        "time": time_str,
+        "type": threat_type,
+        "risk": risk,
+        "content": target,
+        "sender_id": sender.get("id"),
+        "sender_username": sender_username,
+        "sender_name": sender_full,
+        "group_id": chat_id,
+        "group_title": chat_title or str(chat_id),
+        "action_taken": action_taken,
+    }
+
+    # 1. Group daily list
+    g_key = f"threat_events:{day}:{chat_id}"
+    g_events = kv_json_get(g_key) or []
+    if isinstance(g_events, list):
+        g_events.insert(0, event)
+        kv_json_set(g_key, g_events[:100], ttl=30 * 86400)
+
+    # 2. Global recent threats list (capped at 200)
+    all_key = "threat_events:recent"
+    all_events = kv_json_get(all_key) or []
+    if isinstance(all_events, list):
+        all_events.insert(0, event)
+        kv_json_set(all_key, all_events[:200], ttl=30 * 86400)
+
+

@@ -62,7 +62,7 @@ class TelegramAPI:
             params={
                 "offset": offset,
                 "timeout": timeout,
-                "allowed_updates": json.dumps(["message", "edited_message", "callback_query", "my_chat_member"]),
+                "allowed_updates": json.dumps(["message", "edited_message", "callback_query", "my_chat_member", "inline_query"]),
             },
             timeout=timeout + 10,
         )
@@ -123,6 +123,22 @@ class TelegramAPI:
             # Telegram Bot API enforces a strict 200-character limit on answerCallbackQuery
             payload["text"] = text[:197] + "..." if len(text) > 200 else text
         data = self._post("answerCallbackQuery", payload)
+        return data.get("ok", False)
+
+    def answer_inline_query(
+        self,
+        inline_query_id: str,
+        results: list[dict],
+        cache_time: int = 300,
+        is_personal: bool = True,
+    ) -> bool:
+        payload: dict = {
+            "inline_query_id": inline_query_id,
+            "results": results,
+            "cache_time": cache_time,
+            "is_personal": is_personal,
+        }
+        data = self._post("answerInlineQuery", payload)
         return data.get("ok", False)
 
     def edit_message_reply_markup(

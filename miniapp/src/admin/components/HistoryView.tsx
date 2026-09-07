@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Download } from "lucide-react";
 import { G, type Lang } from "../palette";
 import { t as T, kh } from "../i18n";
 import type { DashboardData } from "../types";
@@ -9,6 +10,7 @@ type TypeFilter = "all" | "URL" | "File" | "All";
 
 interface HistoryViewProps {
   dashboard: DashboardData | null;
+  isSuperAdmin?: boolean;
   lang: Lang;
   dateFrom: string;
   dateTo: string;
@@ -17,7 +19,14 @@ interface HistoryViewProps {
 
 const TYPE_FILTERS: TypeFilter[] = ["all", "URL", "File"];
 
-export default function HistoryView({ dashboard, lang, dateFrom, dateTo, onDateChange }: HistoryViewProps) {
+export default function HistoryView({
+  dashboard,
+  isSuperAdmin = false,
+  lang,
+  dateFrom,
+  dateTo,
+  onDateChange,
+}: HistoryViewProps) {
   const tx = T(lang);
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
@@ -34,9 +43,58 @@ export default function HistoryView({ dashboard, lang, dateFrom, dateTo, onDateC
     return inDateRange && matchText && matchType;
   });
 
+  function handleExportCSV() {
+    if (!filtered.length) return;
+    const headers = ["Date", "Type", "Content Summary", "Group Name", "Verdict", "Items Scanned", "Threats Blocked", "Audited Role"];
+    const rows = filtered.map(s => [
+      s.date || "",
+      s.type || "",
+      `"${(s.content || "").replace(/"/g, '""')}"`,
+      `"${(s.group || "").replace(/"/g, '""')}"`,
+      s.result || "clean",
+      s.scanned || 0,
+      s.malicious || 0,
+      isSuperAdmin ? "Super Admin" : "Admin",
+    ]);
+
+    const csvContent =
+      "data:text/csv;charset=utf-8,\uFEFF" +
+      [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `songket_scan_history_${dateFrom}_${dateTo}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <SectionHeader title={tx.scanHistory} sub={tx.everyMessage} lang={lang} />
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <SectionHeader title={tx.scanHistory} sub={tx.everyMessage} lang={lang} />
+        {filtered.length > 0 && (
+          <button
+            onClick={handleExportCSV}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              background: G.goldSurface,
+              color: G.gold,
+              border: `1px solid ${G.goldBorder}`,
+              borderRadius: 8,
+              padding: "6px 12px",
+              fontSize: 11,
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            <Download size={13} />
+            <span className={kh(lang)}>{lang === "km" ? "ទាញយក CSV" : "Export CSV"}</span>
+          </button>
+        )}
+      </div>
 
       <input
         value={query}
