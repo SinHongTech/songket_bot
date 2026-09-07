@@ -125,12 +125,14 @@ export function getInitData(): string {
   return _cachedInitData || "";
 }
 
-export async function waitForTelegramInitData(timeoutMs: number = 2500): Promise<string> {
+export async function waitForTelegramInitData(timeoutMs: number = 400): Promise<string> {
+  const initial = getInitData();
+  if (initial) return initial;
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
+    await new Promise((r) => setTimeout(r, 40));
     const data = getInitData();
     if (data) return data;
-    await new Promise((r) => setTimeout(r, 50));
   }
   return getInitData();
 }

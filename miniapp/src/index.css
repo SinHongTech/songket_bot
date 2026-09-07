@@ -38,6 +38,17 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* Remove number input spinners/steppers */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
 html, body, #root {
   height: 100%;
   background: var(--bg);
