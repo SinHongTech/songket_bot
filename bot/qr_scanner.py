@@ -11,7 +11,10 @@ import logging
 import re
 from typing import Optional
 
-from PIL import Image
+try:
+    from PIL import Image
+except ImportError:
+    Image = None
 
 from bot.utils import extract_urls
 
@@ -27,7 +30,7 @@ except ImportError:
         import cv2
         _QR_BACKEND = "cv2"
     except ImportError:
-        _QR_BACKEND = "pil"
+        _QR_BACKEND = "pil" if Image is not None else None
 
 
 def decode_qr_from_bytes(image_bytes: bytes) -> list[str]:
@@ -35,50 +38,56 @@ def decode_qr_from_bytes(image_bytes: bytes) -> list[str]:
     if not image_bytes or len(image_bytes) < 32:
         return []
 
-    try:
-        img = Image.open(io.BytesIO(image_bytes))
-    except Exception as exc:
-        logger.debug("Image parse error for QR decode: %s", exc)
-        return []
-
     decoded_texts: list[str] = []
 
-    # 1. Try PyZbar if available
-    if _QR_BACKEND == "pyzbar":
+    if Image is not None:
         try:
-            from pyzbar.pyzbar import decode
-            results = decode(img)
-            for res in results:
-                if res.data:
-                    try:
-                        decoded_texts.append(res.data.decode("utf-8", errors="ignore"))
-                    except Exception:
-                        pass
-            if decoded_texts:
-                return decoded_texts
-        except Exception as e:
-            logger.debug("pyzbar decode failed: %s", e)
+            img = Image.open(io.BytesIO(image_bytes))
 
-    # 2. Try OpenCV if available
-    if _QR_BACKEND == "cv2":
-        try:
-            import cv2
-            import numpy as np
-            cv_img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
-            detector = cv2.QRCodeDetector()
-            val, points, _ = detector.detectAndDecode(cv_img)
-            if val:
-                decoded_texts.append(val)
-                return decoded_texts
-        except Exception as e:
-            logger.debug("cv2 qr decode failed: %s", e)
+            # 1. Try PyZbar if available
+            if _QR_BACKEND == "pyzbar":
+                try:
+                    from pyzbar.pyzbar import decode
+                    results = decode(img)
+                    for res in results:
+                        if res.data:
+                            try:
+                                decoded_texts.append(res.data.decode("utf-8", errors="ignore"))
+                            except Exception:
+                                pass
+                    if decoded_texts:
+                        return decoded_texts
+                except Exception as e:
+                    logger.debug("pyzbar decode failed: %s", e)
 
-    # 3. Fallback: inspect raw image metadata / text comments for embedded URLs
+            # 2. Try OpenCV if available
+            if _QR_BACKEND == "cv2":
+                try:
+                    import cv2
+                    import numpy as np
+                    cv_img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+                    detector = cv2.QRCodeDetector()
+                    val, points, _ = detector.detectAndDecode(cv_img)
+                    if val:
+                        decoded_texts.append(val)
+                        return decoded_texts
+                except Exception as e:
+                    logger.debug("cv2 qr decode failed: %s", e)
+
+            # 3. Fallback: inspect raw image metadata / text comments for embedded URLs
+            if hasattr(img, "info") and isinstance(img.info, dict):
+                for k, v in img.info.items():
+                    if isinstance(v, str) and ("http://" in v or "https://" in v or "tg://" in v):
+                        decoded_texts.append(v)
+        except Exception as exc:
+            logger.debug("Image parse error for QR decode: %s", exc)
+
+    # 4. Fallback: inspect raw bytes for embedded URL strings
     try:
-        if hasattr(img, "info") and isinstance(img.info, dict):
-            for k, v in img.info.items():
-                if isinstance(v, str) and ("http://" in v or "https://" in v or "tg://" in v):
-                    decoded_texts.append(v)
+        raw_str = image_bytes.decode("latin1", errors="ignore")
+        found = re.findall(r"https?://[^\s<>\"'{}|\\^`\x00-\x1f]+", raw_str)
+        if found:
+            decoded_texts.extend(found[:5])
     except Exception:
         pass
 

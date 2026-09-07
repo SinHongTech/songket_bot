@@ -193,7 +193,7 @@ export default function ManageView({ config, plans, subscriptions, domainWhiteli
     }
   }
 
-  const inputStyle = {
+  const inputStyle: React.CSSProperties = {
     background: G.surface2,
     border: `1px solid ${G.border}`,
     borderRadius: 8,
@@ -201,7 +201,8 @@ export default function ManageView({ config, plans, subscriptions, domainWhiteli
     color: G.text,
     fontSize: 13,
     outline: "none",
-    flex: 1,
+    width: "100%",
+    boxSizing: "border-box",
     minWidth: 0,
     fontFamily: "Outfit, sans-serif",
   };
@@ -375,17 +376,19 @@ export default function ManageView({ config, plans, subscriptions, domainWhiteli
         </div>
 
         {/* Add Whitelist Form */}
-        <div style={{ display: "flex", gap: 8 }}>
-          <input
-            value={newUserId}
-            onChange={e => setNewUserId(e.target.value)}
-            placeholder={tx.addUserPlaceholder}
-            type="number"
-            style={inputStyle}
-          />
+        <div style={{ display: "flex", gap: 8, width: "100%", alignItems: "center" }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <input
+              value={newUserId}
+              onChange={e => setNewUserId(e.target.value.replace(/\D/g, ""))}
+              placeholder={tx.addUserPlaceholder}
+              inputMode="numeric"
+              style={inputStyle}
+            />
+          </div>
           <button
             onClick={handleAddWhitelist}
-            style={{ background: G.gold, color: "#1a1200", border: "none", borderRadius: 8, padding: "0 14px", fontWeight: 700, cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}
+            style={{ background: G.gold, color: "#1a1200", border: "none", borderRadius: 8, padding: "0 14px", height: 38, fontWeight: 700, cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}
           >
             <Plus size={14} />
             <span className={kh(lang)}>{tx.add}</span>
@@ -431,17 +434,19 @@ export default function ManageView({ config, plans, subscriptions, domainWhiteli
         </div>
 
         {/* Add Group Form */}
-        <div style={{ display: "flex", gap: 8 }}>
-          <input
-            value={newGroupId}
-            onChange={e => setNewGroupId(e.target.value)}
-            placeholder={tx.addGroupPlaceholder}
-            type="number"
-            style={inputStyle}
-          />
+        <div style={{ display: "flex", gap: 8, width: "100%", alignItems: "center" }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <input
+              value={newGroupId}
+              onChange={e => setNewGroupId(e.target.value.replace(/[^\d-]/g, ""))}
+              placeholder={tx.addGroupPlaceholder}
+              inputMode="numeric"
+              style={inputStyle}
+            />
+          </div>
           <button
             onClick={handleAddGroup}
-            style={{ background: G.gold, color: "#1a1200", border: "none", borderRadius: 8, padding: "0 14px", fontWeight: 700, cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}
+            style={{ background: G.gold, color: "#1a1200", border: "none", borderRadius: 8, padding: "0 14px", height: 38, fontWeight: 700, cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}
           >
             <Plus size={14} />
             <span className={kh(lang)}>{tx.add}</span>
@@ -516,13 +521,15 @@ export default function ManageView({ config, plans, subscriptions, domainWhiteli
         </div>
 
         {/* Add Domain Form & Save Button */}
-        <div style={{ display: "flex", gap: 8 }}>
-          <input
-            value={newDomain}
-            onChange={e => setNewDomain(e.target.value)}
-            placeholder={lang === "km" ? "ឧ. example.com" : "e.g. example.com"}
-            style={inputStyle}
-          />
+        <div style={{ display: "flex", gap: 8, width: "100%", alignItems: "center", flexWrap: "wrap" }}>
+          <div style={{ flex: "1 1 140px", minWidth: 0 }}>
+            <input
+              value={newDomain}
+              onChange={e => setNewDomain(e.target.value)}
+              placeholder={lang === "km" ? "ឧ. example.com" : "e.g. example.com"}
+              style={inputStyle}
+            />
+          </div>
           <button
             onClick={handleAddDomain}
             style={{
@@ -531,6 +538,7 @@ export default function ManageView({ config, plans, subscriptions, domainWhiteli
               border: `1px solid ${G.goldBorder}`,
               borderRadius: 8,
               padding: "0 14px",
+              height: 38,
               fontWeight: 700,
               cursor: "pointer",
               fontSize: 12,
@@ -552,6 +560,7 @@ export default function ManageView({ config, plans, subscriptions, domainWhiteli
               border: "none",
               borderRadius: 8,
               padding: "0 14px",
+              height: 38,
               fontWeight: 700,
               cursor: "pointer",
               fontSize: 12,
@@ -612,25 +621,25 @@ export default function ManageView({ config, plans, subscriptions, domainWhiteli
 
         {/* Add Handler Mapping Form */}
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <div style={{ display: "flex", gap: 8 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, width: "100%" }}>
             <input
               value={handlerAdminId}
-              onChange={e => setHandlerAdminId(e.target.value)}
+              onChange={e => setHandlerAdminId(e.target.value.replace(/\D/g, ""))}
               placeholder="Admin User ID"
-              type="number"
+              inputMode="numeric"
               style={inputStyle}
             />
             <input
               value={handlerGroupId}
-              onChange={e => setHandlerGroupId(e.target.value)}
+              onChange={e => setHandlerGroupId(e.target.value.replace(/[^\d-]/g, ""))}
               placeholder="Group ID (-100...)"
-              type="number"
+              inputMode="numeric"
               style={inputStyle}
             />
           </div>
           <button
             onClick={handleAddHandlerMapping}
-            style={{ background: G.surface2, color: G.gold, border: `1px solid ${G.goldBorder}`, borderRadius: 8, padding: "8px 0", fontWeight: 700, cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center", gap: 4 }}
+            style={{ background: G.surface2, color: G.gold, border: `1px solid ${G.goldBorder}`, borderRadius: 8, padding: "9px 0", fontWeight: 700, cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center", gap: 4, width: "100%" }}
           >
             <ArrowRight size={13} />
             <span className={kh(lang)}>{tx.assignGroup}</span>
@@ -655,26 +664,26 @@ export default function ManageView({ config, plans, subscriptions, domainWhiteli
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
               <span style={{ fontSize: 11, fontWeight: 700, color: G.gold, fontFamily: "JetBrains Mono, monospace" }}>{key}</span>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 8, width: "100%" }}>
               <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 10, color: G.muted }}>
                 {tx.planName}
                 <input value={plan.name} onChange={e => updatePlanField(key, "name", e.target.value)} style={inputStyle} />
               </label>
               <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 10, color: G.muted }}>
                 {tx.planPrice}
-                <input type="number" step="0.01" value={plan.price} onChange={e => updatePlanField(key, "price", e.target.value)} style={inputStyle} />
+                <input inputMode="decimal" value={plan.price} onChange={e => updatePlanField(key, "price", e.target.value.replace(/[^\d.]/g, ""))} style={inputStyle} />
               </label>
               <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 10, color: G.muted }}>
                 {tx.planScans}
-                <input type="number" value={plan.scans} onChange={e => updatePlanField(key, "scans", e.target.value)} style={inputStyle} />
+                <input inputMode="numeric" value={plan.scans} onChange={e => updatePlanField(key, "scans", e.target.value.replace(/\D/g, ""))} style={inputStyle} />
               </label>
               <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 10, color: G.muted }}>
                 {tx.planGroups}
-                <input type="number" value={plan.groups} onChange={e => updatePlanField(key, "groups", e.target.value)} style={inputStyle} />
+                <input inputMode="numeric" value={plan.groups} onChange={e => updatePlanField(key, "groups", e.target.value.replace(/\D/g, ""))} style={inputStyle} />
               </label>
               <label style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 10, color: G.muted }}>
                 {tx.planHistory}
-                <input type="number" value={plan.history_days} onChange={e => updatePlanField(key, "history_days", e.target.value)} style={inputStyle} />
+                <input inputMode="numeric" value={plan.history_days} onChange={e => updatePlanField(key, "history_days", e.target.value.replace(/\D/g, ""))} style={inputStyle} />
               </label>
             </div>
           </div>
@@ -702,9 +711,19 @@ export default function ManageView({ config, plans, subscriptions, domainWhiteli
           <span className={kh(lang)}>{tx.assignPlanDesc}</span>
         </div>
 
-        <div style={{ display: "flex", gap: 8 }}>
-          <input value={assignUserId} onChange={e => setAssignUserId(e.target.value)} placeholder={tx.planUserPlaceholder} type="number" style={inputStyle} />
-          <select value={assignPlanKey} onChange={e => setAssignPlanKey(e.target.value)} style={{ ...inputStyle, maxWidth: 180 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, width: "100%" }}>
+          <input
+            value={assignUserId}
+            onChange={e => setAssignUserId(e.target.value.replace(/\D/g, ""))}
+            placeholder={tx.planUserPlaceholder}
+            inputMode="numeric"
+            style={inputStyle}
+          />
+          <select
+            value={assignPlanKey}
+            onChange={e => setAssignPlanKey(e.target.value)}
+            style={{ ...inputStyle, width: "100%", background: G.surface2 }}
+          >
             <option value="">{tx.planSelect}</option>
             {Object.entries(planCatalog).map(([key, plan]) => (
               <option key={key} value={key}>{plan.name}</option>

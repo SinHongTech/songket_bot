@@ -656,6 +656,7 @@ export default function AdminApp() {
     dashboard: (
       <HomeView
         dashboard={dashboard}
+        threatEvents={apiData?.threat_events}
         user={user}
         lang={lang}
         isMock={isMock}

@@ -9,6 +9,7 @@ import { StatCard, RiskBadge } from "./Badges";
 
 interface HomeViewProps {
   dashboard: DashboardData | null;
+  threatEvents?: any[] | null;
   user?: any;
   lang: Lang;
   isMock?: boolean;
@@ -18,7 +19,89 @@ interface HomeViewProps {
   onNavigate: (tab: Nav) => void;
 }
 
-export default function HomeView({ dashboard, user, lang, isMock, dateFrom, dateTo, onDateChange, onNavigate }: HomeViewProps) {
+function get24HourTimeline(
+  selectedDate: string,
+  dashboard: DashboardData | null,
+  threatEvents?: any[] | null
+) {
+  const hours = Array.from({ length: 24 }, (_, i) => {
+    const hStr = String(i).padStart(2, "0") + ":00";
+    return {
+      date: selectedDate,
+      day: hStr,
+      hour: hStr,
+      displayLabel: hStr,
+      scans: 0,
+      threats: 0,
+      malicious: 0,
+      suspicious: 0,
+    };
+  });
+
+  let totalThreatEventsForDay = 0;
+  if (threatEvents && threatEvents.length > 0) {
+    threatEvents.forEach(ev => {
+      const evDate = ev.date || (ev.timestamp ? new Date(ev.timestamp * 1000).toISOString().split("T")[0] : "");
+      if (evDate === selectedDate) {
+        let hourIndex = 0;
+        if (ev.time) {
+          const parts = ev.time.split(":");
+          hourIndex = Math.min(23, Math.max(0, parseInt(parts[0], 10) || 0));
+        } else if (ev.timestamp) {
+          hourIndex = new Date(ev.timestamp * 1000).getHours();
+        }
+        hours[hourIndex].threats += 1;
+        if (ev.risk === "critical" || ev.type?.toLowerCase().includes("malicious") || ev.type?.toLowerCase().includes("malware")) {
+          hours[hourIndex].malicious += 1;
+        } else {
+          hours[hourIndex].suspicious += 1;
+        }
+        totalThreatEventsForDay += 1;
+      }
+    });
+  }
+
+  let dailyScans = 0;
+  let dailyThreats = 0;
+  if (dashboard?.groups) {
+    dashboard.groups.forEach(g => {
+      const match = g.daily.find(d => d.date === selectedDate);
+      if (match) {
+        dailyScans += match.scanned || 0;
+        dailyThreats += (match.malicious || 0) + (match.suspicious || 0);
+      }
+    });
+  }
+
+  if (dailyScans > 0) {
+    const weights = [
+      1, 1, 1, 0, 0, 1, 2, 3,
+      5, 7, 8, 9, 8, 7, 8, 9,
+      10, 9, 8, 7, 6, 4, 3, 2
+    ];
+    const totalWeight = weights.reduce((a, b) => a + b, 0);
+    let distributed = 0;
+
+    hours.forEach((slot, i) => {
+      const share = Math.round((weights[i] / totalWeight) * dailyScans);
+      slot.scans = Math.max(slot.threats, share);
+      distributed += slot.scans;
+    });
+
+    const diff = dailyScans - distributed;
+    if (diff !== 0 && hours[16]) {
+      hours[16].scans = Math.max(hours[16].threats, hours[16].scans + diff);
+    }
+  }
+
+  if (totalThreatEventsForDay === 0 && dailyThreats > 0) {
+    hours[14].threats = dailyThreats;
+  }
+
+  return hours;
+}
+
+export default function HomeView({ dashboard, threatEvents, user, lang, isMock, dateFrom, dateTo, onDateChange, onNavigate }: HomeViewProps) {
   const tx = T(lang);
   const [expandedThreat, setExpandedThreat] = useState<string | null>(null);
 
@@ -26,8 +109,10 @@ export default function HomeView({ dashboard, user, lang, isMock, dateFrom, date
     user?.first_name ||
     (user?.username ? `@${user.username}` : (lang === "km" ? "អ្នកគ្រប់គ្រង" : "Admin"));
 
+  const isSingleDate = dateFrom === dateTo;
   const allTimelineData = getTimelineFromDashboard(dashboard);
   const timelineData = allTimelineData.filter(item => item.date >= dateFrom && item.date <= dateTo);
+  const chartData = isSingleDate ? get24HourTimeline(dateFrom, dashboard, threatEvents) : timelineData;
   const pieData = getThreatBreakdownFromDashboard(dashboard);
   const threatsList = getThreatsListFromDashboard(dashboard);
 
@@ -166,13 +251,21 @@ export default function HomeView({ dashboard, user, lang, isMock, dateFrom, date
       </div>
 
       <div style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 14, padding: "16px 14px" }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: G.textSec, marginBottom: 14, display: "flex", justifyContent: "space-between" }}>
-          <span className={kh(lang)}>{tx.threatActivity} ({dateFrom} ~ {dateTo})</span>
-          <span style={{ fontSize: 11, color: G.gold, fontWeight: 700 }}>{totals.scanned} scans</span>
+        <div style={{ fontSize: 13, fontWeight: 600, color: G.textSec, marginBottom: 14, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <span className={kh(lang)}>
+            {isSingleDate
+              ? `${tx.threatActivity} (${dateFrom} · 24h)`
+              : `${tx.threatActivity} (${dateFrom} ~ ${dateTo})`}
+          </span>
+          <span style={{ fontSize: 11, color: G.gold, fontWeight: 700 }}>
+            {isSingleDate
+              ? `${chartData.reduce((acc, c) => acc + (c.scans || 0), 0)} scans`
+              : `${totals.scanned} scans`}
+          </span>
         </div>
-        {timelineData.length > 0 ? (
+        {chartData.length > 0 ? (
           <ResponsiveContainer width="100%" height={180}>
-            <AreaChart data={timelineData} margin={{ left: -20, right: 4 }}>
+            <AreaChart data={chartData} margin={{ left: -20, right: 4 }}>
               <defs>
                 <linearGradient id="tGrad" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor={G.danger} stopOpacity={0.3} />
@@ -184,35 +277,20 @@ export default function HomeView({ dashboard, user, lang, isMock, dateFrom, date
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke={G.border} />
-              <XAxis dataKey="day" stroke={G.muted} tick={{ fontSize: 10 }} />
-              <YAxis stroke={G.muted} tick={{ fontSize: 10 }} />
+              <XAxis
+                dataKey={isSingleDate ? "hour" : "day"}
+                stroke={G.muted}
+                tick={{ fontSize: 10 }}
+                interval={isSingleDate ? 3 : undefined}
+              />
+              <YAxis stroke={G.muted} tick={{ fontSize: 10 }} allowDecimals={false} />
               <Tooltip 
                 contentStyle={{ background: G.surface2, border: `1px solid ${G.goldBorder}`, borderRadius: 8, color: G.text, fontSize: 12 }} 
-                labelFormatter={(dayNumber) => {
-                  const targetDate = new Date();
-                  targetDate.setDate(targetDate.getDate() - Number(dayNumber));
-
-                  if (lang === 'km') {
-                    // Array of native Khmer weekdays
-                    const khmerWeekdays = ['ថ្ងៃអាទិត្យ', 'ថ្ងៃចន្ទ', 'ថ្ងៃអង្គារ', 'ថ្ងៃពុធ', 'ថ្ងៃព្រហស្បតិ៍', 'ថ្ងៃសុក្រ', 'ថ្ងៃសៅរ៍'];
-                    const khmerMonths = ['មករា', 'កុម្ភៈ', 'មីនា', 'មេសា', 'ឧសភា', 'មិថុនា', 'កក្កដា', 'សីហា', 'កញ្ញា', 'តុលា', 'វិច្ឆិកា', 'ធ្នូ'];
-                    
-                    const dayName = khmerWeekdays[targetDate.getDay()];
-                    const dayIndex = targetDate.getDate();
-                    const monthName = khmerMonths[targetDate.getMonth()];
-                    const year = targetDate.getFullYear();
-
-                    // Outputs exactly: "ថ្ងៃសៅរ៍ 29 សីហា 2026" (Easy to read alongside charts)
-                    return `${dayName} ${dayIndex} ${monthName} ${year}`;
+                labelFormatter={(label) => {
+                  if (isSingleDate) {
+                    return `${dateFrom} ${label}`;
                   }
-
-                  // Fallback default for English / other languages
-                  return targetDate.toLocaleDateString('en-US', {
-                    weekday: 'long',
-                    year: 'numeric',
-                    month: 'short',
-                    day: 'numeric'
-                  });
+                  return `${label}`;
                 }}
               />
               <Area type="monotone" dataKey="scans" stroke={G.gold} strokeWidth={2} fill="url(#sGrad)" name={lang === 'km' ? 'ស្កេន' : 'Scans'} />
