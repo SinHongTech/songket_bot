@@ -28,14 +28,27 @@ export default function PublicApp() {
 
   // Auto-redirect to live dashboard when opened directly inside Telegram WebApp
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const search = window.location.search || "";
-      if (search.includes("home=1") || search.includes("preview=1")) {
-        return;
-      }
+    if (typeof window === "undefined") return;
+    const search = window.location.search || "";
+    if (search.includes("home=1") || search.includes("preview=1")) {
+      return;
+    }
+
+    const checkAndRedirect = () => {
       const tg = getTelegramWebApp();
       const initData = getInitData();
-      if (initData || tg?.initData || tg?.initDataUnsafe?.user?.id) {
+      const hash = window.location.hash || "";
+      const isTgClient = Boolean(
+        initData ||
+        tg?.initData ||
+        tg?.initDataUnsafe?.user?.id ||
+        (tg as any)?.platform ||
+        (window as any).TelegramWebviewProxy ||
+        hash.includes("tgWebAppData=") ||
+        search.includes("tgWebAppData=")
+      );
+
+      if (isTgClient) {
         navigate(
           {
             pathname: "/dashboard",
@@ -44,8 +57,41 @@ export default function PublicApp() {
           },
           { replace: true }
         );
+        return true;
       }
-    }
+      return false;
+    };
+
+    if (checkAndRedirect()) return;
+
+    // Listen for late-arriving Telegram Desktop setup event
+    const handleMsg = (e: MessageEvent) => {
+      try {
+        let d = e.data;
+        if (typeof d === "string") {
+          try { d = JSON.parse(d); } catch {}
+        }
+        if (d && d.eventType === "web_app_setup_data") {
+          checkAndRedirect();
+        }
+      } catch {}
+    };
+    window.addEventListener("message", handleMsg);
+
+    // Short polling interval for desktop webview handshake
+    const interval = setInterval(() => {
+      if (checkAndRedirect()) {
+        clearInterval(interval);
+      }
+    }, 150);
+
+    const timer = setTimeout(() => clearInterval(interval), 3000);
+
+    return () => {
+      window.removeEventListener("message", handleMsg);
+      clearInterval(interval);
+      clearTimeout(timer);
+    };
   }, [navigate]);
 
   useLayoutEffect(() => {

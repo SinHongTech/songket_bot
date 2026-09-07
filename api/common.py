@@ -501,7 +501,32 @@ def _compact_user_fmt(k: str, v: str) -> str:
     return f"{k}={v}"
 
 
-def verify_telegram_init_data(init_data: str, raw_hash: str = "", unsafe_user: Optional[dict] = None, max_age_seconds: int = 7 * 86400) -> tuple[Optional[dict], str]:
+def _safe_json_loads(s: str) -> Optional[dict]:
+    if not s:
+        return None
+    from urllib.parse import unquote
+    curr = s
+    for _ in range(3):
+        try:
+            res = json.loads(curr)
+            if isinstance(res, dict):
+                return res
+        except Exception:
+            pass
+        decoded = unquote(curr)
+        if decoded == curr:
+            break
+        curr = decoded
+    return None
+
+
+def verify_telegram_init_data(
+    init_data: str,
+    raw_hash: str = "",
+    raw_search: str = "",
+    unsafe_user: Optional[dict] = None,
+    max_age_seconds: int = 7 * 86400,
+) -> tuple[Optional[dict], str]:
     """Validate Telegram WebApp initData using the official HMAC scheme across all encoding formats."""
     tokens = list(dict.fromkeys([t.strip() for t in [
         BOT_TOKEN,
@@ -515,31 +540,23 @@ def verify_telegram_init_data(init_data: str, raw_hash: str = "", unsafe_user: O
         return None, "No bot tokens configured"
 
     candidates = []
-    if init_data:
-        clean_raw = init_data.lstrip("#?").strip()
-        if clean_raw:
-            candidates.append(clean_raw)
-            if "tgWebAppData=" in clean_raw:
-                import re
-                from urllib.parse import unquote, unquote_plus
-                m = re.search(r"tgWebAppData=([^&]+)", clean_raw)
-                if m:
-                    candidates.append(unquote(m.group(1)))
-                    candidates.append(unquote_plus(m.group(1)))
-                    candidates.append(m.group(1))
-
-    if raw_hash:
-        clean_hash = raw_hash.lstrip("#?").strip()
-        if clean_hash and clean_hash not in candidates:
-            candidates.append(clean_hash)
-            if "tgWebAppData=" in clean_hash:
-                import re
-                from urllib.parse import unquote, unquote_plus
-                m = re.search(r"tgWebAppData=([^&]+)", clean_hash)
-                if m:
-                    candidates.append(unquote(m.group(1)))
-                    candidates.append(unquote_plus(m.group(1)))
-                    candidates.append(m.group(1))
+    for raw_src in (init_data, raw_hash, raw_search):
+        if not raw_src:
+            continue
+        clean = raw_src.lstrip("#?").strip()
+        if not clean:
+            continue
+        if clean not in candidates:
+            candidates.append(clean)
+        if "tgWebAppData=" in clean:
+            import re
+            from urllib.parse import unquote, unquote_plus
+            m = re.search(r"tgWebAppData=([^&]+)", clean)
+            if m:
+                val = m.group(1)
+                for unquoted_val in (unquote(val), unquote_plus(val), unquote(unquote(val)), val):
+                    if unquoted_val and unquoted_val not in candidates:
+                        candidates.append(unquoted_val)
 
     if not candidates and not unsafe_user:
         logger.warning("[Auth] Empty initData received.")
@@ -577,7 +594,7 @@ def verify_telegram_init_data(init_data: str, raw_hash: str = "", unsafe_user: O
                     calculated = hmac.new(secret_key, cs.encode(), hashlib.sha256).hexdigest()
                     if hmac.compare_digest(calculated, h_raw):
                         try:
-                            user = json.loads(unquote(unquote(raw_map.get("user", "{}"))))
+                            user = _safe_json_loads(raw_map.get("user", ""))
                             if isinstance(user, dict) and user.get("id"):
                                 logger.info("[Auth] Telegram session verified via raw map: user_id=%s", user.get("id"))
                                 return user, "OK"
@@ -637,7 +654,7 @@ def verify_telegram_init_data(init_data: str, raw_hash: str = "", unsafe_user: O
                     f"CheckStr:\n{check_variants[0]}\n"
                     f"RawCand:\n{cand_clean[:180]}"
                 )
-                logger.error("[Auth Failure Details]\n%s", last_debug)
+                logger.debug("[Auth Failure Details]\n%s", last_debug)
                 continue
 
             try:
@@ -651,15 +668,9 @@ def verify_telegram_init_data(init_data: str, raw_hash: str = "", unsafe_user: O
                 last_debug = f"auth_date unparseable: {data.get('auth_date')}"
                 continue
 
-            try:
-                raw_user_str = unquote(data.get("user", "{}"))
-                user = json.loads(raw_user_str)
-            except json.JSONDecodeError as exc:
-                last_debug = f"user JSON parse error: {exc}"
-                continue
-
+            user = _safe_json_loads(data.get("user", ""))
             if not isinstance(user, dict) or not user.get("id"):
-                last_debug = f"user dict missing id: {user}"
+                last_debug = f"user missing or invalid: {data.get('user')}"
                 continue
 
             logger.info("[Auth] Telegram session verified: user_id=%s username=%s", user.get("id"), user.get("username"))
@@ -676,8 +687,7 @@ def verify_telegram_init_data(init_data: str, raw_hash: str = "", unsafe_user: O
             try:
                 data = dict(parse_fn(cand_clean))
                 if "user" in data:
-                    raw_u = unquote(data["user"])
-                    u_obj = json.loads(raw_u)
+                    u_obj = _safe_json_loads(data["user"])
                     if isinstance(u_obj, dict) and u_obj.get("id"):
                         uid = int(u_obj.get("id", 0) or 0)
                         u_name = str(u_obj.get("username", "")).lower().lstrip("@")

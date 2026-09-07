@@ -171,6 +171,7 @@ class handler(BaseHTTPRequestHandler):
             action = body.get("action", "")
             init_raw = body.get("initData", "")
             raw_hash = body.get("rawHash", "")
+            raw_search = body.get("rawSearch", "")
             platform = body.get("platform", "")
             unsafe_user = body.get("initDataUnsafe", {}).get("user") if isinstance(body.get("initDataUnsafe"), dict) else None
             init_len = len(init_raw)
@@ -236,7 +237,12 @@ class handler(BaseHTTPRequestHandler):
                 return self._json(400, {"ok": False, "error": "Invalid 2FA code or backup code"})
 
             # ── 2. Authenticate via Telegram HMAC, Unsafe User or PIN Session ─
-            user, debug_str = verify_telegram_init_data(init_raw, raw_hash=raw_hash, unsafe_user=unsafe_user)
+            user, debug_str = verify_telegram_init_data(
+                init_raw,
+                raw_hash=raw_hash,
+                raw_search=raw_search,
+                unsafe_user=unsafe_user,
+            )
             if not user:
                 session_tok = body.get("session", "")
                 if session_tok:
@@ -445,8 +451,11 @@ class handler(BaseHTTPRequestHandler):
                 ok = set_subscription(target, "personal_free", 0)
                 return self._json(200, {"ok": ok, "subscriptions": list_subscriptions()})
 
-            if not super_admin and uid not in whitelist_ids():
-                logger.warning("[Dashboard API] Access denied for uid=%d (@%s) - not in whitelist", uid, user.get("username"))
+            user_groups = groups_for_user(uid, get_allowed_groups())
+            has_dashboard_access = super_admin or is_admin or uid in whitelist_ids() or bool(user_groups)
+
+            if not has_dashboard_access:
+                logger.warning("[Dashboard API] Access denied for uid=%d (@%s) - not in whitelist and no group access", uid, user.get("username"))
                 return self._json(
                     200,
                     {

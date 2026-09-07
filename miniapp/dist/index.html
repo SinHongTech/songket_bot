@@ -9,6 +9,10 @@
     <script>
       (function() {
         try {
+          if (window.Telegram && window.Telegram.WebApp) {
+            try { window.Telegram.WebApp.ready(); } catch (e) {}
+            try { window.Telegram.WebApp.expand(); } catch (e) {}
+          }
           var h = window.location.hash || '';
           var s = window.location.search || '';
           if (h && (h.indexOf('hash=') !== -1 || h.indexOf('tgWebAppData=') !== -1)) {
@@ -19,10 +23,25 @@
             sessionStorage.setItem('songket_init_raw', s);
             localStorage.setItem('songket_init_raw', s);
           }
+          window.addEventListener('message', function(event) {
+            try {
+              var data = event.data;
+              if (typeof data === 'string') {
+                try { data = JSON.parse(data); } catch (e) {}
+              }
+              if (data && data.eventType === 'web_app_setup_data') {
+                var initStr = typeof data.eventData === 'string' ? data.eventData : (data.eventData && data.eventData.initData);
+                if (initStr) {
+                  sessionStorage.setItem('songket_init_data', initStr);
+                  localStorage.setItem('songket_init_data', initStr);
+                }
+              }
+            } catch (e) {}
+          });
         } catch (e) {}
       })();
     </script>
-    <script type="module" crossorigin src="/assets/index-DCIVg8_l.js"></script>
+    <script type="module" crossorigin src="/assets/index-TyiDlLcS.js"></script>
     <link rel="stylesheet" crossorigin href="/assets/index-DA9jgzAq.css">
   </head>
   <body>
