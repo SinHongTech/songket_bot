@@ -633,9 +633,12 @@ def remove_domain_whitelist(domain: str) -> bool:
 
 def is_domain_whitelisted(url_or_domain: str) -> bool:
     """Check if a URL or domain is in the trusted domain whitelist."""
-    from bot.utils import extract_domain
+    from bot.utils import extract_domain, URL_SHORTENERS
     domain = extract_domain(url_or_domain).lower()
     if not domain:
+        return False
+    # Shortener & redirect services cannot be whitelisted as trusted domains
+    if domain in URL_SHORTENERS or any(domain.endswith(f".{s}") for s in URL_SHORTENERS):
         return False
     whitelist = get_domain_whitelist()
     for wl in whitelist:

@@ -644,7 +644,14 @@ def _handle_personal_scan(api: TelegramAPI, chat_id: int, message: dict, user_id
         if is_whitelisted(url):
             continue
         domain = extract_domain(url)
-        target_label = f"{domain} (QR code inside {filename})" if (has_file and filename) else domain
+        final_url = resolve_redirect(url)
+        final_domain = extract_domain(final_url) if final_url else domain
+        if final_domain and final_domain != domain:
+            target_label = f"{domain} ➜ {final_domain}"
+            if has_file and filename:
+                target_label += f" (QR code inside {filename})"
+        else:
+            target_label = f"{domain} (QR code inside {filename})" if (has_file and filename) else domain
         results.append(("link", target_label, vt_scan_url(url)))
         scanned += 1
 

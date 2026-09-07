@@ -78,7 +78,10 @@ WHITELIST_DOMAINS: list[str] = [
 URL_SHORTENERS: set[str] = {
     "bit.ly", "tinyurl.com", "cutt.ly", "t.co",
     "goo.gl", "ow.ly", "buff.ly", "is.gd",
-    "rb.gy", "short.io", "tiny.cc",
+    "rb.gy", "short.io", "tiny.cc", "dub.sh",
+    "dub.co", "rebrand.ly", "qrco.de", "shorturl.at",
+    "t.ly", "clck.ru", "s.id", "v.gd", "bit.do",
+    "linktr.ee", "qr.net", "page.link",
 }
 
 SUSPICIOUS_TLDS: tuple[str, ...] = (
