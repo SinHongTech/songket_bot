@@ -326,19 +326,27 @@ def classify_verdict(malicious: int, suspicious: int) -> str:
 
 def apply_strike(api: TelegramAPI, chat_id: int, user_id: int, user_display: str, chat_title: str = "") -> int:
     """Increment a user's strike count; mute when a threshold is reached (doc section 3)."""
+    # Group creator/administrators and super admins cannot and should not be restricted
+    if is_super_admin(user_id) or api.is_group_admin(user_id, chat_id):
+        logger.info("Skipping strike restriction for chat owner / admin %s in chat %s", user_display, chat_title or chat_id)
+        return 0
+
     strikes = add_strike(chat_id, user_id)
     duration = config.STRIKE_MUTE_RULES.get(strikes)
     if duration:
         hours = duration // 3600
-        api.restrict_chat_member(
+        ok = api.restrict_chat_member(
             chat_id, user_id, can_send_messages=False, until_date=int(time.time()) + duration
         )
-        add_group_muted_user(chat_id, user_id, user_display, strikes=strikes)
-        api.send_message(
-            chat_id,
-            f"📢 <b>{user_display}</b> is restricted for {hours}h due to {strikes} threat violations.",
-        )
-        _send_mute_alert_to_admin(api, chat_id, chat_title, user_id, user_display, hours, strikes)
+        if ok:
+            add_group_muted_user(chat_id, user_id, user_display, strikes=strikes)
+            api.send_message(
+                chat_id,
+                f"📢 <b>{user_display}</b> is restricted for {hours}h due to {strikes} threat violations.",
+            )
+            _send_mute_alert_to_admin(api, chat_id, chat_title, user_id, user_display, hours, strikes)
+        else:
+            logger.warning("Could not restrict user %s in chat %s (may be chat creator/admin)", user_display, chat_title or chat_id)
     return strikes
 
 
@@ -1844,6 +1852,9 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
             if not (is_super_admin(user_id) or api.is_group_admin(user_id, gid)):
                 api.answer_callback_query(query_id, text="❌ Admin only / សម្រាប់តែ Admin ក្រុមប៉ុណ្ណោះ", show_alert=True)
                 return
+            if is_super_admin(target_uid) or api.is_group_admin(target_uid, gid):
+                api.answer_callback_query(query_id, text="⚠️ Cannot kick group owner or administrator.", show_alert=True)
+                return
             api.ban_chat_member(gid, target_uid)
             kicked = api.unban_chat_member(gid, target_uid)
             if kicked:
@@ -1863,6 +1874,9 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
             if not (is_super_admin(user_id) or api.is_group_admin(user_id, gid)):
                 api.answer_callback_query(query_id, text="❌ Admin only / សម្រាប់តែ Admin ក្រុមប៉ុណ្ណោះ", show_alert=True)
                 return
+            if is_super_admin(target_uid) or api.is_group_admin(target_uid, gid):
+                api.answer_callback_query(query_id, text="⚠️ Cannot ban group owner or administrator.", show_alert=True)
+                return
             banned = api.ban_chat_member(gid, target_uid)
             if banned:
                 api.answer_callback_query(query_id, text="🔨 Spammer banned / បាន Ban អ្នកផ្ញើជោគជ័យ!", show_alert=True)
@@ -1880,6 +1894,9 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
             target_uid = int(parts[2])
             if not (is_super_admin(user_id) or api.is_group_admin(user_id, gid)):
                 api.answer_callback_query(query_id, text="❌ Admin only / សម្រាប់តែ Admin ក្រុមប៉ុណ្ណោះ", show_alert=True)
+                return
+            if is_super_admin(target_uid) or api.is_group_admin(target_uid, gid):
+                api.answer_callback_query(query_id, text="⚠️ Cannot mute group owner or administrator.", show_alert=True)
                 return
             until_date = int(time.time()) + 86400
             muted = api.restrict_chat_member(gid, target_uid, can_send_messages=False, until_date=until_date)
