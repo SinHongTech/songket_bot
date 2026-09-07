@@ -224,19 +224,31 @@ class TelegramAPI:
         chat_id: int,
         user_id: int,
         can_send_messages: bool = False,
+        can_send_media_messages: bool = False,
         can_send_other_messages: bool = False,
         can_add_web_page_previews: bool = False,
+        can_send_polls: bool = False,
         until_date: Optional[int] = None,
+        use_independent_chat_permissions: bool = False,
+        **kwargs,
     ) -> bool:
+        perms = {
+            "can_send_messages": can_send_messages,
+            "can_send_media_messages": can_send_media_messages,
+            "can_send_other_messages": can_send_other_messages,
+            "can_add_web_page_previews": can_add_web_page_previews,
+            "can_send_polls": can_send_polls,
+        }
+        for k, v in kwargs.items():
+            if k.startswith("can_"):
+                perms[k] = bool(v)
         payload: dict = {
             "chat_id": chat_id,
             "user_id": user_id,
-            "permissions": {
-                "can_send_messages": can_send_messages,
-                "can_send_other_messages": can_send_other_messages,
-                "can_add_web_page_previews": can_add_web_page_previews,
-            },
+            "permissions": perms,
         }
+        if use_independent_chat_permissions:
+            payload["use_independent_chat_permissions"] = True
         if until_date:
             payload["until_date"] = until_date
         return self._post("restrictChatMember", payload).get("ok", False)

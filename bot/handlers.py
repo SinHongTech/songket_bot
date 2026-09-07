@@ -1825,20 +1825,13 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
             if not (is_super_admin(user_id) or api.is_group_admin(user_id, gid)):
                 api.answer_callback_query(query_id, text="❌ Admin only / សម្រាប់តែ Admin ក្រុមប៉ុណ្ណោះ", show_alert=True)
                 return
-            unmuted = api.restrict_chat_member(
-                gid,
-                target_uid,
-                can_send_messages=True,
-                can_send_media_messages=True,
-                can_send_other_messages=True,
-                can_add_web_page_previews=True,
-            )
+            unmuted = api.unrestrict_chat_member(gid, target_uid)
             if unmuted:
                 remove_group_muted_user(gid, target_uid)
                 api.answer_callback_query(query_id, text="🔊 User unmuted / បានបើកសិទ្ធិផ្ញើសារឡើងវិញ!", show_alert=True)
-                api.send_message(gid, f"🔊 <b>Admin Action:</b> Member (ID: <code>{target_uid}</code>) has been unmuted by admin.")
+                api.send_message(gid, "🔊 <b>Admin Action:</b> Member has been unmuted by admin.")
                 if chat_id > 0:
-                    api.send_message(chat_id, f"🔊 Member <code>{target_uid}</code> unmuted in group <code>{gid}</code>.")
+                    api.send_message(chat_id, "🔊 Member unmuted in group successfully.")
             else:
                 api.answer_callback_query(query_id, text="⚠️ Failed to unmute member. Check bot admin permissions.", show_alert=True)
             return
@@ -1855,9 +1848,9 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
             kicked = api.unban_chat_member(gid, target_uid)
             if kicked:
                 api.answer_callback_query(query_id, text="👢 User kicked / បានទាត់អ្នកប្រើប្រាស់ចេញពីក្រុម!", show_alert=True)
-                api.send_message(gid, f"👢 <b>Admin Action:</b> Member (ID: <code>{target_uid}</code>) was kicked from group by admin.")
+                api.send_message(gid, "👢 <b>Admin Action:</b> Member was removed from group by admin.")
                 if chat_id > 0:
-                    api.send_message(chat_id, f"👢 Member <code>{target_uid}</code> kicked from group <code>{gid}</code>.")
+                    api.send_message(chat_id, "👢 Member removed from group.")
             else:
                 api.answer_callback_query(query_id, text="⚠️ Failed to kick member. Check bot admin permissions.", show_alert=True)
             return
@@ -1873,9 +1866,9 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
             banned = api.ban_chat_member(gid, target_uid)
             if banned:
                 api.answer_callback_query(query_id, text="🔨 Spammer banned / បាន Ban អ្នកផ្ញើជោគជ័យ!", show_alert=True)
-                api.send_message(gid, f"🔨 <b>Admin Action:</b> Member (ID: <code>{target_uid}</code>) was banned by admin.")
+                api.send_message(gid, "🔨 <b>Admin Action:</b> User was banned by admin.")
                 if chat_id > 0:
-                    api.send_message(chat_id, f"🔨 Member <code>{target_uid}</code> banned in group <code>{gid}</code>.")
+                    api.send_message(chat_id, "🔨 Member banned from group.")
             else:
                 api.answer_callback_query(query_id, text="⚠️ Failed to ban member. Check bot admin permissions.", show_alert=True)
             return
@@ -1892,9 +1885,9 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
             muted = api.restrict_chat_member(gid, target_uid, can_send_messages=False, until_date=until_date)
             if muted:
                 api.answer_callback_query(query_id, text="🔇 User muted for 24h / បានផ្អាកសិទ្ធិផ្ញើសារ 24 ម៉ោង!", show_alert=True)
-                api.send_message(gid, f"🔇 <b>Admin Action:</b> Member (ID: <code>{target_uid}</code>) has been muted for 24 hours.")
+                api.send_message(gid, "🔇 <b>Admin Action:</b> Member has been muted for 24 hours.")
                 if chat_id > 0:
-                    api.send_message(chat_id, f"🔇 Member <code>{target_uid}</code> muted in group <code>{gid}</code>.")
+                    api.send_message(chat_id, "🔇 Member muted for 24 hours in group.")
             else:
                 api.answer_callback_query(query_id, text="⚠️ Failed to mute member. Check bot admin permissions.", show_alert=True)
             return
@@ -1916,7 +1909,7 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
             if chat_id < 0:
                 api.send_message(gid, f"🛡️ <b>Trusted Domain:</b> <code>{esc(domain_to_add)}</code> was added to the trusted whitelist.")
             else:
-                api.send_message(chat_id, f"🛡️ <b>Trusted Domain:</b> <code>{esc(domain_to_add)}</code> added to whitelist for group <code>{gid}</code>.")
+                api.send_message(chat_id, f"🛡️ <b>Trusted Domain:</b> <code>{esc(domain_to_add)}</code> added to whitelist.")
             return
 
     if data in {"explain_threat", "explain_suspicious"}:
