@@ -6,6 +6,7 @@ import type { DashboardData, TelegramUser } from "../types";
 import { SectionHeader } from "./Badges";
 import TotpModal from "./TotpModal";
 import { getTotpStatus } from "../api";
+import { safeStorage } from "@/shared/storage";
 
 interface AccountViewProps {
   user?: TelegramUser;
@@ -20,44 +21,24 @@ interface AccountViewProps {
 export default function AccountView({ user, dashboard, dark, setDark, lang, setLang, onLogout }: AccountViewProps) {
   const tx = T(lang);
   const [org, setOrg] = useState(() => {
-    try {
-      return localStorage.getItem("songket.admin.org") || "Group Security Admin";
-    } catch {
-      return "Group Security Admin";
-    }
+    return safeStorage.getItem("songket.admin.org") || "Group Security Admin";
   });
   const [email, setEmail] = useState(() => {
-    try {
-      return localStorage.getItem("songket.admin.email") || "admin@telegram.security";
-    } catch {
-      return "admin@telegram.security";
-    }
+    return safeStorage.getItem("songket.admin.email") || "admin@telegram.security";
   });
   const [telegram, setTelegram] = useState(() => {
-    try {
-      return (
-        localStorage.getItem("songket.admin.telegram") ||
-        (user?.username ? `@${user.username}` : user?.first_name || "@admin")
-      );
-    } catch {
-      return user?.username ? `@${user.username}` : user?.first_name || "@admin";
-    }
+    return (
+      safeStorage.getItem("songket.admin.telegram") ||
+      (user?.username ? `@${user.username}` : user?.first_name || "@admin")
+    );
   });
   const [notifTelegram, setNotifTelegram] = useState(() => {
-    try {
-      const v = localStorage.getItem("songket.admin.notifTelegram");
-      return v === null ? true : v === "1";
-    } catch {
-      return true;
-    }
+    const v = safeStorage.getItem("songket.admin.notifTelegram");
+    return v === null ? true : v === "1";
   });
   const [notifPDF, setNotifPDF] = useState(() => {
-    try {
-      const v = localStorage.getItem("songket.admin.notifPDF");
-      return v === null ? false : v === "1";
-    } catch {
-      return false;
-    }
+    const v = safeStorage.getItem("songket.admin.notifPDF");
+    return v === null ? false : v === "1";
   });
   const [totpEnabled, setTotpEnabled] = useState(false);
   const [totpModalOpen, setTotpModalOpen] = useState(false);
@@ -66,33 +47,23 @@ export default function AccountView({ user, dashboard, dark, setDark, lang, setL
   const isKm = lang === "km";
 
   useEffect(() => {
-    try {
-      localStorage.setItem("songket.admin.org", org);
-    } catch {}
+    safeStorage.setItem("songket.admin.org", org);
   }, [org]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem("songket.admin.email", email);
-    } catch {}
+    safeStorage.setItem("songket.admin.email", email);
   }, [email]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem("songket.admin.telegram", telegram);
-    } catch {}
+    safeStorage.setItem("songket.admin.telegram", telegram);
   }, [telegram]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem("songket.admin.notifTelegram", notifTelegram ? "1" : "0");
-    } catch {}
+    safeStorage.setItem("songket.admin.notifTelegram", notifTelegram ? "1" : "0");
   }, [notifTelegram]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem("songket.admin.notifPDF", notifPDF ? "1" : "0");
-    } catch {}
+    safeStorage.setItem("songket.admin.notifPDF", notifPDF ? "1" : "0");
   }, [notifPDF]);
 
   useEffect(() => {

@@ -4,6 +4,7 @@ import { Sun, Moon, Globe, ChevronDown, LayoutDashboard } from "lucide-react";
 import LogoMark from "@/shared/components/LogoMark";
 import { T, type Lang } from "@/public/i18n";
 import { getTelegramWebApp, getInitData } from "@/admin/api";
+import { safeStorage } from "@/shared/storage";
 import Hero from "@/public/components/Hero";
 import Features from "@/public/components/Features";
 import HowItWorks from "@/public/components/HowItWorks";
@@ -16,10 +17,7 @@ import FAQ from "@/public/components/FAQ";
 export default function PublicApp() {
   const navigate = useNavigate();
   const [lang, setLang] = useState<Lang>(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("songket.lang") === "km" ? "km" : "en";
-    }
-    return "en";
+    return safeStorage.getItem("songket.lang") === "km" ? "km" : "en";
   });
   const [dark, setDark] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -99,7 +97,7 @@ export default function PublicApp() {
   }, [dark]);
 
   useEffect(() => {
-    localStorage.setItem("songket.lang", lang);
+    safeStorage.setItem("songket.lang", lang);
   }, [lang]);
 
   useLayoutEffect(() => {
