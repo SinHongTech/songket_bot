@@ -102,7 +102,117 @@ def _poll_analysis(analysis_id: str) -> dict:
     return {"error": "VT analysis timed out before completion"}
 
 
+def check_telegram_phishing_heuristics(url: str) -> Optional[dict]:
+    """Fast local heuristic check for Telegram phishing and homograph domains."""
+    from bot.utils import extract_domain
+    domain = extract_domain(url).lower()
+    if not domain:
+        return None
+
+    # 1. Detect Cyrillic / Greek homoglyph attacks in ASCII domains
+    if re.search(r"[\u0400-\u04FF\u0370-\u03FF]", url):
+        logger.warning("[Heuristics] Homograph phishing detected: %s", url)
+        return {"malicious": 15, "suspicious": 5, "harmless": 0, "undetected": 0, "heuristic": "homograph"}
+
+    # 2. Known Telegram phishing patterns
+    phish_patterns = [
+        r"telegra[a-z0-9]*\.(?:xyz|top|site|club|buzz|info|cc|online|tk|ga|ml|cf|gq|pw|space|monster)",
+        r"telegram-(?:login|auth|verify|gift|premium|airdrop|bot|web|security)",
+        r"(?:login|auth|verify|claim|free)-telegram",
+        r"t\.me-[a-z0-9]+\.",
+        r"t-me\.[a-z]+",
+        r"telegrem\.",
+        r"telegraam\.",
+        r"web-telegram-[a-z0-9]+",
+    ]
+    for pat in phish_patterns:
+        if re.search(pat, domain, re.IGNORECASE):
+            logger.warning("[Heuristics] Telegram phishing keyword match '%s' in %s", pat, url)
+            return {"malicious": 15, "suspicious": 5, "harmless": 0, "undetected": 0, "heuristic": "telegram_phish"}
+
+    return None
+
+
+def check_urlhaus_prefilter(url: str) -> Optional[dict]:
+    """Pre-filter URLs against URLhaus database to catch active malware immediately."""
+    try:
+        r = requests.post(
+            "https://urlhaus-api.abuse.ch/v1/url/",
+            data={"url": url},
+            timeout=3,
+        )
+        if r.status_code == 200:
+            data = r.json()
+            if data.get("query_status") == "ok" and data.get("url_status") in ("online", "offline"):
+                threat = data.get("threat", "malware_download")
+                logger.warning("[URLhaus] Match found for %s: %s", url, threat)
+                return {
+                    "malicious": 20,
+                    "suspicious": 5,
+                    "harmless": 0,
+                    "undetected": 0,
+                    "prefilter": "urlhaus",
+                    "threat": threat,
+                }
+    except Exception as e:
+        logger.debug("URLhaus query skipped/failed: %s", e)
+    return None
+
+
+def check_google_safebrowsing(url: str) -> Optional[dict]:
+    """Check URL against Google Safe Browsing v4 API if key is available."""
+    import os
+    api_key = os.environ.get("GOOGLE_SAFE_BROWSING_KEY") or os.environ.get("GSB_API_KEY", "")
+    if not api_key:
+        return None
+    try:
+        endpoint = f"https://safebrowsing.googleapis.com/v4/threatMatches:find?key={api_key}"
+        payload = {
+            "client": {"clientId": "songket-security-bot", "clientVersion": "2.0.0"},
+            "threatInfo": {
+                "threatTypes": ["MALWARE", "SOCIAL_ENGINEERING", "UNWANTED_SOFTWARE", "POTENTIALLY_HARMFUL_APPLICATION"],
+                "platformTypes": ["ANY_PLATFORM"],
+                "threatEntryTypes": ["URL"],
+                "threatEntries": [{"url": url}],
+            },
+        }
+        r = requests.post(endpoint, json=payload, timeout=3)
+        if r.status_code == 200:
+            res = r.json()
+            if res.get("matches"):
+                logger.warning("[Google Safe Browsing] Threat matched for %s: %s", url, res["matches"])
+                return {
+                    "malicious": 25,
+                    "suspicious": 5,
+                    "harmless": 0,
+                    "undetected": 0,
+                    "prefilter": "google_safe_browsing",
+                }
+    except Exception as e:
+        logger.debug("Google Safe Browsing check skipped/failed: %s", e)
+    return None
+
+
 def vt_scan_url(url: str) -> dict:
+    # 1. Check Trusted Domain Whitelist
+    from bot.redis_client import is_domain_whitelisted
+    if is_domain_whitelisted(url):
+        return {"malicious": 0, "suspicious": 0, "harmless": 100, "undetected": 0, "whitelisted": True}
+
+    # 2. Check Fast Local Heuristics
+    heuristic_hit = check_telegram_phishing_heuristics(url)
+    if heuristic_hit:
+        return heuristic_hit
+
+    # 3. Check Multi-Engine Pre-Filters (URLhaus & Google Safe Browsing)
+    urlhaus_hit = check_urlhaus_prefilter(url)
+    if urlhaus_hit:
+        return urlhaus_hit
+
+    gsb_hit = check_google_safebrowsing(url)
+    if gsb_hit:
+        return gsb_hit
+
     if not config.VT_API_KEY:
         return {"error": "VT_API_KEY not configured"}
 

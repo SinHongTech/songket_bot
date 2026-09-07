@@ -9,6 +9,7 @@ import { StatCard, RiskBadge } from "./Badges";
 
 interface HomeViewProps {
   dashboard: DashboardData | null;
+  user?: any;
   lang: Lang;
   isMock?: boolean;
   dateFrom: string;
@@ -17,9 +18,13 @@ interface HomeViewProps {
   onNavigate: (tab: Nav) => void;
 }
 
-export default function HomeView({ dashboard, lang, isMock, dateFrom, dateTo, onDateChange, onNavigate }: HomeViewProps) {
+export default function HomeView({ dashboard, user, lang, isMock, dateFrom, dateTo, onDateChange, onNavigate }: HomeViewProps) {
   const tx = T(lang);
   const [expandedThreat, setExpandedThreat] = useState<string | null>(null);
+
+  const displayName =
+    user?.first_name ||
+    (user?.username ? `@${user.username}` : (lang === "km" ? "អ្នកគ្រប់គ្រង" : "Admin"));
 
   const allTimelineData = getTimelineFromDashboard(dashboard);
   const timelineData = allTimelineData.filter(item => item.date >= dateFrom && item.date <= dateTo);
@@ -59,7 +64,7 @@ export default function HomeView({ dashboard, lang, isMock, dateFrom, dateTo, on
             <span className={kh(lang)}>{tx.goodAfternoon}</span>
           </div>
           <div style={{ fontSize: 13, color: G.textSec, marginTop: 4 }}>
-            <span className={kh(lang)}>{isMock ? tx.monitored : (lang === "km" ? "ទិន្នន័យផ្សាយផ្ទាល់ពី Redis" : "Live Upstash Redis Data")}</span>
+            <span className={kh(lang)}>{lang === "km" ? `សូមស្វាគមន៍, ${displayName}` : `Welcome, ${displayName}`}</span>
           </div>
         </div>
         {isMock ? (
@@ -68,7 +73,7 @@ export default function HomeView({ dashboard, lang, isMock, dateFrom, dateTo, on
           </span>
         ) : (
           <span style={{ fontSize: 10, background: "rgba(34,197,94,0.15)", color: G.safe, border: `1px solid ${G.safe}`, padding: "3px 8px", borderRadius: 6, fontWeight: 700 }}>
-            🟢 LIVE SYNCED
+            🟢 ONLINE
           </span>
         )}
       </div>

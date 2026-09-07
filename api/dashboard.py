@@ -43,6 +43,9 @@ try:
         save_user_totp,
         disable_user_totp,
         verify_user_totp_or_backup,
+        get_domain_whitelist,
+        save_domain_whitelist,
+        get_threat_events,
     )
     from api.totp import (
         generate_totp_secret,
@@ -86,6 +89,9 @@ except ImportError:
         save_user_totp,
         disable_user_totp,
         verify_user_totp_or_backup,
+        get_domain_whitelist,
+        save_domain_whitelist,
+        get_threat_events,
     )
     from totp import (
         generate_totp_secret,
@@ -150,9 +156,6 @@ class handler(BaseHTTPRequestHandler):
             init_len = len(init_raw)
 
             logger.info("[Dashboard API] POST incoming action='%s', initData length=%d, platform=%s", action or "fetch_dashboard", init_len, platform)
-            print(f"[Dashboard API] 📥 Incoming POST action='{action or 'fetch_dashboard'}' initData_len={init_len} platform='{platform}' unsafe_user={repr(unsafe_user)}", flush=True)
-            if init_raw:
-                print(f"[Dashboard API] 📥 initData snippet: {repr(init_raw[:160])}", flush=True)
 
             # ── 1. Unauthenticated Login Endpoints (PIN / TOTP) ──────────────
             if action == "login_pin":
@@ -177,14 +180,12 @@ class handler(BaseHTTPRequestHandler):
                     reset_pin_fail(matched_uid)
                     token = create_session(matched_uid)
                     logger.info("[PIN] login_pin SUCCESS for uid=%d", matched_uid)
-                    print(f"[Dashboard API] 🟢 PIN Login SUCCESS for uid={matched_uid}, session={token[:8]}..", flush=True)
                     return self._json(200, {"ok": True, "session": token, "user_id": matched_uid})
 
                 rec_uid = candidate_uids[0] if candidate_uids else 1221693150
                 fails = record_pin_fail(rec_uid)
                 curr_lock = pin_lock_seconds(rec_uid)
                 logger.warning("[PIN] login_pin INCORRECT (attempt=%s, locked=%ds)", fails.get("count", 0), curr_lock)
-                print(f"[Dashboard API] ❌ PIN Login INCORRECT (attempt={fails.get('count', 0)}, locked={curr_lock}s)", flush=True)
                 return self._json(
                     200,
                     {
@@ -209,10 +210,9 @@ class handler(BaseHTTPRequestHandler):
                     reset_pin_fail(matched_uid)
                     token = create_session(matched_uid)
                     logger.info("[TOTP] login_totp SUCCESS for uid=%d", matched_uid)
-                    print(f"[Dashboard API] 🟢 TOTP Login SUCCESS for uid={matched_uid}, session={token[:8]}..", flush=True)
                     return self._json(200, {"ok": True, "session": token, "user_id": matched_uid})
 
-                print(f"[Dashboard API] ❌ TOTP Login failed: invalid code", flush=True)
+                logger.warning("[TOTP] login_totp failed: invalid code")
                 return self._json(400, {"ok": False, "error": "Invalid 2FA code or backup code"})
 
             # ── 2. Authenticate via Telegram HMAC, Unsafe User or PIN Session ─
@@ -225,11 +225,9 @@ class handler(BaseHTTPRequestHandler):
                         user = {"id": s_uid, "first_name": f"Admin_{s_uid}", "username": "admin"}
                         debug_str = "OK (session)"
                         logger.info("[Dashboard API] Telegram session authenticated via active PIN session for uid=%d", s_uid)
-                        print(f"[Dashboard API] 🟢 Authenticated via active PIN session for uid={s_uid}", flush=True)
 
             if not user:
                 logger.warning("[Dashboard API] Rejected POST request: %s (len=%d, platform=%s)", debug_str, init_len, platform)
-                print(f"[Dashboard API] ❌ Auth Failed: {debug_str} (initData len={init_len}, platform={platform})", flush=True)
                 return self._json(
                     401,
                     {
@@ -248,7 +246,6 @@ class handler(BaseHTTPRequestHandler):
             super_admin = is_super_admin(uid)
             is_admin = super_admin or uid in whitelist_ids()
             logger.info("[Dashboard API] User uid=%d (super_admin=%s, is_admin=%s)", uid, super_admin, is_admin)
-            print(f"[Dashboard API] 🟢 Auth Success: uid={uid} (@{user.get('username', 'none')}) super_admin={super_admin} is_admin={is_admin} action={action or 'fetch_dashboard'}", flush=True)
 
             # ── PIN & TOTP Actions (Dedicated for Manage Tab) ───────────
             if action == "check_pin":
@@ -408,6 +405,14 @@ class handler(BaseHTTPRequestHandler):
                 ok = set_subscription(target, plan, expiry)
                 return self._json(200, {"ok": ok, "subscriptions": list_subscriptions()})
 
+            # Action: Save Trusted Domain Whitelist (Any authorized admin)
+            if body.get("action") == "save_domain_whitelist":
+                if not is_admin:
+                    return self._json(403, {"ok": False, "error": "Unauthorized"})
+                domains = body.get("domains", [])
+                ok = save_domain_whitelist(domains)
+                return self._json(200, {"ok": ok, "domain_whitelist": get_domain_whitelist()})
+
             # Action: Revoke a plan (reset to free) (Super Admin only)
             if body.get("action") == "remove_plan":
                 if not super_admin:
@@ -420,7 +425,7 @@ class handler(BaseHTTPRequestHandler):
                 return self._json(200, {"ok": ok, "subscriptions": list_subscriptions()})
 
             if not super_admin and uid not in whitelist_ids():
-                print(f"[Dashboard API] ⚠️ Access denied for uid={uid} (@{user.get('username')}) - not in whitelist. Whitelist: {whitelist_ids()}", flush=True)
+                logger.warning("[Dashboard API] Access denied for uid=%d (@%s) - not in whitelist", uid, user.get("username"))
                 return self._json(
                     200,
                     {
@@ -438,11 +443,41 @@ class handler(BaseHTTPRequestHandler):
 
     def _full_payload(self, uid: int, user: dict, super_admin: bool, body: dict, session: str = "") -> dict:
         tok = session or body.get("session") or create_session(uid)
+        days = int(body.get("days", 1))
+
+        # Build dashboard summary
+        dash = build_dashboard(uid, days=days)
+
+        # Threat Events
+        allowed_groups = get_allowed_groups()
+        group_ids = groups_for_user(uid, allowed_groups)
+        raw_threats = get_threat_events(group_ids, days=days)
+
+        # Apply role-based ID & group privacy rules
+        threat_events = []
+        for ev in raw_threats:
+            item = dict(ev)
+            if not super_admin:
+                # Regular Admin: mask numeric IDs, keep usernames and group names
+                item["sender_id"] = None
+                item["group_id"] = None
+            threat_events.append(item)
+
+        if not super_admin and dash.get("groups"):
+            for g in dash["groups"]:
+                g["id"] = 0  # Mask raw group ID for regular admin
+
         payload = {
             "authorized": True,
             "is_super_admin": super_admin,
-            "user": {"id": uid, "first_name": user.get("first_name", ""), "username": user.get("username", "")},
-            "dashboard": build_dashboard(uid, int(body.get("days", 7))),
+            "user": {
+                "id": uid if super_admin else 0,
+                "first_name": user.get("first_name", ""),
+                "username": user.get("username", ""),
+            },
+            "dashboard": dash,
+            "threat_events": threat_events,
+            "domain_whitelist": get_domain_whitelist(),
             "config": get_system_config() if super_admin else None,
             "plans": get_plan_catalog() if super_admin else None,
             "subscriptions": list_subscriptions() if super_admin else None,

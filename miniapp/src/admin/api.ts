@@ -50,7 +50,6 @@ if (typeof window !== "undefined") {
         try { data = JSON.parse(data); } catch {}
       }
       if (data && data.eventType === "web_app_setup_data" && data.eventData?.initData) {
-        console.log("[MiniApp] Captured web_app_setup_data from Telegram Desktop!");
         _cachedInitData = data.eventData.initData;
         try {
           sessionStorage.setItem("songket_init_data", data.eventData.initData);
@@ -226,7 +225,6 @@ export function requestTelegramWriteAccess(): Promise<boolean> {
     if (tg && typeof tg.requestWriteAccess === "function") {
       try {
         tg.requestWriteAccess((allowed: boolean) => {
-          console.log("[MiniApp] requestWriteAccess response:", allowed);
           resolve(Boolean(allowed));
         });
         return;
@@ -250,22 +248,8 @@ export async function fetchDashboardData(days: number = 7): Promise<DashboardApi
   }
 
   // Poll briefly for initData
-  const initData = await waitForTelegramInitData(1200);
-  console.log(
-    "[MiniApp] fetchDashboardData initData present:",
-    Boolean(initData),
-    "length:",
-    initData.length
-  );
-
+  await waitForTelegramInitData(1200);
   const payload = getAuthPayload({ days });
-  console.log("[MiniApp] fetchDashboardData dispatching POST /api/dashboard payload:", {
-    initData_len: payload.initData.length,
-    has_rawHash: Boolean(payload.rawHash),
-    platform: payload.platform,
-    has_unsafe_user: Boolean(payload.initDataUnsafe?.user),
-    has_session: Boolean(payload.session),
-  });
 
   try {
     const response = await fetch("/api/dashboard", {
@@ -276,11 +260,8 @@ export async function fetchDashboardData(days: number = 7): Promise<DashboardApi
       body: JSON.stringify(payload),
     });
 
-    console.log("[MiniApp] fetchDashboardData HTTP status:", response.status);
-
     if (response.ok) {
       const data: DashboardApiResponse = await response.json();
-      console.log("[MiniApp] fetchDashboardData received success payload:", data);
       if (data && data.authorized) {
         if ((data as any).session) {
           setSessionToken((data as any).session);
@@ -341,7 +322,6 @@ export async function resetPin(): Promise<{
       body: JSON.stringify(getAuthPayload({ action: "reset_pin" })),
     });
     const res = await response.json();
-    console.log("[MiniApp] resetPin response:", res);
     return res;
   } catch (err: any) {
     console.warn("[MiniApp] resetPin error:", err);
@@ -476,7 +456,6 @@ export async function checkPinStatus() {
       body: JSON.stringify(getAuthPayload({ action: "check_pin" })),
     });
     const res = await response.json();
-    console.log("[MiniApp] checkPinStatus response:", res);
     return res;
   } catch {
     return { ok: true, pin_exists: false, locked: 0 };
@@ -491,7 +470,6 @@ export async function setupPin(pin: string, confirm: string) {
       body: JSON.stringify(getAuthPayload({ action: "setup_pin", pin, confirm })),
     });
     const res = await response.json();
-    console.log("[MiniApp] setupPin response (HTTP " + response.status + "):", res);
     if (res && res.session) {
       setSessionToken(res.session);
     }
@@ -510,7 +488,6 @@ export async function loginPin(pin: string) {
       body: JSON.stringify(getAuthPayload({ action: "login_pin", pin })),
     });
     const res = await response.json();
-    console.log("[MiniApp] loginPin response (HTTP " + response.status + "):", res);
     if (res && res.session) {
       setSessionToken(res.session);
     }
@@ -547,3 +524,8 @@ export async function assignPlan(user_id: number, plan: string) {
 export async function removePlan(user_id: number) {
   return postAction({ action: "remove_plan", user_id });
 }
+
+export async function saveDomainWhitelist(domains: string[]) {
+  return postAction({ action: "save_domain_whitelist", domains });
+}
+

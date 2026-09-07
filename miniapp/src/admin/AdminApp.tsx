@@ -704,11 +704,6 @@ export default function AdminApp() {
   const [loginModalOpen, setLoginModalOpen] = useState(false);
 
   // Helper date functions
-  const getDaysAgo = (d: number) => {
-    const dt = new Date();
-    dt.setDate(dt.getDate() - d);
-    return dt.toISOString().split("T")[0];
-  };
   const getToday = () => new Date().toISOString().split("T")[0];
 
   // Dashboard API state
@@ -718,14 +713,14 @@ export default function AdminApp() {
   const [apiData, setApiData] = useState<DashboardApiResponse | null>(null);
   const [manageUnlocked, setManageUnlocked] = useState(false);
 
-  // Independent date states for each tab
-  const [homeDateFrom, setHomeDateFrom] = useState<string>(() => getDaysAgo(7));
+  // Independent date states for each tab (1-day view default)
+  const [homeDateFrom, setHomeDateFrom] = useState<string>(() => getToday());
   const [homeDateTo, setHomeDateTo] = useState<string>(() => getToday());
 
-  const [threatsDateFrom, setThreatsDateFrom] = useState<string>(() => getDaysAgo(7));
+  const [threatsDateFrom, setThreatsDateFrom] = useState<string>(() => getToday());
   const [threatsDateTo, setThreatsDateTo] = useState<string>(() => getToday());
 
-  const [historyDateFrom, setHistoryDateFrom] = useState<string>(() => getDaysAgo(7));
+  const [historyDateFrom, setHistoryDateFrom] = useState<string>(() => getToday());
   const [historyDateTo, setHistoryDateTo] = useState<string>(() => getToday());
 
   const [showNotifications, setShowNotifications] = useState(false);
@@ -861,6 +856,7 @@ export default function AdminApp() {
     dashboard: (
       <HomeView
         dashboard={dashboard}
+        user={user}
         lang={lang}
         isMock={isMock}
         dateFrom={homeDateFrom}
@@ -876,6 +872,8 @@ export default function AdminApp() {
     threats: (
       <ThreatsView
         dashboard={dashboard}
+        threatEvents={apiData?.threat_events}
+        isSuperAdmin={isSuperAdmin}
         lang={lang}
         dateFrom={threatsDateFrom}
         dateTo={threatsDateTo}
@@ -888,6 +886,7 @@ export default function AdminApp() {
     history: (
       <HistoryView
         dashboard={dashboard}
+        isSuperAdmin={isSuperAdmin}
         lang={lang}
         dateFrom={historyDateFrom}
         dateTo={historyDateTo}
@@ -912,6 +911,7 @@ export default function AdminApp() {
         config={apiData?.config}
         plans={apiData?.plans}
         subscriptions={apiData?.subscriptions}
+        domainWhitelist={apiData?.domain_whitelist}
         lang={lang}
         isSuperAdmin={isSuperAdmin}
         onRefresh={() => loadData(true, 31)}
