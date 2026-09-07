@@ -880,18 +880,25 @@ def _send_threat_alert(
         dom_clean = target_domain.lower().replace("http://", "").replace("https://", "").split("/")[0][:40]
         second_row.append({"text": "🛡️ Whitelist Domain", "callback_data": f"wl_dom:{chat_id}:{dom_clean}"})
     if target_file_sha:
-        second_row.append({"text": "🛡️ Whitelist File", "callback_data": f"approve_file:{chat_id}:{target_file_sha}"})
+        short_sha = target_file_sha[:16]
+        try:
+            kv_set(f"fsha:{chat_id}:{short_sha}", target_file_sha)
+        except Exception:
+            pass
+        second_row.append({"text": "🛡️ Whitelist File", "callback_data": f"appr_f:{chat_id}:{short_sha}"})
     second_row.append({"text": "💡 Guide", "callback_data": "explain_threat"})
     admin_kb_rows.append(second_row)
 
     admin_reply_markup = {"inline_keyboard": admin_kb_rows}
     admin_targets = _get_admin_chat_ids(chat_id)
+    chat_info = api.get_chat(chat_id) if hasattr(api, "get_chat") else None
+    group_name = (chat_info or {}).get("title") or "Group"
     for admin_id in admin_targets:
         try:
             admin_alert_text = (
                 f"🚨 <b>Security Threat Alert | Group Alert</b>\n"
-                f"👥 <b>Group :</b> <code>{chat_id}</code>\n"
-                f"👤 <b>Sender :</b> {user_display} (ID: <code>{target_user_id}</code>)\n"
+                f"👥 <b>Group :</b> <b>{esc(group_name)}</b>\n"
+                f"👤 <b>Sender :</b> {user_display}\n"
                 f"🎯 <b>Target :</b> <code>{esc(flag)}</code>\n\n"
                 f"{text}\n\n"
                 f"👇 <i>Admin Controls (False Positive Whitelist / Moderation):</i>"
@@ -1194,7 +1201,7 @@ def _build_group_settings_view(api: TelegramAPI, group_id: int) -> tuple[str, di
 
     text = (
         f"⚙️ <b>ការកំណត់សុវត្ថិភាពសម្រាប់ក្រុម / Group Settings:</b>\n"
-        f"📌 <b>{esc(title)}</b> (ID: <code>{group_id}</code>)\n\n"
+        f"📌 <b>{esc(title)}</b>\n\n"
         f"🔹 <b>ភាសា (Language):</b> {lang_display}\n"
         f"🔹 <b>សារសុវត្ថិភាព (Safe Message):</b> {timer_display}\n"
         f"🔹 <b>Whitelist Users:</b> {len(wl_users)} នាក់ (members)\n"
@@ -1236,7 +1243,7 @@ def _build_group_users_view(api: TelegramAPI, group_id: int) -> tuple[str, dict]
 
     lines = [
         f"👥 <b>ការគ្រប់គ្រងអ្នកប្រើប្រាស់ / Users Management:</b>",
-        f"📌 <b>{esc(title)}</b> (<code>{group_id}</code>)\n",
+        f"📌 <b>{esc(title)}</b>\n",
         f"🛡️ <b>Whitelisted Users (អ្នកអនុញ្ញាត):</b>",
     ]
     if not wl_users:
@@ -1244,8 +1251,7 @@ def _build_group_users_view(api: TelegramAPI, group_id: int) -> tuple[str, dict]
     else:
         for idx, u in enumerate(wl_users, 1):
             uname = f"@{u['username']}" if u.get("username") else u.get("name") or "User"
-            uid = u.get("user_id")
-            lines.append(f"{idx}. {esc(uname)} (ID: <code>{uid}</code>)")
+            lines.append(f"{idx}. {esc(uname)}")
 
     lines.append(f"\n🔇 <b>Muted / Blocklisted Users (អ្នកត្រូវ Mute):</b>")
     if not muted_users:
@@ -1253,9 +1259,8 @@ def _build_group_users_view(api: TelegramAPI, group_id: int) -> tuple[str, dict]
     else:
         for idx, u in enumerate(muted_users, 1):
             uname = f"@{u['username']}" if u.get("username") else u.get("name") or "User"
-            uid = u.get("user_id")
             strikes = u.get("strikes", 3)
-            lines.append(f"{idx}. {esc(uname)} (ID: <code>{uid}</code>) · Strikes: {strikes}")
+            lines.append(f"{idx}. {esc(uname)} · Strikes: {strikes}")
 
     keyboard = []
     # Action buttons for muted users
@@ -1768,36 +1773,40 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
             return
 
     # 0.6 File whitelist approval (doc section 4)
-    if data.startswith("approve_file:"):
+    if data.startswith("appr_f:") or data.startswith("approve_file:"):
         parts = data.split(":")
         if len(parts) == 3:
             gid = int(parts[1])
-            sha = parts[2]
-            if not (is_super_admin(user_id) or api.is_group_admin(user_id, gid)):
+            sha_part = parts[2]
+            full_sha = kv_get(f"fsha:{gid}:{sha_part}") or sha_part
+            if not (is_super_admin(user_id) or user_id in _get_admin_chat_ids(gid) or api.is_group_admin(user_id, gid)):
                 api.answer_callback_query(query_id, text="❌ Admin only / សម្រាប់តែ Admin ប៉ុណ្ណោះ", show_alert=True)
                 return
-            whitelist_file(gid, sha)
+            whitelist_file(gid, full_sha)
             api.answer_callback_query(
                 query_id,
                 text="🛡️ File approved and added to whitelist! Future uploads will be permitted.",
                 show_alert=True,
             )
+            chat_info = api.get_chat(gid) if hasattr(api, "get_chat") else None
+            g_title = (chat_info or {}).get("title") or "Group"
             if chat_id < 0:
-                api.send_message(gid, f"🛡️ <b>File Whitelisted:</b> File hash <code>{sha[:16]}...</code> approved by admin.")
+                api.send_message(gid, f"🛡️ <b>File Whitelisted:</b> File approved by admin.")
             else:
-                api.send_message(chat_id, f"🛡️ <b>File Whitelisted:</b> File hash <code>{sha[:16]}...</code> approved for group <code>{gid}</code>.")
+                api.send_message(chat_id, f"🛡️ <b>File Whitelisted:</b> File approved for <b>{esc(g_title)}</b>.")
             return
 
-    if data.startswith("delete_file:"):
+    if data.startswith("del_f:") or data.startswith("delete_file:"):
         parts = data.split(":")
         if len(parts) == 3:
             gid = int(parts[1])
             mid = int(parts[2])
-            if not (is_super_admin(user_id) or api.is_group_admin(user_id, gid)):
+            if not (is_super_admin(user_id) or user_id in _get_admin_chat_ids(gid) or api.is_group_admin(user_id, gid)):
                 api.answer_callback_query(query_id, text="❌ Admin only.", show_alert=True)
                 return
             api.delete_message(gid, mid)
             api.answer_callback_query(query_id, text="🗑️ File deleted.")
+            return
             return
 
     # 0.65 1-Click Group Admin Inline Actions (Unmute / Kick / Ban / Whitelist)
@@ -2508,8 +2517,8 @@ def process_update(api: TelegramAPI, update: dict) -> None:
             dom_clean = domain.lower().replace("http://", "").replace("https://", "").split("/")[0][:40]
             admin_warn = (
                 f"⚠️ <b>Suspicious Link Detected | Group Alert</b>\n"
-                f"👥 <b>Group :</b> <b>{esc(chat_title or str(chat_id))}</b> (ID: <code>{chat_id}</code>)\n"
-                f"👤 <b>Sender :</b> {user_display} (ID: <code>{sender_id}</code>)\n"
+                f"👥 <b>Group :</b> <b>{esc(chat_title or 'Group')}</b>\n"
+                f"👤 <b>Sender :</b> {user_display}\n"
                 f"🔗 <b>Target :</b> <code>{esc(domain)}</code>\n"
                 f"🛡️ <b>Consensus :</b>\n{consensus}\n\n"
                 f"👇 <i>Admin Controls (Tap to Whitelist if False Positive or Moderate):</i>"
@@ -2656,20 +2665,24 @@ def process_update(api: TelegramAPI, update: dict) -> None:
         api.send_message(chat_id, warn_text, reply_markup=group_kb)
 
         # In Admin DM: Whitelist & Delete / Moderation controls for admin
+        short_sha = sha256[:16]
+        try:
+            kv_set(f"fsha:{chat_id}:{short_sha}", sha256)
+        except Exception:
+            pass
         admin_warn = (
             f"⚠️ <b>Suspicious File Detected | Group Alert</b>\n"
-            f"👥 <b>Group :</b> <b>{esc(chat_title or str(chat_id))}</b> (ID: <code>{chat_id}</code>)\n"
-            f"👤 <b>Sender :</b> {user_display} (ID: <code>{sender_id}</code>)\n"
+            f"👥 <b>Group :</b> <b>{esc(chat_title or 'Group')}</b>\n"
+            f"👤 <b>Sender :</b> {user_display}\n"
             f"📁 <b>File :</b> <code>{esc(filename)}</code>\n"
-            f"🔑 <b>SHA256 :</b> <code>{sha256}</code>\n"
             f"🛡️ <b>Consensus :</b>\n{engine_consensus(result)}\n\n"
             f"👇 <i>Admin Controls (Tap to Whitelist if False Positive or Delete/Moderate):</i>"
         )
         admin_kb = {
             "inline_keyboard": [
                 [
-                    {"text": "🛡️ Approve & Whitelist", "callback_data": f"approve_file:{chat_id}:{sha256}"},
-                    {"text": "🗑️ Delete File", "callback_data": f"delete_file:{chat_id}:{msg_id}"},
+                    {"text": "🛡️ Approve & Whitelist", "callback_data": f"appr_f:{chat_id}:{short_sha}"},
+                    {"text": "🗑️ Delete File", "callback_data": f"del_f:{chat_id}:{msg_id}"},
                 ],
                 [
                     {"text": "🔇 Mute 24h", "callback_data": f"mute:{chat_id}:{sender_id}"},

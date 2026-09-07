@@ -218,28 +218,17 @@ export default function ManageView({
     const dname = fallbackName || info?.name || "";
     const cleanUname = uname ? (uname.startsWith("@") ? uname : `@${uname}`) : "";
 
-    if (isSuperAdmin) {
-      if (cleanUname) {
-        return {
-          title: cleanUname,
-          subtitle: `ID: ${idStr}${dname && dname !== cleanUname ? ` · ${dname}` : ""}`,
-        };
-      }
-      if (dname) {
-        return { title: dname, subtitle: `ID: ${idStr}` };
-      }
-      return { title: `User_${idStr}`, subtitle: `ID: ${idStr}` };
-    } else {
-      // Regular Admin privacy: username only, no numeric ID
-      if (cleanUname) {
-        return { title: cleanUname, subtitle: dname || undefined };
-      }
-      if (dname) {
-        return { title: dname };
-      }
-      const masked = idStr.length > 4 ? `User_***${idStr.slice(-4)}` : `User_${idStr}`;
-      return { title: masked };
+    // Privacy standard: Show USERNAME only (or Display Name if no username)
+    if (cleanUname) {
+      return {
+        title: cleanUname,
+        subtitle: dname && dname !== cleanUname ? dname : undefined,
+      };
     }
+    if (dname) {
+      return { title: dname };
+    }
+    return { title: "User" };
   }
 
   function getGroupTitle(gid: number): string {
@@ -1042,7 +1031,7 @@ export default function ManageView({
                   <span className={kh(lang)}>{isKm ? "ការកំណត់ភាសា & សារសុវត្ថិភាព" : "Language & Safe Message"}</span>
                 </div>
                 <div style={{ fontSize: 11, color: G.muted, marginTop: 2 }}>
-                  📌 {getGroupTitle(selectedGid)} {isSuperAdmin ? `(ID: ${selectedGid})` : ""}
+                  📌 {getGroupTitle(selectedGid)}
                 </div>
               </div>
               {savingGroupSettings && <Loader2 size={15} color={G.gold} className="spin-animation" />}
@@ -1543,7 +1532,6 @@ export default function ManageView({
                   >
                     <div>
                       <div style={{ fontSize: 12, fontWeight: 700, color: G.text }}>{getGroupTitle(gid)}</div>
-                      <div style={{ fontSize: 10, color: G.muted, fontFamily: "JetBrains Mono, monospace" }}>ID: {gid}</div>
                     </div>
                     <button
                       onClick={() => handleRemoveGroup(gid)}
