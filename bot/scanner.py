@@ -12,6 +12,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import logging
+import os
 import re
 import threading
 import time
@@ -161,8 +162,13 @@ def check_urlhaus_prefilter(url: str) -> Optional[dict]:
 
 def check_google_safebrowsing(url: str) -> Optional[dict]:
     """Check URL against Google Safe Browsing v4 API if key is available."""
-    import os
-    api_key = os.environ.get("GOOGLE_SAFE_BROWSING_KEY") or os.environ.get("GSB_API_KEY", "")
+    api_key = (
+        getattr(config, "GOOGLE_SAFE_BROWSING_KEY", "")
+        or os.environ.get("GOOGLE_SAFE_BROWSING_KEY")
+        or os.environ.get("GOOGLE_SAFE_BROWSING_API_KEY")
+        or os.environ.get("GSB_API_KEY")
+        or os.environ.get("SAFE_BROWSING_API_KEY", "")
+    ).strip()
     if not api_key:
         return None
     try:
@@ -170,7 +176,12 @@ def check_google_safebrowsing(url: str) -> Optional[dict]:
         payload = {
             "client": {"clientId": "songket-security-bot", "clientVersion": "2.0.0"},
             "threatInfo": {
-                "threatTypes": ["MALWARE", "SOCIAL_ENGINEERING", "UNWANTED_SOFTWARE", "POTENTIALLY_HARMFUL_APPLICATION"],
+                "threatTypes": [
+                    "MALWARE",
+                    "SOCIAL_ENGINEERING",
+                    "UNWANTED_SOFTWARE",
+                    "POTENTIALLY_HARMFUL_APPLICATION",
+                ],
                 "platformTypes": ["ANY_PLATFORM"],
                 "threatEntryTypes": ["URL"],
                 "threatEntries": [{"url": url}],
@@ -179,14 +190,19 @@ def check_google_safebrowsing(url: str) -> Optional[dict]:
         r = requests.post(endpoint, json=payload, timeout=3)
         if r.status_code == 200:
             res = r.json()
-            if res.get("matches"):
-                logger.warning("[Google Safe Browsing] Threat matched for %s: %s", url, res["matches"])
+            matches = res.get("matches") or []
+            if matches:
+                matched_types = list({m.get("threatType", "THREAT") for m in matches if isinstance(m, dict)})
+                threat_label = ", ".join(matched_types) or "MALWARE/PHISHING"
+                logger.warning("[Google Safe Browsing] Threat matched for %s: %s", url, threat_label)
                 return {
                     "malicious": 25,
                     "suspicious": 5,
                     "harmless": 0,
                     "undetected": 0,
                     "prefilter": "google_safe_browsing",
+                    "threat": threat_label,
+                    "heuristic": "phishing" if "SOCIAL_ENGINEERING" in threat_label else "malware",
                 }
     except Exception as e:
         logger.debug("Google Safe Browsing check skipped/failed: %s", e)

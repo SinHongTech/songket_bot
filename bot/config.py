@@ -90,6 +90,15 @@ VT_SUSPICIOUS_THRESHOLD: int = max(1, _int_env("VT_SUSPICIOUS_THRESHOLD", 2))
 VT_POLL_INTERVAL: int = max(1, _int_env("VT_POLL_INTERVAL", 3))
 VT_POLL_ATTEMPTS: int = max(1, _int_env("VT_POLL_ATTEMPTS", 10))
 
+# ── Google Safe Browsing ───────────────────────────────────────────────────
+GOOGLE_SAFE_BROWSING_KEY: str = (
+    os.environ.get("GOOGLE_SAFE_BROWSING_KEY")
+    or os.environ.get("GOOGLE_SAFE_BROWSING_API_KEY")
+    or os.environ.get("GSB_API_KEY")
+    or os.environ.get("SAFE_BROWSING_API_KEY", "")
+).strip()
+GOOGLE_SAFE_BROWSING_ENABLED: bool = bool(GOOGLE_SAFE_BROWSING_KEY)
+
 # Strike penalties (doc section 3): strikes -> mute duration (seconds)
 STRIKE_MUTE_RULES: dict = {3: 3600, 5: 28800, 10: 86400}
 
