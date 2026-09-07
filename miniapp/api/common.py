@@ -265,6 +265,37 @@ def save_allowed_groups(groups: list[int]) -> bool:
     return kv_set("config:allowed_groups", ",".join(str(x) for x in groups))
 
 
+def add_allowed_group(chat_id: int) -> bool:
+    raw = kv_get("config:allowed_groups") or ""
+    ids = [x.strip() for x in str(raw).split(",") if x.strip()]
+    sid = str(chat_id)
+    if sid not in ids:
+        ids.append(sid)
+        return kv_set("config:allowed_groups", ",".join(ids))
+    return True
+
+
+def add_group_handler(user_id: int, chat_id: int) -> bool:
+    data = kv_json_get("config:group_handlers") or {}
+    uid = str(user_id)
+    grps = [int(g) for g in data.get(uid, [])]
+    if chat_id not in grps:
+        grps.append(chat_id)
+        data[uid] = grps
+        return kv_json_set("config:group_handlers", data)
+    return True
+
+
+def record_known_group(chat_id: int, title: str) -> bool:
+    data = kv_json_get("known_groups") or {}
+    data[str(chat_id)] = title or str(chat_id)
+    return kv_json_set("known_groups", data)
+
+
+def get_known_groups() -> dict:
+    return kv_json_get("known_groups") or {}
+
+
 # ── Plans & subscriptions ────────────────────────────────────────────────────
 
 DEFAULT_PLAN_CATALOG: dict = {
@@ -501,7 +532,32 @@ def _compact_user_fmt(k: str, v: str) -> str:
     return f"{k}={v}"
 
 
-def verify_telegram_init_data(init_data: str, raw_hash: str = "", unsafe_user: Optional[dict] = None, max_age_seconds: int = 7 * 86400) -> tuple[Optional[dict], str]:
+def _safe_json_loads(s: str) -> Optional[dict]:
+    if not s:
+        return None
+    from urllib.parse import unquote
+    curr = s
+    for _ in range(3):
+        try:
+            res = json.loads(curr)
+            if isinstance(res, dict):
+                return res
+        except Exception:
+            pass
+        decoded = unquote(curr)
+        if decoded == curr:
+            break
+        curr = decoded
+    return None
+
+
+def verify_telegram_init_data(
+    init_data: str,
+    raw_hash: str = "",
+    raw_search: str = "",
+    unsafe_user: Optional[dict] = None,
+    max_age_seconds: int = 7 * 86400,
+) -> tuple[Optional[dict], str]:
     """Validate Telegram WebApp initData using the official HMAC scheme across all encoding formats."""
     tokens = list(dict.fromkeys([t.strip() for t in [
         BOT_TOKEN,
@@ -515,31 +571,23 @@ def verify_telegram_init_data(init_data: str, raw_hash: str = "", unsafe_user: O
         return None, "No bot tokens configured"
 
     candidates = []
-    if init_data:
-        clean_raw = init_data.lstrip("#?").strip()
-        if clean_raw:
-            candidates.append(clean_raw)
-            if "tgWebAppData=" in clean_raw:
-                import re
-                from urllib.parse import unquote, unquote_plus
-                m = re.search(r"tgWebAppData=([^&]+)", clean_raw)
-                if m:
-                    candidates.append(unquote(m.group(1)))
-                    candidates.append(unquote_plus(m.group(1)))
-                    candidates.append(m.group(1))
-
-    if raw_hash:
-        clean_hash = raw_hash.lstrip("#?").strip()
-        if clean_hash and clean_hash not in candidates:
-            candidates.append(clean_hash)
-            if "tgWebAppData=" in clean_hash:
-                import re
-                from urllib.parse import unquote, unquote_plus
-                m = re.search(r"tgWebAppData=([^&]+)", clean_hash)
-                if m:
-                    candidates.append(unquote(m.group(1)))
-                    candidates.append(unquote_plus(m.group(1)))
-                    candidates.append(m.group(1))
+    for raw_src in (init_data, raw_hash, raw_search):
+        if not raw_src:
+            continue
+        clean = raw_src.lstrip("#?").strip()
+        if not clean:
+            continue
+        if clean not in candidates:
+            candidates.append(clean)
+        if "tgWebAppData=" in clean:
+            import re
+            from urllib.parse import unquote, unquote_plus
+            m = re.search(r"tgWebAppData=([^&]+)", clean)
+            if m:
+                val = m.group(1)
+                for unquoted_val in (unquote(val), unquote_plus(val), unquote(unquote(val)), val):
+                    if unquoted_val and unquoted_val not in candidates:
+                        candidates.append(unquoted_val)
 
     if not candidates and not unsafe_user:
         logger.warning("[Auth] Empty initData received.")
@@ -577,7 +625,7 @@ def verify_telegram_init_data(init_data: str, raw_hash: str = "", unsafe_user: O
                     calculated = hmac.new(secret_key, cs.encode(), hashlib.sha256).hexdigest()
                     if hmac.compare_digest(calculated, h_raw):
                         try:
-                            user = json.loads(unquote(unquote(raw_map.get("user", "{}"))))
+                            user = _safe_json_loads(raw_map.get("user", ""))
                             if isinstance(user, dict) and user.get("id"):
                                 logger.info("[Auth] Telegram session verified via raw map: user_id=%s", user.get("id"))
                                 return user, "OK"
@@ -637,7 +685,7 @@ def verify_telegram_init_data(init_data: str, raw_hash: str = "", unsafe_user: O
                     f"CheckStr:\n{check_variants[0]}\n"
                     f"RawCand:\n{cand_clean[:180]}"
                 )
-                logger.error("[Auth Failure Details]\n%s", last_debug)
+                logger.debug("[Auth Failure Details]\n%s", last_debug)
                 continue
 
             try:
@@ -651,15 +699,9 @@ def verify_telegram_init_data(init_data: str, raw_hash: str = "", unsafe_user: O
                 last_debug = f"auth_date unparseable: {data.get('auth_date')}"
                 continue
 
-            try:
-                raw_user_str = unquote(data.get("user", "{}"))
-                user = json.loads(raw_user_str)
-            except json.JSONDecodeError as exc:
-                last_debug = f"user JSON parse error: {exc}"
-                continue
-
+            user = _safe_json_loads(data.get("user", ""))
             if not isinstance(user, dict) or not user.get("id"):
-                last_debug = f"user dict missing id: {user}"
+                last_debug = f"user missing or invalid: {data.get('user')}"
                 continue
 
             logger.info("[Auth] Telegram session verified: user_id=%s username=%s", user.get("id"), user.get("username"))
@@ -676,8 +718,7 @@ def verify_telegram_init_data(init_data: str, raw_hash: str = "", unsafe_user: O
             try:
                 data = dict(parse_fn(cand_clean))
                 if "user" in data:
-                    raw_u = unquote(data["user"])
-                    u_obj = json.loads(raw_u)
+                    u_obj = _safe_json_loads(data["user"])
                     if isinstance(u_obj, dict) and u_obj.get("id"):
                         uid = int(u_obj.get("id", 0) or 0)
                         u_name = str(u_obj.get("username", "")).lower().lstrip("@")
@@ -831,15 +872,20 @@ def is_group_admin(user_id: int, chat_id: int) -> bool:
 
 
 def groups_for_user(user_id: int, allowed_groups: set[int]) -> list[int]:
-    """Prefer explicit ownership; otherwise discover admin rights or allow for super/whitelisted admins."""
-    # 1. Super admin sees all allowed groups immediately
-    if is_super_admin(user_id):
-        return list(sorted(allowed_groups))[:MAX_DASHBOARD_GROUPS]
+    """Return groups for user: super admins see all; regular admins see their handled groups and allowed groups."""
+    explicit_map = explicit_group_map()
+    explicit = explicit_map.get(user_id, [])
 
-    # 2. Explicit handler mapping
-    explicit = explicit_group_map().get(user_id)
-    if explicit is not None:
-        return [g for g in explicit if not allowed_groups or g in allowed_groups][:MAX_DASHBOARD_GROUPS]
+    # 1. Super admin sees all allowed groups + explicit groups
+    if is_super_admin(user_id):
+        all_ids = set(allowed_groups)
+        for g in explicit:
+            all_ids.add(g)
+        return list(sorted(all_ids))[:MAX_DASHBOARD_GROUPS]
+
+    # 2. Explicit handler mapping has highest precedence for regular admin
+    if explicit:
+        return explicit[:MAX_DASHBOARD_GROUPS]
 
     # 3. If whitelisted and allowed groups exist, return allowed groups
     if allowed_groups:
@@ -908,6 +954,249 @@ def remove_domain_whitelist(domain: str) -> bool:
         current.remove(clean)
         return save_domain_whitelist(current)
     return True
+
+
+# ── Group Settings ───────────────────────────────────────────────────────────
+DEFAULT_LANGUAGE = "both"
+DEFAULT_SAFE_TIMEOUT = 10
+ENABLE_SAFE_MESSAGES = True
+VERIFY_NEW_MEMBERS_DEFAULT = False
+LINK_PREVIEW_ENABLED = True
+TRUST_SCORE_ENABLED = True
+
+
+def get_group_settings(chat_id: int) -> dict:
+    data = kv_json_get(f"settings:group:{chat_id}")
+    default_settings = {
+        "lang": DEFAULT_LANGUAGE,
+        "safe_timeout": DEFAULT_SAFE_TIMEOUT,
+        "show_safe": ENABLE_SAFE_MESSAGES,
+        "verify_mode": VERIFY_NEW_MEMBERS_DEFAULT,
+        "link_preview": LINK_PREVIEW_ENABLED,
+        "trust_score": TRUST_SCORE_ENABLED,
+    }
+    if not data or not isinstance(data, dict):
+        return default_settings
+    return {
+        "lang": str(data.get("lang", DEFAULT_LANGUAGE)).lower(),
+        "safe_timeout": int(data.get("safe_timeout", DEFAULT_SAFE_TIMEOUT)),
+        "show_safe": bool(data.get("show_safe", ENABLE_SAFE_MESSAGES)),
+        "verify_mode": bool(data.get("verify_mode", VERIFY_NEW_MEMBERS_DEFAULT)),
+        "link_preview": bool(data.get("link_preview", LINK_PREVIEW_ENABLED)),
+        "trust_score": bool(data.get("trust_score", TRUST_SCORE_ENABLED)),
+    }
+
+
+def set_group_settings(chat_id: int, settings: dict) -> bool:
+    current = get_group_settings(chat_id)
+    current.update(settings)
+    return kv_json_set(f"settings:group:{chat_id}", current)
+
+
+def get_group_lang(chat_id: int) -> str:
+    return get_group_settings(chat_id).get("lang", DEFAULT_LANGUAGE)
+
+
+def set_group_lang(chat_id: int, lang: str) -> bool:
+    settings = get_group_settings(chat_id)
+    settings["lang"] = lang.strip().lower()
+    return set_group_settings(chat_id, settings)
+
+
+def get_user_lang(user_id: int) -> str:
+    data = kv_json_get(f"settings:user:{user_id}")
+    if data and isinstance(data, dict):
+        return str(data.get("lang", DEFAULT_LANGUAGE)).lower()
+    return DEFAULT_LANGUAGE
+
+
+def set_user_lang(user_id: int, lang: str) -> bool:
+    data = kv_json_get(f"settings:user:{user_id}") or {}
+    data["lang"] = lang.strip().lower()
+    return kv_json_set(f"settings:user:{user_id}", data)
+
+
+def get_strikes(chat_id: int, user_id: int) -> int:
+    value = kv_get(f"strikes:{chat_id}:{user_id}")
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def set_strikes(chat_id: int, user_id: int, strikes: int) -> None:
+    kv_set(f"strikes:{chat_id}:{user_id}", str(strikes))
+
+
+def add_strike(chat_id: int, user_id: int) -> int:
+    strikes = get_strikes(chat_id, user_id) + 1
+    set_strikes(chat_id, user_id, strikes)
+    return strikes
+
+
+def is_file_whitelisted(chat_id: int, sha256: str) -> bool:
+    return kv_get(f"whitelist:file:{chat_id}:{sha256}") is not None
+
+
+def whitelist_file(chat_id: int, sha256: str, filename: str = "") -> None:
+    add_group_whitelisted_file(chat_id, sha256, filename)
+
+
+# ── Group Whitelisted Users ──────────────────────────────────────────────────
+def get_group_whitelisted_users(chat_id: int) -> list[dict]:
+    data = kv_json_get(f"whitelist:users:{chat_id}") or []
+    if isinstance(data, list):
+        seen = set()
+        res = []
+        for u in data:
+            if isinstance(u, dict) and u.get("user_id"):
+                uid = int(u["user_id"])
+                if uid not in seen:
+                    seen.add(uid)
+                    res.append(u)
+        return res
+    return []
+
+
+def add_group_whitelisted_user(chat_id: int, user_id: int, username: str = "", name: str = "") -> bool:
+    users = get_group_whitelisted_users(chat_id)
+    uid = int(user_id)
+    for u in users:
+        if u.get("user_id") == uid:
+            if username and not u.get("username"):
+                u["username"] = username.lstrip("@")
+            return True
+    users.append({
+        "user_id": uid,
+        "username": username.lstrip("@") if username else "",
+        "name": name or "",
+        "added_at": int(time.time()),
+    })
+    return kv_json_set(f"whitelist:users:{chat_id}", users)
+
+
+def remove_group_whitelisted_user(chat_id: int, user_id: int) -> bool:
+    users = get_group_whitelisted_users(chat_id)
+    uid = int(user_id)
+    new_list = [u for u in users if u.get("user_id") != uid]
+    return kv_json_set(f"whitelist:users:{chat_id}", new_list)
+
+
+# ── Group Muted / Blocklisted Users ──────────────────────────────────────────
+def get_group_muted_users(chat_id: int) -> list[dict]:
+    data = kv_json_get(f"muted:users:{chat_id}") or []
+    if isinstance(data, list):
+        seen = set()
+        res = []
+        for u in data:
+            if isinstance(u, dict) and u.get("user_id"):
+                uid = int(u["user_id"])
+                if uid not in seen:
+                    seen.add(uid)
+                    res.append(u)
+        return res
+    return []
+
+
+def add_group_muted_user(chat_id: int, user_id: int, username: str = "", name: str = "", strikes: int = 3) -> bool:
+    users = get_group_muted_users(chat_id)
+    uid = int(user_id)
+    for u in users:
+        if u.get("user_id") == uid:
+            u["strikes"] = strikes
+            if username:
+                u["username"] = username.lstrip("@")
+            return kv_json_set(f"muted:users:{chat_id}", users)
+    users.append({
+        "user_id": uid,
+        "username": username.lstrip("@") if username else "",
+        "name": name or "",
+        "strikes": strikes,
+        "muted_at": int(time.time()),
+    })
+    return kv_json_set(f"muted:users:{chat_id}", users)
+
+
+def remove_group_muted_user(chat_id: int, user_id: int) -> bool:
+    users = get_group_muted_users(chat_id)
+    uid = int(user_id)
+    new_list = [u for u in users if u.get("user_id") != uid]
+    kv_json_set(f"muted:users:{chat_id}", new_list)
+    kv_set(f"strikes:{chat_id}:{uid}", "0")
+    return True
+
+
+# ── Group Whitelisted Files ──────────────────────────────────────────────────
+def get_group_whitelisted_files(chat_id: int) -> list[dict]:
+    data = kv_json_get(f"whitelist:files:{chat_id}") or []
+    if isinstance(data, list):
+        seen = set()
+        res = []
+        for f in data:
+            if isinstance(f, dict) and f.get("sha256"):
+                sha = str(f["sha256"]).lower()
+                if sha not in seen:
+                    seen.add(sha)
+                    res.append(f)
+        return res
+    return []
+
+
+def add_group_whitelisted_file(chat_id: int, sha256: str, filename: str = "") -> bool:
+    sha = sha256.strip().lower()
+    if not sha:
+        return False
+    kv_set(f"whitelist:file:{chat_id}:{sha}", "1")
+    files = get_group_whitelisted_files(chat_id)
+    for f in files:
+        if f.get("sha256") == sha:
+            if filename and not f.get("filename"):
+                f["filename"] = filename
+            return True
+    files.append({
+        "sha256": sha,
+        "filename": filename or f"file_{sha[:8]}",
+        "added_at": int(time.time()),
+    })
+    return kv_json_set(f"whitelist:files:{chat_id}", files)
+
+
+def remove_group_whitelisted_file(chat_id: int, sha256: str) -> bool:
+    sha = sha256.strip().lower()
+    kv_delete(f"whitelist:file:{chat_id}:{sha}")
+    files = get_group_whitelisted_files(chat_id)
+    new_list = [f for f in files if f.get("sha256") != sha]
+    return kv_json_set(f"whitelist:files:{chat_id}", new_list)
+
+
+# ── Known User Directory (User ID <-> Username resolution) ───────────────────
+def record_known_user(user_id: int, username: str, name: str = "") -> None:
+    if not user_id:
+        return
+    data = kv_json_get("known_users") or {}
+    uid_str = str(user_id)
+    clean_username = username.lstrip("@") if username else ""
+    data[uid_str] = {
+        "username": clean_username,
+        "name": name or "",
+        "updated_at": int(time.time()),
+    }
+    kv_json_set("known_users", data)
+
+
+def get_known_users() -> dict:
+    known = kv_json_get("known_users") or {}
+    defaults = {
+        "1221693150": {"username": "Sin_Hong", "name": "Sin Hong"},
+        "6903398617": {"username": "sin_hong_admin", "name": "Admin 690"},
+        "665698758": {"username": "admin_665", "name": "Admin 665"},
+        "1110438159": {"username": "admin_111", "name": "Admin 111"},
+        "918434351": {"username": "admin_918", "name": "Admin 918"},
+        "1130272106": {"username": "admin_113", "name": "Admin 113"},
+        "817197042": {"username": "admin_817", "name": "Admin 817"},
+    }
+    defaults.update(known)
+    return defaults
 
 
 # ── Threat Events ───────────────────────────────────────────────────────────

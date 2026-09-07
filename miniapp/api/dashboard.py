@@ -47,6 +47,21 @@ try:
         get_domain_whitelist,
         save_domain_whitelist,
         get_threat_events,
+        get_group_settings,
+        set_group_settings,
+        get_group_whitelisted_users,
+        add_group_whitelisted_user,
+        remove_group_whitelisted_user,
+        get_group_muted_users,
+        add_group_muted_user,
+        remove_group_muted_user,
+        get_group_whitelisted_files,
+        add_group_whitelisted_file,
+        remove_group_whitelisted_file,
+        get_known_users,
+        add_allowed_group,
+        add_group_handler,
+        record_known_group,
     )
     from api.totp import (
         generate_totp_secret,
@@ -94,6 +109,21 @@ except ImportError:
         get_domain_whitelist,
         save_domain_whitelist,
         get_threat_events,
+        get_group_settings,
+        set_group_settings,
+        get_group_whitelisted_users,
+        add_group_whitelisted_user,
+        remove_group_whitelisted_user,
+        get_group_muted_users,
+        add_group_muted_user,
+        remove_group_muted_user,
+        get_group_whitelisted_files,
+        add_group_whitelisted_file,
+        remove_group_whitelisted_file,
+        get_known_users,
+        add_allowed_group,
+        add_group_handler,
+        record_known_group,
     )
     from totp import (
         generate_totp_secret,
@@ -171,6 +201,7 @@ class handler(BaseHTTPRequestHandler):
             action = body.get("action", "")
             init_raw = body.get("initData", "")
             raw_hash = body.get("rawHash", "")
+            raw_search = body.get("rawSearch", "")
             platform = body.get("platform", "")
             unsafe_user = body.get("initDataUnsafe", {}).get("user") if isinstance(body.get("initDataUnsafe"), dict) else None
             init_len = len(init_raw)
@@ -236,7 +267,12 @@ class handler(BaseHTTPRequestHandler):
                 return self._json(400, {"ok": False, "error": "Invalid 2FA code or backup code"})
 
             # ── 2. Authenticate via Telegram HMAC, Unsafe User or PIN Session ─
-            user, debug_str = verify_telegram_init_data(init_raw, raw_hash=raw_hash, unsafe_user=unsafe_user)
+            user, debug_str = verify_telegram_init_data(
+                init_raw,
+                raw_hash=raw_hash,
+                raw_search=raw_search,
+                unsafe_user=unsafe_user,
+            )
             if not user:
                 session_tok = body.get("session", "")
                 if session_tok:
@@ -402,6 +438,40 @@ class handler(BaseHTTPRequestHandler):
                 ok = save_allowed_groups(groups)
                 return self._json(200, {"ok": ok, "config": get_system_config()})
 
+            # Action: Add / Link group directly from Mini App UI (handles both super & group admin)
+            if body.get("action") in {"add_group", "link_group"}:
+                if not (super_admin or uid in whitelist_ids()):
+                    return self._json(403, {"ok": False, "error": "Unauthorized"})
+                try:
+                    raw_gid = body.get("group_id")
+                    new_gid = int(raw_gid)
+                except (TypeError, ValueError):
+                    return self._json(400, {"ok": False, "error": "Invalid group_id"})
+                if not new_gid:
+                    return self._json(400, {"ok": False, "error": "Missing group_id"})
+
+                # Add to allowed groups so bot monitors it
+                add_allowed_group(new_gid)
+
+                # Link to admin's explicit group handler mapping so admin can manage it
+                add_group_handler(uid, new_gid)
+
+                # Record / cache title
+                g_title = str(body.get("title", "")).strip()
+                if not g_title:
+                    chat_info = get_chat(new_gid)
+                    if chat_info and chat_info.get("title"):
+                        g_title = chat_info["title"]
+                if g_title:
+                    record_known_group(new_gid, g_title)
+
+                return self._json(200, {
+                    "ok": True,
+                    "group_id": new_gid,
+                    "title": g_title or f"Group {new_gid}",
+                    "config": get_system_config(),
+                })
+
             # Action: Save plan catalog (Super Admin only)
             if body.get("action") == "save_plans":
                 if not super_admin:
@@ -445,8 +515,70 @@ class handler(BaseHTTPRequestHandler):
                 ok = set_subscription(target, "personal_free", 0)
                 return self._json(200, {"ok": ok, "subscriptions": list_subscriptions()})
 
-            if not super_admin and uid not in whitelist_ids():
-                logger.warning("[Dashboard API] Access denied for uid=%d (@%s) - not in whitelist", uid, user.get("username"))
+            # Action: Save Group Settings (Language, Safe Timer, etc.)
+            if body.get("action") == "save_group_settings":
+                gid = int(body.get("group_id", 0))
+                if not gid or not (super_admin or gid in user_groups):
+                    return self._json(403, {"ok": False, "error": "Unauthorized"})
+                settings_data = body.get("settings", {})
+                ok = set_group_settings(gid, settings_data)
+                return self._json(200, {"ok": ok, "settings": get_group_settings(gid)})
+
+            # Action: Add User to Group Whitelist
+            if body.get("action") == "add_group_whitelist_user":
+                gid = int(body.get("group_id", 0))
+                target_uid = int(body.get("target_user_id", 0))
+                if not gid or not target_uid or not (super_admin or gid in user_groups):
+                    return self._json(403, {"ok": False, "error": "Unauthorized"})
+                u_name = str(body.get("username", "")).lstrip("@")
+                d_name = str(body.get("name", ""))
+                ok = add_group_whitelisted_user(gid, target_uid, username=u_name, name=d_name)
+                if target_uid and u_name:
+                    record_known_user(target_uid, u_name, d_name)
+                return self._json(200, {"ok": ok, "whitelisted_users": get_group_whitelisted_users(gid)})
+
+            # Action: Remove User from Group Whitelist
+            if body.get("action") == "remove_group_whitelist_user":
+                gid = int(body.get("group_id", 0))
+                target_uid = int(body.get("target_user_id", 0))
+                if not gid or not target_uid or not (super_admin or gid in user_groups):
+                    return self._json(403, {"ok": False, "error": "Unauthorized"})
+                ok = remove_group_whitelisted_user(gid, target_uid)
+                return self._json(200, {"ok": ok, "whitelisted_users": get_group_whitelisted_users(gid)})
+
+            # Action: Unmute User in Group
+            if body.get("action") == "unmute_group_user":
+                gid = int(body.get("group_id", 0))
+                target_uid = int(body.get("target_user_id", 0))
+                if not gid or not target_uid or not (super_admin or gid in user_groups):
+                    return self._json(403, {"ok": False, "error": "Unauthorized"})
+                ok = remove_group_muted_user(gid, target_uid)
+                return self._json(200, {"ok": ok, "muted_users": get_group_muted_users(gid)})
+
+            # Action: Add File to Group Whitelist
+            if body.get("action") == "add_group_whitelist_file":
+                gid = int(body.get("group_id", 0))
+                sha = str(body.get("sha256", "")).strip().lower()
+                fname = str(body.get("filename", "")).strip()
+                if not gid or not sha or not (super_admin or gid in user_groups):
+                    return self._json(403, {"ok": False, "error": "Unauthorized"})
+                ok = add_group_whitelisted_file(gid, sha, filename=fname)
+                return self._json(200, {"ok": ok, "whitelisted_files": get_group_whitelisted_files(gid)})
+
+            # Action: Remove File from Group Whitelist
+            if body.get("action") == "remove_group_whitelist_file":
+                gid = int(body.get("group_id", 0))
+                sha = str(body.get("sha256", "")).strip().lower()
+                if not gid or not sha or not (super_admin or gid in user_groups):
+                    return self._json(403, {"ok": False, "error": "Unauthorized"})
+                ok = remove_group_whitelisted_file(gid, sha)
+                return self._json(200, {"ok": ok, "whitelisted_files": get_group_whitelisted_files(gid)})
+
+            user_groups = groups_for_user(uid, get_allowed_groups())
+            has_dashboard_access = super_admin or is_admin or uid in whitelist_ids() or bool(user_groups)
+
+            if not has_dashboard_access:
+                logger.warning("[Dashboard API] Access denied for uid=%d (@%s) - not in whitelist and no group access", uid, user.get("username"))
                 return self._json(
                     200,
                     {
@@ -484,9 +616,17 @@ class handler(BaseHTTPRequestHandler):
                 item["group_id"] = None
             threat_events.append(item)
 
-        if not super_admin and dash.get("groups"):
-            for g in dash["groups"]:
-                g["id"] = 0  # Mask raw group ID for regular admin
+        # Per-group settings, whitelisted users, muted users, and approved files
+        group_details = {}
+        for gid in group_ids:
+            group_details[str(gid)] = {
+                "settings": get_group_settings(gid),
+                "whitelisted_users": get_group_whitelisted_users(gid),
+                "muted_users": get_group_muted_users(gid),
+                "whitelisted_files": get_group_whitelisted_files(gid),
+            }
+
+        known_users = get_known_users()
 
         payload = {
             "authorized": True,
@@ -499,6 +639,8 @@ class handler(BaseHTTPRequestHandler):
             "dashboard": dash,
             "threat_events": threat_events,
             "domain_whitelist": get_domain_whitelist(),
+            "group_details": group_details,
+            "known_users": known_users,
             "config": get_system_config() if super_admin else None,
             "plans": get_plan_catalog() if super_admin else None,
             "subscriptions": list_subscriptions() if super_admin else None,

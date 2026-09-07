@@ -66,6 +66,42 @@ export interface ThreatEvent {
   action_taken: string;
 }
 
+export interface GroupUserEntry {
+  user_id: number;
+  username?: string;
+  name?: string;
+  strikes?: number;
+  added_at?: number;
+  muted_at?: number;
+}
+
+export interface GroupFileEntry {
+  sha256: string;
+  filename?: string;
+  added_at?: number;
+}
+
+export interface GroupSettings {
+  lang?: string;
+  safe_timeout?: number;
+  show_safe?: boolean;
+  link_preview?: boolean;
+  admin_chat_id?: string;
+}
+
+export interface GroupDetail {
+  settings: GroupSettings;
+  whitelisted_users: GroupUserEntry[];
+  muted_users: GroupUserEntry[];
+  whitelisted_files: GroupFileEntry[];
+}
+
+export interface KnownUser {
+  username?: string;
+  name?: string;
+  updated_at?: number;
+}
+
 export interface DashboardApiResponse {
   authorized: boolean;
   is_super_admin?: boolean;
@@ -73,6 +109,8 @@ export interface DashboardApiResponse {
   dashboard?: DashboardData;
   threat_events?: ThreatEvent[];
   domain_whitelist?: string[];
+  group_details?: Record<string, GroupDetail>;
+  known_users?: Record<string, KnownUser>;
   config?: SystemConfig;
   plans?: Record<string, PlanEntry> | null;
   subscriptions?: Subscription[] | null;
@@ -99,4 +137,5 @@ export interface Subscription {
   plan: string;
   expiry: number;
 }
+
 

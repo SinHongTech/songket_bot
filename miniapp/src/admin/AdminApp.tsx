@@ -602,21 +602,47 @@ export default function AdminApp() {
 
   useEffect(() => {
     let mounted = true;
+    const tg = getTelegramWebApp();
+    if (tg) {
+      try { tg.ready(); } catch {}
+      try { tg.expand(); } catch {}
+    }
+
     loadData(false, 31);
 
-    // Auto-retry at 800ms and 2200ms in case Telegram Desktop native webview bridge initialized late
+    // Listen for late Telegram Desktop webview handshake
+    const handleMsg = (e: MessageEvent) => {
+      try {
+        let d = e.data;
+        if (typeof d === "string") {
+          try { d = JSON.parse(d); } catch {}
+        }
+        if (d && d.eventType === "web_app_setup_data" && mounted) {
+          loadData(true, 31);
+        }
+      } catch {}
+    };
+    window.addEventListener("message", handleMsg);
+
+    // Auto-retry at 400ms, 1200ms, and 2500ms for Telegram Desktop webview readiness
     const t1 = setTimeout(() => {
       if (mounted) loadData(false, 31);
-    }, 800);
+    }, 400);
 
     const t2 = setTimeout(() => {
       if (mounted) loadData(false, 31);
-    }, 2200);
+    }, 1200);
+
+    const t3 = setTimeout(() => {
+      if (mounted) loadData(false, 31);
+    }, 2500);
 
     return () => {
       mounted = false;
+      window.removeEventListener("message", handleMsg);
       clearTimeout(t1);
       clearTimeout(t2);
+      clearTimeout(t3);
     };
   }, [loadData]);
 
@@ -760,6 +786,9 @@ export default function AdminApp() {
         plans={apiData?.plans}
         subscriptions={apiData?.subscriptions}
         domainWhitelist={apiData?.domain_whitelist}
+        groupDetails={apiData?.group_details}
+        knownUsers={apiData?.known_users}
+        dashboardGroups={apiData?.dashboard?.groups}
         lang={lang}
         isSuperAdmin={isSuperAdmin}
         onRefresh={() => loadData(true, 31)}

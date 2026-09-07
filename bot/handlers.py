@@ -23,15 +23,22 @@ from bot.redis_client import (
     add_allowed_group,
     add_domain_whitelist,
     add_group_handler,
+    add_group_muted_user,
+    add_group_whitelisted_file,
+    add_group_whitelisted_user,
     clear_pending,
+    get_daily_scan_usage,
     get_group_lang,
+    get_group_muted_users,
     get_group_settings,
+    get_group_whitelisted_files,
+    get_group_whitelisted_users,
+    get_join_time,
     get_known_groups,
+    get_known_users,
     get_pending,
     get_plan_catalog,
     get_scan_usage,
-    get_daily_scan_usage,
-    get_join_time,
     get_strikes,
     get_subscription,
     get_user_lang,
@@ -46,7 +53,11 @@ from bot.redis_client import (
     record_first_seen,
     record_join_time,
     record_known_group,
+    record_known_user,
     record_threat_event,
+    remove_group_muted_user,
+    remove_group_whitelisted_file,
+    remove_group_whitelisted_user,
     set_group_lang,
     set_group_settings,
     set_pending,
@@ -59,6 +70,7 @@ from bot.telegram_api import TelegramAPI
 from bot.utils import (
     compute_trust,
     esc,
+    explicit_group_map,
     extract_domain,
     extract_urls,
     get_allowed_groups,
@@ -68,10 +80,33 @@ from bot.utils import (
     is_whitelisted,
     mask_domain,
     resolve_redirect,
+    super_admin_ids,
     whitelist_user_ids,
 )
 
 logger = logging.getLogger("BeydaBot.handlers")
+
+
+def _get_admin_chat_ids(chat_id: int = 0) -> set[int]:
+    admins = set(super_admin_ids())
+    if config.ADMIN_CHAT_ID:
+        for item in str(config.ADMIN_CHAT_ID).split(","):
+            item = item.strip()
+            if item:
+                try:
+                    admins.add(int(item))
+                except ValueError:
+                    pass
+    if chat_id:
+        try:
+            h_map = explicit_group_map()
+            for uid, grps in h_map.items():
+                if chat_id in grps:
+                    admins.add(uid)
+        except Exception:
+            pass
+    return admins
+
 
 _PROCESSED_MESSAGES: dict[str, float] = {}
 
@@ -298,6 +333,7 @@ def apply_strike(api: TelegramAPI, chat_id: int, user_id: int, user_display: str
         api.restrict_chat_member(
             chat_id, user_id, can_send_messages=False, until_date=int(time.time()) + duration
         )
+        add_group_muted_user(chat_id, user_id, user_display, strikes=strikes)
         api.send_message(
             chat_id,
             f"📢 <b>{user_display}</b> is restricted for {hours}h due to {strikes} threat violations.",
@@ -333,14 +369,11 @@ def _send_mute_alert_to_admin(
             ]
         ]
     }
-    if config.ADMIN_CHAT_ID:
-        for admin_id_str in config.ADMIN_CHAT_ID.split(","):
-            admin_id_str = admin_id_str.strip()
-            if admin_id_str:
-                try:
-                    api.send_message(int(admin_id_str), text, reply_markup=kb)
-                except Exception as e:
-                    logger.error("Failed to send mute alert to admin %s: %s", admin_id_str, e)
+    for admin_id in _get_admin_chat_ids(chat_id):
+        try:
+            api.send_message(admin_id, text, reply_markup=kb)
+        except Exception as e:
+            logger.error("Failed to send mute alert to admin %s: %s", admin_id, e)
 
 
 def trust_label(chat_id: int, user_id: int, settings: dict) -> str:
@@ -824,41 +857,48 @@ def _send_threat_alert(
     action_en = "Message deleted immediately" if deleted else "Could not delete message, check Bot admin rights"
     text = get_msg_threat(lang, user_display, flag, action_kh, action_en) + extra
 
-    kb = []
+    # 1. GROUP MESSAGE: Public alert in group with ONLY the educational Security Guide button
+    group_kb = {
+        "inline_keyboard": [
+            [{"text": "🛡️ ការណែនាំសុវត្ថិភាព | Security Guide", "callback_data": "explain_threat"}]
+        ]
+    }
+    api.send_message(chat_id, text, reply_markup=group_kb)
+
+    # 2. ADMIN DM ALERT: Sent only to Admin/Super Admin DMs with full moderation & whitelist buttons
+    admin_kb_rows = []
     action_row = []
     if target_user_id:
         action_row.append({"text": "🔨 Ban", "callback_data": f"ban:{chat_id}:{target_user_id}"})
         action_row.append({"text": "🔇 Mute 24h", "callback_data": f"mute:{chat_id}:{target_user_id}"})
         action_row.append({"text": "👢 Kick", "callback_data": f"kick:{chat_id}:{target_user_id}"})
     if action_row:
-        kb.append(action_row)
+        admin_kb_rows.append(action_row)
 
     second_row = []
     if target_domain:
-        dom_clean = target_domain.lower().replace("http://", "").replace("https://", "").split("/")[0][:30]
+        dom_clean = target_domain.lower().replace("http://", "").replace("https://", "").split("/")[0][:40]
         second_row.append({"text": "🛡️ Whitelist Domain", "callback_data": f"wl_dom:{chat_id}:{dom_clean}"})
     if target_file_sha:
         second_row.append({"text": "🛡️ Whitelist File", "callback_data": f"approve_file:{chat_id}:{target_file_sha}"})
     second_row.append({"text": "💡 Guide", "callback_data": "explain_threat"})
-    kb.append(second_row)
+    admin_kb_rows.append(second_row)
 
-    reply_markup = {"inline_keyboard": kb}
-    api.send_message(chat_id, text, reply_markup=reply_markup)
-
-    if config.ADMIN_CHAT_ID:
+    admin_reply_markup = {"inline_keyboard": admin_kb_rows}
+    admin_targets = _get_admin_chat_ids(chat_id)
+    for admin_id in admin_targets:
         try:
-            for admin_id_str in config.ADMIN_CHAT_ID.split(","):
-                admin_id_str = admin_id_str.strip()
-                if admin_id_str:
-                    admin_alert_text = (
-                        f"🚨 <b>Security Threat Alert | Group Alert</b>\n"
-                        f"👥 <b>Group :</b> <code>{chat_id}</code>\n"
-                        f"👤 <b>Sender :</b> {user_display} (ID: <code>{target_user_id}</code>)\n\n"
-                        f"{text}"
-                    )
-                    api.send_message(int(admin_id_str), admin_alert_text, reply_markup=reply_markup)
+            admin_alert_text = (
+                f"🚨 <b>Security Threat Alert | Group Alert</b>\n"
+                f"👥 <b>Group :</b> <code>{chat_id}</code>\n"
+                f"👤 <b>Sender :</b> {user_display} (ID: <code>{target_user_id}</code>)\n"
+                f"🎯 <b>Target :</b> <code>{esc(flag)}</code>\n\n"
+                f"{text}\n\n"
+                f"👇 <i>Admin Controls (False Positive Whitelist / Moderation):</i>"
+            )
+            api.send_message(admin_id, admin_alert_text, reply_markup=admin_reply_markup)
         except Exception as exc:
-            logger.error("Admin alert failed: %s", exc)
+            logger.error("Admin threat alert failed for admin %s: %s", admin_id, exc)
 
 
 # ── Admin Private Chat Control Panel ────────────────────────────────────────
@@ -1140,6 +1180,10 @@ def _build_group_settings_view(api: TelegramAPI, group_id: int) -> tuple[str, di
     timer = settings.get("safe_timeout", config.DEFAULT_SAFE_TIMEOUT)
     show_safe = settings.get("show_safe", config.ENABLE_SAFE_MESSAGES) and timer > 0
 
+    wl_users = get_group_whitelisted_users(group_id)
+    muted_users = get_group_muted_users(group_id)
+    wl_files = get_group_whitelisted_files(group_id)
+
     lang_labels = {
         "both": "🌐 ទាំងពីរ (Bilingual KH + EN)",
         "kh": "🇰🇭 ភាសាខ្មែរ (Khmer Only)",
@@ -1150,10 +1194,13 @@ def _build_group_settings_view(api: TelegramAPI, group_id: int) -> tuple[str, di
 
     text = (
         f"⚙️ <b>ការកំណត់សុវត្ថិភាពសម្រាប់ក្រុម / Group Settings:</b>\n"
-        f"📌 <b>{title}</b>\n"
+        f"📌 <b>{esc(title)}</b> (ID: <code>{group_id}</code>)\n\n"
         f"🔹 <b>ភាសា (Language):</b> {lang_display}\n"
         f"🔹 <b>សារសុវត្ថិភាព (Safe Message):</b> {timer_display}\n"
-        f"<i>ចុចប៊ូតុងខាងក្រោមដើម្បីកែប្រែការកំណត់ភ្លាមៗ៖</i>"
+        f"🔹 <b>Whitelist Users:</b> {len(wl_users)} នាក់ (members)\n"
+        f"🔹 <b>Muted / Blocklist:</b> {len(muted_users)} នាក់ (members)\n"
+        f"🔹 <b>Approved Files:</b> {len(wl_files)} ឯកសារ (files)\n\n"
+        f"<i>ចុចប៊ូតុងខាងក្រោមដើម្បីកែប្រែ ឬគ្រប់គ្រងការកំណត់ភ្លាមៗ៖</i>"
     )
 
     keyboard = [
@@ -1169,11 +1216,102 @@ def _build_group_settings_view(api: TelegramAPI, group_id: int) -> tuple[str, di
             {"text": f"{'✅ ' if not show_safe or timer == 0 else ''}❌ Off", "callback_data": f"adm_timer:{group_id}:0"},
         ],
         [
+            {"text": f"👥 Whitelist / Mute Users ({len(wl_users)}/{len(muted_users)})", "callback_data": f"adm_users:{group_id}"},
+            {"text": f"📁 Whitelist Files ({len(wl_files)})", "callback_data": f"adm_files:{group_id}"},
+        ],
+        [
             {"text": "🔙 ត្រឡប់ទៅបញ្ជីក្រុម (Back to Groups)", "callback_data": "adm_list_groups"}
         ],
     ]
 
     return text, {"inline_keyboard": keyboard}
+
+
+def _build_group_users_view(api: TelegramAPI, group_id: int) -> tuple[str, dict]:
+    real_gid, chat = _resolve_chat_id_and_info(api, group_id)
+    title = (chat or {}).get("title") or "ក្រុម (Group)"
+
+    wl_users = get_group_whitelisted_users(group_id)
+    muted_users = get_group_muted_users(group_id)
+
+    lines = [
+        f"👥 <b>ការគ្រប់គ្រងអ្នកប្រើប្រាស់ / Users Management:</b>",
+        f"📌 <b>{esc(title)}</b> (<code>{group_id}</code>)\n",
+        f"🛡️ <b>Whitelisted Users (អ្នកអនុញ្ញាត):</b>",
+    ]
+    if not wl_users:
+        lines.append("<i>គ្មានអ្នកប្រើប្រាស់ក្នុងបញ្ជីស (No whitelisted users)</i>")
+    else:
+        for idx, u in enumerate(wl_users, 1):
+            uname = f"@{u['username']}" if u.get("username") else u.get("name") or "User"
+            uid = u.get("user_id")
+            lines.append(f"{idx}. {esc(uname)} (ID: <code>{uid}</code>)")
+
+    lines.append(f"\n🔇 <b>Muted / Blocklisted Users (អ្នកត្រូវ Mute):</b>")
+    if not muted_users:
+        lines.append("<i>គ្មានសមាជិកដែលត្រូវ Mute ឡើយ (No muted members)</i>")
+    else:
+        for idx, u in enumerate(muted_users, 1):
+            uname = f"@{u['username']}" if u.get("username") else u.get("name") or "User"
+            uid = u.get("user_id")
+            strikes = u.get("strikes", 3)
+            lines.append(f"{idx}. {esc(uname)} (ID: <code>{uid}</code>) · Strikes: {strikes}")
+
+    keyboard = []
+    # Action buttons for muted users
+    for u in muted_users[:5]:
+        uid = u.get("user_id")
+        uname = f"@{u['username']}" if u.get("username") else str(uid)
+        keyboard.append([
+            {"text": f"🔊 Unmute {uname}", "callback_data": f"unmute:{group_id}:{uid}"}
+        ])
+
+    # Action buttons to remove whitelisted users
+    for u in wl_users[:5]:
+        uid = u.get("user_id")
+        uname = f"@{u['username']}" if u.get("username") else str(uid)
+        keyboard.append([
+            {"text": f"❌ Remove Whitelist {uname}", "callback_data": f"adm_rm_wl_user:{group_id}:{uid}"}
+        ])
+
+    keyboard.append([
+        {"text": "🔙 ត្រឡប់ទៅការកំណត់ក្រុម (Back to Settings)", "callback_data": f"adm_grp:{group_id}"}
+    ])
+
+    return "\n".join(lines), {"inline_keyboard": keyboard}
+
+
+def _build_group_files_view(api: TelegramAPI, group_id: int) -> tuple[str, dict]:
+    real_gid, chat = _resolve_chat_id_and_info(api, group_id)
+    title = (chat or {}).get("title") or "ក្រុម (Group)"
+
+    wl_files = get_group_whitelisted_files(group_id)
+
+    lines = [
+        f"📁 <b>ការគ្រប់គ្រងឯកសារអនុញ្ញាត / Whitelisted Files:</b>",
+        f"📌 <b>{esc(title)}</b> (<code>{group_id}</code>)\n",
+    ]
+    if not wl_files:
+        lines.append("<i>គ្មានឯកសារក្នុងបញ្ជីអនុញ្ញាតឡើយ (No approved files yet)</i>\n")
+    else:
+        for idx, f in enumerate(wl_files, 1):
+            fname = f.get("filename") or "Document"
+            sha = f.get("sha256", "")
+            lines.append(f"{idx}. 📄 <b>{esc(fname)}</b>\n   <code>{sha[:24]}...</code>")
+
+    keyboard = []
+    for f in wl_files[:6]:
+        sha = f.get("sha256", "")
+        fname = f.get("filename") or sha[:12]
+        keyboard.append([
+            {"text": f"🗑️ Remove {fname[:18]}", "callback_data": f"adm_rm_wl_file:{group_id}:{sha}"}
+        ])
+
+    keyboard.append([
+        {"text": "🔙 ត្រឡប់ទៅការកំណត់ក្រុម (Back to Settings)", "callback_data": f"adm_grp:{group_id}"}
+    ])
+
+    return "\n".join(lines), {"inline_keyboard": keyboard}
 
 
 ADMIN_COMMANDS = [
@@ -1680,6 +1818,7 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
                 can_add_web_page_previews=True,
             )
             if unmuted:
+                remove_group_muted_user(gid, target_uid)
                 api.answer_callback_query(query_id, text="🔊 User unmuted / បានបើកសិទ្ធិផ្ញើសារឡើងវិញ!", show_alert=True)
                 api.send_message(gid, f"🔊 <b>Admin Action:</b> Member (ID: <code>{target_uid}</code>) has been unmuted by admin.")
                 if chat_id > 0:
@@ -1764,10 +1903,17 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
                 api.send_message(chat_id, f"🛡️ <b>Trusted Domain:</b> <code>{esc(domain_to_add)}</code> added to whitelist for group <code>{gid}</code>.")
             return
 
-    if data == "explain_threat":
+    if data in {"explain_threat", "explain_suspicious"}:
+        explain_text = (
+            "🛡️ ការណែនាំសុវត្ថិភាព | Security Guide:\n\n"
+            "1️⃣ ហាមចុច link ឬបើកឯកសារនេះ (Do NOT click or open)\n"
+            "2️⃣ Telegram មិនដែលសួរលេខកូដ OTP ឡើយ (Never share OTP)\n"
+            "3️⃣ បើបានចុច៖ ចូល Settings > Privacy > Active Sessions ហើយលុប Session ផ្សេងៗភ្លាម!\n\n"
+            "💡 បើជា False Positive (ច្រឡំ) Admin អាច Whitelist បានតាមរយៈ Admin DM។"
+        )
         api.answer_callback_query(
             query_id,
-            text="💡 Songket Security Bot scans links, files, and QR codes for trojans, phishing, and scam tokens to protect group members.",
+            text=explain_text,
             show_alert=True,
         )
         return
@@ -1972,7 +2118,61 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
         api.edit_message_text(chat_id, msg_id, text, reply_markup=markup)
         return
 
-    # 6. Admin Private Chat: Back to Group List
+    # 6. Admin Private Chat: Users Management Subview (Whitelist & Muted)
+    if data.startswith("adm_users:"):
+        target_gid = int(data.split(":")[1])
+        managed_groups = get_managed_groups_for_user(api, user_id)
+        if not any(g["id"] == target_gid for g in managed_groups):
+            api.answer_callback_query(query_id, text="❌ Unauthorized", show_alert=True)
+            return
+        text, markup = _build_group_users_view(api, target_gid)
+        api.edit_message_text(chat_id, msg_id, text, reply_markup=markup)
+        api.answer_callback_query(query_id)
+        return
+
+    # 7. Admin Private Chat: Files Management Subview (Approved / Whitelisted Files)
+    if data.startswith("adm_files:"):
+        target_gid = int(data.split(":")[1])
+        managed_groups = get_managed_groups_for_user(api, user_id)
+        if not any(g["id"] == target_gid for g in managed_groups):
+            api.answer_callback_query(query_id, text="❌ Unauthorized", show_alert=True)
+            return
+        text, markup = _build_group_files_view(api, target_gid)
+        api.edit_message_text(chat_id, msg_id, text, reply_markup=markup)
+        api.answer_callback_query(query_id)
+        return
+
+    # 8. Remove user from group whitelist
+    if data.startswith("adm_rm_wl_user:"):
+        parts = data.split(":")
+        target_gid = int(parts[1])
+        target_uid = int(parts[2])
+        managed_groups = get_managed_groups_for_user(api, user_id)
+        if not any(g["id"] == target_gid for g in managed_groups):
+            api.answer_callback_query(query_id, text="❌ Unauthorized", show_alert=True)
+            return
+        remove_group_whitelisted_user(target_gid, target_uid)
+        api.answer_callback_query(query_id, text="🛡️ User removed from group whitelist!", show_alert=True)
+        text, markup = _build_group_users_view(api, target_gid)
+        api.edit_message_text(chat_id, msg_id, text, reply_markup=markup)
+        return
+
+    # 9. Remove file from group whitelist
+    if data.startswith("adm_rm_wl_file:"):
+        parts = data.split(":")
+        target_gid = int(parts[1])
+        sha = parts[2]
+        managed_groups = get_managed_groups_for_user(api, user_id)
+        if not any(g["id"] == target_gid for g in managed_groups):
+            api.answer_callback_query(query_id, text="❌ Unauthorized", show_alert=True)
+            return
+        remove_group_whitelisted_file(target_gid, sha)
+        api.answer_callback_query(query_id, text="🗑️ File removed from whitelist!", show_alert=True)
+        text, markup = _build_group_files_view(api, target_gid)
+        api.edit_message_text(chat_id, msg_id, text, reply_markup=markup)
+        return
+
+    # 10. Admin Private Chat: Back to Group List
     if data == "adm_list_groups":
         managed_groups = get_managed_groups_for_user(api, user_id)
         admin_text = (
@@ -2152,6 +2352,8 @@ def process_update(api: TelegramAPI, update: dict) -> None:
     # 6. Extract Content & Decode QR Codes from Images
     user_display = get_user_display(sender)
     chat_title = chat.get("title", str(chat_id))
+    if sender_id:
+        record_known_user(sender_id, sender.get("username", ""), user_display)
 
     content = (message.get("text") or "") + " " + (message.get("caption") or "")
     if _is_duplicate_message(chat_id, msg_id, content):
@@ -2293,8 +2495,41 @@ def process_update(api: TelegramAPI, update: dict) -> None:
                 + redirect_note
                 + consensus
             )
-            warn_id = api.send_message(chat_id, warn_text)
+            # In group: ONLY educational Security Guide button
+            group_kb = {
+                "inline_keyboard": [
+                    [{"text": "🛡️ ការណែនាំសុវត្ថិភាព | Security Guide", "callback_data": "explain_threat"}]
+                ]
+            }
+            warn_id = api.send_message(chat_id, warn_text, reply_markup=group_kb)
             logger.info("Suspicious URL | domain=%s | suspicious=%d", domain, suspicious)
+
+            # In Admin DM: False-positive whitelist and moderation controls
+            dom_clean = domain.lower().replace("http://", "").replace("https://", "").split("/")[0][:40]
+            admin_warn = (
+                f"⚠️ <b>Suspicious Link Detected | Group Alert</b>\n"
+                f"👥 <b>Group :</b> <b>{esc(chat_title or str(chat_id))}</b> (ID: <code>{chat_id}</code>)\n"
+                f"👤 <b>Sender :</b> {user_display} (ID: <code>{sender_id}</code>)\n"
+                f"🔗 <b>Target :</b> <code>{esc(domain)}</code>\n"
+                f"🛡️ <b>Consensus :</b>\n{consensus}\n\n"
+                f"👇 <i>Admin Controls (Tap to Whitelist if False Positive or Moderate):</i>"
+            )
+            admin_kb = {
+                "inline_keyboard": [
+                    [
+                        {"text": "🛡️ Whitelist Domain", "callback_data": f"wl_dom:{chat_id}:{dom_clean}"},
+                        {"text": "🔇 Mute 24h", "callback_data": f"mute:{chat_id}:{sender_id}"},
+                        {"text": "🔨 Ban", "callback_data": f"ban:{chat_id}:{sender_id}"},
+                    ],
+                    [{"text": "💡 Guide", "callback_data": "explain_threat"}],
+                ]
+            }
+            for admin_id in _get_admin_chat_ids(chat_id):
+                try:
+                    api.send_message(admin_id, admin_warn, reply_markup=admin_kb)
+                except Exception as e:
+                    logger.error("Failed to send suspicious link alert to admin %s: %s", admin_id, e)
+
             if warn_id:
                 time.sleep(15)
                 api.delete_message(chat_id, warn_id)
@@ -2412,31 +2647,42 @@ def process_update(api: TelegramAPI, update: dict) -> None:
             action_taken="pending_admin",
         )
         warn_text = get_msg_suspicious_file(lang, sender_label, esc(filename)) + "\n\n" + engine_consensus(result)
-        kb = {
+        # In group: ONLY educational Security Guide button
+        group_kb = {
+            "inline_keyboard": [
+                [{"text": "🛡️ ការណែនាំសុវត្ថិភាព | Security Guide", "callback_data": "explain_threat"}]
+            ]
+        }
+        api.send_message(chat_id, warn_text, reply_markup=group_kb)
+
+        # In Admin DM: Whitelist & Delete / Moderation controls for admin
+        admin_warn = (
+            f"⚠️ <b>Suspicious File Detected | Group Alert</b>\n"
+            f"👥 <b>Group :</b> <b>{esc(chat_title or str(chat_id))}</b> (ID: <code>{chat_id}</code>)\n"
+            f"👤 <b>Sender :</b> {user_display} (ID: <code>{sender_id}</code>)\n"
+            f"📁 <b>File :</b> <code>{esc(filename)}</code>\n"
+            f"🔑 <b>SHA256 :</b> <code>{sha256}</code>\n"
+            f"🛡️ <b>Consensus :</b>\n{engine_consensus(result)}\n\n"
+            f"👇 <i>Admin Controls (Tap to Whitelist if False Positive or Delete/Moderate):</i>"
+        )
+        admin_kb = {
             "inline_keyboard": [
                 [
                     {"text": "🛡️ Approve & Whitelist", "callback_data": f"approve_file:{chat_id}:{sha256}"},
                     {"text": "🗑️ Delete File", "callback_data": f"delete_file:{chat_id}:{msg_id}"},
-                ]
+                ],
+                [
+                    {"text": "🔇 Mute 24h", "callback_data": f"mute:{chat_id}:{sender_id}"},
+                    {"text": "🔨 Ban", "callback_data": f"ban:{chat_id}:{sender_id}"},
+                    {"text": "💡 Guide", "callback_data": "explain_threat"},
+                ],
             ]
         }
-        api.send_message(chat_id, warn_text, reply_markup=kb)
-        if config.ADMIN_CHAT_ID:
-            for admin_id_str in config.ADMIN_CHAT_ID.split(","):
-                admin_id_str = admin_id_str.strip()
-                if admin_id_str:
-                    try:
-                        admin_warn = (
-                            f"⚠️ <b>Suspicious File Detected | Group Alert</b>\n"
-                            f"👥 <b>Group :</b> <code>{chat_id}</code>\n"
-                            f"👤 <b>Sender :</b> {user_display} (ID: <code>{sender_id}</code>)\n"
-                            f"📁 <b>File :</b> <code>{esc(filename)}</code>\n"
-                            f"🛡️ <b>Consensus :</b> {engine_consensus(result)}\n\n"
-                            f"👇 <i>Admin Controls: Tap below to Whitelist or Delete:</i>"
-                        )
-                        api.send_message(int(admin_id_str), admin_warn, reply_markup=kb)
-                    except Exception as e:
-                        logger.error("Failed to send suspicious file alert to admin: %s", e)
+        for admin_id in _get_admin_chat_ids(chat_id):
+            try:
+                api.send_message(admin_id, admin_warn, reply_markup=admin_kb)
+            except Exception as e:
+                logger.error("Failed to send suspicious file alert to admin %s: %s", admin_id, e)
         logger.warning("FILE SUSPICIOUS | %s | malicious=%d | suspicious=%d", filename, malicious, suspicious)
         return
 

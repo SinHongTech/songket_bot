@@ -137,6 +137,26 @@ export async function waitForTelegramInitData(timeoutMs: number = 400): Promise<
   return getInitData();
 }
 
+function parseJsonSafely(str: string) {
+  if (!str) return null;
+  let curr = str;
+  for (let i = 0; i < 3; i++) {
+    try {
+      const obj = JSON.parse(curr);
+      if (obj && typeof obj === "object") return obj;
+    } catch {
+      try {
+        const decoded = decodeURIComponent(curr);
+        if (decoded === curr) break;
+        curr = decoded;
+      } catch {
+        break;
+      }
+    }
+  }
+  return null;
+}
+
 export function getTelegramUser() {
   const tg = getTelegramWebApp();
   if (tg?.initDataUnsafe?.user?.id) {
@@ -144,16 +164,13 @@ export function getTelegramUser() {
   }
   const initData = getInitData();
   if (initData) {
-    // 1. Try URLSearchParams with both raw and decoded user strings
+    // 1. Try URLSearchParams
     try {
       const params = new URLSearchParams(initData);
       const userRaw = params.get("user");
       if (userRaw) {
-        try {
-          return JSON.parse(userRaw);
-        } catch {
-          return JSON.parse(decodeURIComponent(userRaw));
-        }
+        const parsed = parseJsonSafely(userRaw);
+        if (parsed?.id) return parsed;
       }
     } catch {}
 
@@ -161,11 +178,8 @@ export function getTelegramUser() {
     try {
       const match = initData.match(/user=([^&]+)/);
       if (match && match[1]) {
-        try {
-          return JSON.parse(decodeURIComponent(match[1]));
-        } catch {
-          return JSON.parse(match[1]);
-        }
+        const parsed = parseJsonSafely(match[1]);
+        if (parsed?.id) return parsed;
       }
     } catch {}
   }
@@ -530,4 +544,60 @@ export async function removePlan(user_id: number) {
 export async function saveDomainWhitelist(domains: string[]) {
   return postAction({ action: "save_domain_whitelist", domains });
 }
+
+export async function saveGroupSettings(groupId: number, settings: Record<string, any>) {
+  return postAction({ action: "save_group_settings", group_id: groupId, settings });
+}
+
+export async function addGroupWhitelistUser(groupId: number, targetUserId: number, username?: string, name?: string) {
+  return postAction({
+    action: "add_group_whitelist_user",
+    group_id: groupId,
+    target_user_id: targetUserId,
+    username,
+    name,
+  });
+}
+
+export async function removeGroupWhitelistUser(groupId: number, targetUserId: number) {
+  return postAction({
+    action: "remove_group_whitelist_user",
+    group_id: groupId,
+    target_user_id: targetUserId,
+  });
+}
+
+export async function unmuteGroupUser(groupId: number, targetUserId: number) {
+  return postAction({
+    action: "unmute_group_user",
+    group_id: groupId,
+    target_user_id: targetUserId,
+  });
+}
+
+export async function addGroupWhitelistFile(groupId: number, sha256: string, filename?: string) {
+  return postAction({
+    action: "add_group_whitelist_file",
+    group_id: groupId,
+    sha256,
+    filename,
+  });
+}
+
+export async function removeGroupWhitelistFile(groupId: number, sha256: string) {
+  return postAction({
+    action: "remove_group_whitelist_file",
+    group_id: groupId,
+    sha256,
+  });
+}
+
+export async function addManagedGroup(groupId: number, title?: string) {
+  return postAction({
+    action: "add_group",
+    group_id: groupId,
+    title,
+  });
+}
+
 
