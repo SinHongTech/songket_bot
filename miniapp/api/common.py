@@ -872,22 +872,19 @@ def is_group_admin(user_id: int, chat_id: int) -> bool:
 
 
 def groups_for_user(user_id: int, allowed_groups: set[int]) -> list[int]:
-    """Return groups for user: super admins see all; regular admins ONLY see their explicitly assigned/handled groups."""
+    """Return groups specifically assigned to this user."""
     explicit_map = explicit_group_map()
-    explicit = explicit_map.get(user_id, [])
+    explicit = explicit_map.get(user_id)
 
-    # 1. Super admin sees all allowed groups + explicit groups
-    if is_super_admin(user_id):
-        all_ids = set(allowed_groups)
-        for g in explicit:
-            all_ids.add(g)
-        return list(sorted(all_ids))[:MAX_DASHBOARD_GROUPS]
-
-    # 2. Regular admin ONLY sees groups specifically assigned to their user ID
-    if explicit:
+    # 1. If user has explicit groups mapped, return ONLY their linked groups
+    if explicit is not None:
         return explicit[:MAX_DASHBOARD_GROUPS]
 
-    # 3. Regular admin with no assigned groups sees NO other admin's groups
+    # 2. If super admin has no explicit mapping, fallback to allowed_groups
+    if is_super_admin(user_id):
+        return list(sorted(allowed_groups))[:MAX_DASHBOARD_GROUPS]
+
+    # 3. Regular admin with no assigned groups sees no groups
     return []
 
 
