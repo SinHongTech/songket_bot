@@ -19,16 +19,81 @@ interface AccountViewProps {
 
 export default function AccountView({ user, dashboard, dark, setDark, lang, setLang, onLogout }: AccountViewProps) {
   const tx = T(lang);
-  const [org, setOrg] = useState("Group Security Admin");
-  const [email, setEmail] = useState("admin@telegram.security");
-  const [telegram, setTelegram] = useState(user?.username ? `@${user.username}` : user?.first_name || "@admin");
-  const [notifTelegram, setNotifTelegram] = useState(true);
-  const [notifPDF, setNotifPDF] = useState(false);
+  const [org, setOrg] = useState(() => {
+    try {
+      return localStorage.getItem("songket.admin.org") || "Group Security Admin";
+    } catch {
+      return "Group Security Admin";
+    }
+  });
+  const [email, setEmail] = useState(() => {
+    try {
+      return localStorage.getItem("songket.admin.email") || "admin@telegram.security";
+    } catch {
+      return "admin@telegram.security";
+    }
+  });
+  const [telegram, setTelegram] = useState(() => {
+    try {
+      return (
+        localStorage.getItem("songket.admin.telegram") ||
+        (user?.username ? `@${user.username}` : user?.first_name || "@admin")
+      );
+    } catch {
+      return user?.username ? `@${user.username}` : user?.first_name || "@admin";
+    }
+  });
+  const [notifTelegram, setNotifTelegram] = useState(() => {
+    try {
+      const v = localStorage.getItem("songket.admin.notifTelegram");
+      return v === null ? true : v === "1";
+    } catch {
+      return true;
+    }
+  });
+  const [notifPDF, setNotifPDF] = useState(() => {
+    try {
+      const v = localStorage.getItem("songket.admin.notifPDF");
+      return v === null ? false : v === "1";
+    } catch {
+      return false;
+    }
+  });
   const [totpEnabled, setTotpEnabled] = useState(false);
   const [totpModalOpen, setTotpModalOpen] = useState(false);
   const [totpModalMode, setTotpModalMode] = useState<"setup" | "disable">("setup");
 
   const isKm = lang === "km";
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("songket.admin.org", org);
+    } catch {}
+  }, [org]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("songket.admin.email", email);
+    } catch {}
+  }, [email]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("songket.admin.telegram", telegram);
+    } catch {}
+  }, [telegram]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("songket.admin.notifTelegram", notifTelegram ? "1" : "0");
+    } catch {}
+  }, [notifTelegram]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("songket.admin.notifPDF", notifPDF ? "1" : "0");
+    } catch {}
+  }, [notifPDF]);
 
   useEffect(() => {
     getTotpStatus().then(res => {
