@@ -43,6 +43,7 @@ import {
   unmuteGroupUser,
   addGroupWhitelistFile,
   removeGroupWhitelistFile,
+  addManagedGroup,
 } from "../api";
 import { SectionHeader } from "./Badges";
 
@@ -163,6 +164,11 @@ export default function ManageView({
   const [newFileSha, setNewFileSha] = useState("");
   const [newFileName, setNewFileName] = useState("");
 
+  const [showAddGroupModal, setShowAddGroupModal] = useState(false);
+  const [addGidInput, setAddGidInput] = useState("");
+  const [addGidTitleInput, setAddGidTitleInput] = useState("");
+  const [addingGroup, setAddingGroup] = useState(false);
+
   const [savingGroupSettings, setSavingGroupSettings] = useState(false);
   const [groupToast, setGroupToast] = useState<string | null>(null);
 
@@ -245,6 +251,39 @@ export default function ManageView({
   function triggerGroupToast(msg: string) {
     setGroupToast(msg);
     setTimeout(() => setGroupToast(null), 3000);
+  }
+
+  async function handleQuickAddGroup() {
+    const raw = addGidInput.trim();
+    if (!raw) return;
+    let num = parseInt(raw, 10);
+    if (isNaN(num)) {
+      setErrorMsg(isKm ? "សូមបញ្ចូល Group ID ត្រឹមត្រូវ (ឧ. -1003917025719)" : "Enter a valid numeric Group ID (e.g. -1003917025719)");
+      return;
+    }
+    // If user entered a positive supergroup ID starting with 100, normalize to negative
+    if (num > 0 && String(num).startsWith("100")) {
+      num = -num;
+    } else if (num > 0) {
+      num = -parseInt(`100${num}`, 10);
+    }
+
+    setAddingGroup(true);
+    setErrorMsg(null);
+    try {
+      const title = addGidTitleInput.trim() || undefined;
+      await addManagedGroup(num, title);
+      setSelectedGid(num);
+      setShowAddGroupModal(false);
+      setAddGidInput("");
+      setAddGidTitleInput("");
+      triggerGroupToast(isKm ? "បានភ្ជាប់ក្រុមថ្មីជោគជ័យ!" : "Group linked and protected successfully!");
+      onRefresh();
+    } catch (e: any) {
+      setErrorMsg(e?.message || "Failed to add group");
+    } finally {
+      setAddingGroup(false);
+    }
   }
 
   // ── Group Language / Safe Message Quick Updates ───────────────────────────
@@ -851,10 +890,110 @@ export default function ManageView({
                 <MessageSquare size={15} />
                 <span className={kh(lang)}>{isKm ? "ជ្រើសរើសក្រុមគ្រប់គ្រង" : "Select Managed Group"}</span>
               </div>
-              <span style={{ fontSize: 11, color: G.muted }}>
-                {availableGroupIds.length} {isKm ? "ក្រុម" : "group(s)"}
-              </span>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 11, color: G.muted }}>
+                  {availableGroupIds.length} {isKm ? "ក្រុម" : "group(s)"}
+                </span>
+                <button
+                  onClick={() => setShowAddGroupModal(!showAddGroupModal)}
+                  style={{
+                    padding: "4px 8px",
+                    borderRadius: 6,
+                    border: `1px dashed ${G.goldBorder}`,
+                    background: showAddGroupModal ? "rgba(212,167,44,0.25)" : "rgba(212,167,44,0.08)",
+                    color: G.gold,
+                    fontSize: 11,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                    transition: "all 0.15s ease",
+                  }}
+                >
+                  <Plus size={12} />
+                  <span className={kh(lang)}>{isKm ? "ភ្ជាប់ក្រុមថ្មី" : "+ Add Group"}</span>
+                </button>
+              </div>
             </div>
+
+            {/* Inline Add Group Form */}
+            {showAddGroupModal && (
+              <div
+                style={{
+                  background: G.surface2,
+                  border: `1px solid ${G.goldBorder}`,
+                  borderRadius: 10,
+                  padding: "12px 14px",
+                  marginBottom: 12,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 8,
+                }}
+              >
+                <div style={{ fontSize: 12, fontWeight: 700, color: G.gold, display: "flex", alignItems: "center", gap: 5 }}>
+                  <Plus size={13} />
+                  <span className={kh(lang)}>{isKm ? "ភ្ជាប់ក្រុមការពារថ្មី (Connect Group)" : "Add / Link Managed Group"}</span>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  <input
+                    type="text"
+                    value={addGidInput}
+                    onChange={(e) => setAddGidInput(e.target.value)}
+                    placeholder={isKm ? "Group ID (ឧ. -1003917025719)" : "Group ID (e.g. -1003917025719)"}
+                    style={{ ...inputStyle, fontSize: 12, padding: "7px 10px" }}
+                  />
+                  <input
+                    type="text"
+                    value={addGidTitleInput}
+                    onChange={(e) => setAddGidTitleInput(e.target.value)}
+                    placeholder={isKm ? "ឈ្មោះក្រុម (ជាជម្រើស)" : "Group Title (optional)"}
+                    style={{ ...inputStyle, fontSize: 12, padding: "7px 10px" }}
+                  />
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 2 }}>
+                  <button
+                    onClick={() => {
+                      setShowAddGroupModal(false);
+                      setAddGidInput("");
+                      setAddGidTitleInput("");
+                    }}
+                    style={{
+                      padding: "6px 12px",
+                      borderRadius: 6,
+                      border: "none",
+                      background: "transparent",
+                      color: G.muted,
+                      fontSize: 12,
+                      cursor: "pointer",
+                    }}
+                  >
+                    <span className={kh(lang)}>{isKm ? "បោះបង់" : "Cancel"}</span>
+                  </button>
+                  <button
+                    onClick={handleQuickAddGroup}
+                    disabled={addingGroup || !addGidInput.trim()}
+                    style={{
+                      padding: "6px 14px",
+                      borderRadius: 6,
+                      border: "none",
+                      background: G.gold,
+                      color: "#1a1200",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 5,
+                      opacity: addingGroup || !addGidInput.trim() ? 0.6 : 1,
+                    }}
+                  >
+                    {addingGroup ? <Loader2 size={12} className="spin-animation" /> : <Check size={12} />}
+                    <span className={kh(lang)}>{isKm ? "ភ្ជាប់ក្រុម" : "Connect Group"}</span>
+                  </button>
+                </div>
+              </div>
+            )}
 
             {availableGroupIds.length === 0 ? (
               <div style={{ fontSize: 12, color: G.muted, fontStyle: "italic", padding: "6px 0" }}>

@@ -592,4 +592,12 @@ export async function removeGroupWhitelistFile(groupId: number, sha256: string) 
   });
 }
 
+export async function addManagedGroup(groupId: number, title?: string) {
+  return postAction({
+    action: "add_group",
+    group_id: groupId,
+    title,
+  });
+}
+
 

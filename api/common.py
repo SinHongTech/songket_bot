@@ -265,6 +265,37 @@ def save_allowed_groups(groups: list[int]) -> bool:
     return kv_set("config:allowed_groups", ",".join(str(x) for x in groups))
 
 
+def add_allowed_group(chat_id: int) -> bool:
+    raw = kv_get("config:allowed_groups") or ""
+    ids = [x.strip() for x in str(raw).split(",") if x.strip()]
+    sid = str(chat_id)
+    if sid not in ids:
+        ids.append(sid)
+        return kv_set("config:allowed_groups", ",".join(ids))
+    return True
+
+
+def add_group_handler(user_id: int, chat_id: int) -> bool:
+    data = kv_json_get("config:group_handlers") or {}
+    uid = str(user_id)
+    grps = [int(g) for g in data.get(uid, [])]
+    if chat_id not in grps:
+        grps.append(chat_id)
+        data[uid] = grps
+        return kv_json_set("config:group_handlers", data)
+    return True
+
+
+def record_known_group(chat_id: int, title: str) -> bool:
+    data = kv_json_get("known_groups") or {}
+    data[str(chat_id)] = title or str(chat_id)
+    return kv_json_set("known_groups", data)
+
+
+def get_known_groups() -> dict:
+    return kv_json_get("known_groups") or {}
+
+
 # ── Plans & subscriptions ────────────────────────────────────────────────────
 
 DEFAULT_PLAN_CATALOG: dict = {
@@ -841,15 +872,20 @@ def is_group_admin(user_id: int, chat_id: int) -> bool:
 
 
 def groups_for_user(user_id: int, allowed_groups: set[int]) -> list[int]:
-    """Prefer explicit ownership; otherwise discover admin rights or allow for super/whitelisted admins."""
-    # 1. Super admin sees all allowed groups immediately
-    if is_super_admin(user_id):
-        return list(sorted(allowed_groups))[:MAX_DASHBOARD_GROUPS]
+    """Return groups for user: super admins see all; regular admins see their handled groups and allowed groups."""
+    explicit_map = explicit_group_map()
+    explicit = explicit_map.get(user_id, [])
 
-    # 2. Explicit handler mapping
-    explicit = explicit_group_map().get(user_id)
-    if explicit is not None:
-        return [g for g in explicit if not allowed_groups or g in allowed_groups][:MAX_DASHBOARD_GROUPS]
+    # 1. Super admin sees all allowed groups + explicit groups
+    if is_super_admin(user_id):
+        all_ids = set(allowed_groups)
+        for g in explicit:
+            all_ids.add(g)
+        return list(sorted(all_ids))[:MAX_DASHBOARD_GROUPS]
+
+    # 2. Explicit handler mapping has highest precedence for regular admin
+    if explicit:
+        return explicit[:MAX_DASHBOARD_GROUPS]
 
     # 3. If whitelisted and allowed groups exist, return allowed groups
     if allowed_groups:

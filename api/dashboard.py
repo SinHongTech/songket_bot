@@ -59,6 +59,9 @@ try:
         add_group_whitelisted_file,
         remove_group_whitelisted_file,
         get_known_users,
+        add_allowed_group,
+        add_group_handler,
+        record_known_group,
     )
     from api.totp import (
         generate_totp_secret,
@@ -118,6 +121,9 @@ except ImportError:
         add_group_whitelisted_file,
         remove_group_whitelisted_file,
         get_known_users,
+        add_allowed_group,
+        add_group_handler,
+        record_known_group,
     )
     from totp import (
         generate_totp_secret,
@@ -431,6 +437,40 @@ class handler(BaseHTTPRequestHandler):
                 groups = [int(x) for x in body.get("allowed_groups", []) if str(x).strip()]
                 ok = save_allowed_groups(groups)
                 return self._json(200, {"ok": ok, "config": get_system_config()})
+
+            # Action: Add / Link group directly from Mini App UI (handles both super & group admin)
+            if body.get("action") in {"add_group", "link_group"}:
+                if not (super_admin or uid in whitelist_ids()):
+                    return self._json(403, {"ok": False, "error": "Unauthorized"})
+                try:
+                    raw_gid = body.get("group_id")
+                    new_gid = int(raw_gid)
+                except (TypeError, ValueError):
+                    return self._json(400, {"ok": False, "error": "Invalid group_id"})
+                if not new_gid:
+                    return self._json(400, {"ok": False, "error": "Missing group_id"})
+
+                # Add to allowed groups so bot monitors it
+                add_allowed_group(new_gid)
+
+                # Link to admin's explicit group handler mapping so admin can manage it
+                add_group_handler(uid, new_gid)
+
+                # Record / cache title
+                g_title = str(body.get("title", "")).strip()
+                if not g_title:
+                    chat_info = get_chat(new_gid)
+                    if chat_info and chat_info.get("title"):
+                        g_title = chat_info["title"]
+                if g_title:
+                    record_known_group(new_gid, g_title)
+
+                return self._json(200, {
+                    "ok": True,
+                    "group_id": new_gid,
+                    "title": g_title or f"Group {new_gid}",
+                    "config": get_system_config(),
+                })
 
             # Action: Save plan catalog (Super Admin only)
             if body.get("action") == "save_plans":
