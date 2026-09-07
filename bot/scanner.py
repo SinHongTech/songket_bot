@@ -16,6 +16,7 @@ import os
 import re
 import threading
 import time
+from urllib.parse import quote
 
 import requests
 
@@ -161,7 +162,7 @@ def check_urlhaus_prefilter(url: str) -> Optional[dict]:
 
 
 def check_google_safebrowsing(url: str) -> Optional[dict]:
-    """Check URL against Google Safe Browsing v4 API if key is available."""
+    """Check URL against Google Safe Browsing API v5 (uris:search) with v4 fallback."""
     api_key = (
         getattr(config, "GOOGLE_SAFE_BROWSING_KEY", "")
         or os.environ.get("GOOGLE_SAFE_BROWSING_KEY")
@@ -171,9 +172,44 @@ def check_google_safebrowsing(url: str) -> Optional[dict]:
     ).strip()
     if not api_key:
         return None
+
+    # 1. Primary: Google Safe Browsing v5 (Lookup API uris:search)
     try:
-        endpoint = f"https://safebrowsing.googleapis.com/v4/threatMatches:find?key={api_key}"
-        payload = {
+        encoded_url = quote(url, safe="")
+        threat_params = [
+            "threatTypes=MALWARE",
+            "threatTypes=SOCIAL_ENGINEERING",
+            "threatTypes=UNWANTED_SOFTWARE",
+            "threatTypes=POTENTIALLY_HARMFUL_APPLICATION",
+        ]
+        query_str = f"key={api_key}&uri={encoded_url}&{'&'.join(threat_params)}"
+        endpoint_v5 = f"https://safebrowsing.googleapis.com/v5/uris:search?{query_str}"
+        r = requests.get(endpoint_v5, timeout=3)
+        if r.status_code == 200:
+            data = r.json()
+            threat = data.get("threat") or {}
+            threat_types = threat.get("threatTypes") or []
+            if threat_types:
+                threat_label = ", ".join(threat_types)
+                logger.warning("[Google Safe Browsing v5] Threat matched for %s: %s", url, threat_label)
+                return {
+                    "malicious": 25,
+                    "suspicious": 5,
+                    "harmless": 0,
+                    "undetected": 0,
+                    "prefilter": "google_safe_browsing_v5",
+                    "threat": threat_label,
+                    "heuristic": "phishing" if "SOCIAL_ENGINEERING" in threat_label else "malware",
+                }
+            # 200 OK with no threat indicates clean URL in v5
+            return None
+    except Exception as e:
+        logger.debug("GSB v5 check skipped/failed: %s", e)
+
+    # 2. Fallback: Google Safe Browsing v4 (threatMatches:find)
+    try:
+        endpoint_v4 = f"https://safebrowsing.googleapis.com/v4/threatMatches:find?key={api_key}"
+        payload_v4 = {
             "client": {"clientId": "songket-security-bot", "clientVersion": "2.0.0"},
             "threatInfo": {
                 "threatTypes": [
@@ -187,25 +223,26 @@ def check_google_safebrowsing(url: str) -> Optional[dict]:
                 "threatEntries": [{"url": url}],
             },
         }
-        r = requests.post(endpoint, json=payload, timeout=3)
+        r = requests.post(endpoint_v4, json=payload_v4, timeout=3)
         if r.status_code == 200:
             res = r.json()
             matches = res.get("matches") or []
             if matches:
                 matched_types = list({m.get("threatType", "THREAT") for m in matches if isinstance(m, dict)})
                 threat_label = ", ".join(matched_types) or "MALWARE/PHISHING"
-                logger.warning("[Google Safe Browsing] Threat matched for %s: %s", url, threat_label)
+                logger.warning("[Google Safe Browsing v4] Threat matched for %s: %s", url, threat_label)
                 return {
                     "malicious": 25,
                     "suspicious": 5,
                     "harmless": 0,
                     "undetected": 0,
-                    "prefilter": "google_safe_browsing",
+                    "prefilter": "google_safe_browsing_v4",
                     "threat": threat_label,
                     "heuristic": "phishing" if "SOCIAL_ENGINEERING" in threat_label else "malware",
                 }
     except Exception as e:
-        logger.debug("Google Safe Browsing check skipped/failed: %s", e)
+        logger.debug("GSB v4 fallback skipped/failed: %s", e)
+
     return None
 
 
