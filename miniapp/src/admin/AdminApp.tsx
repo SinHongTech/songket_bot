@@ -788,6 +788,7 @@ export default function AdminApp() {
         domainWhitelist={apiData?.domain_whitelist}
         groupDetails={apiData?.group_details}
         knownUsers={apiData?.known_users}
+        knownGroups={apiData?.known_groups}
         dashboardGroups={apiData?.dashboard?.groups}
         lang={lang}
         isSuperAdmin={isSuperAdmin}

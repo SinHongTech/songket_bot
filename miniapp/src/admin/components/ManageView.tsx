@@ -54,6 +54,7 @@ interface ManageViewProps {
   domainWhitelist?: string[] | null;
   groupDetails?: Record<string, GroupDetail> | null;
   knownUsers?: Record<string, KnownUser> | null;
+  knownGroups?: Record<string, string> | null;
   dashboardGroups?: DashboardGroup[] | null;
   lang: Lang;
   isSuperAdmin: boolean;
@@ -67,6 +68,7 @@ export default function ManageView({
   domainWhitelist,
   groupDetails,
   knownUsers,
+  knownGroups,
   dashboardGroups,
   lang,
   isSuperAdmin,
@@ -107,24 +109,13 @@ export default function ManageView({
   const [planToast, setPlanToast] = useState(false);
 
   // ── Group Protection & Settings State ─────────────────────────────────────
+  // Only display groups that the current user actually handles
   const availableGroupIds = useMemo(() => {
-    const ids = new Set<number>();
-    if (dashboardGroups) {
-      dashboardGroups.forEach((g) => {
-        if (g.id) ids.add(g.id);
-      });
+    if (dashboardGroups && dashboardGroups.length > 0) {
+      return dashboardGroups.map((g) => g.id).filter(Boolean);
     }
-    if (config?.allowed_groups) {
-      config.allowed_groups.forEach((gid) => ids.add(gid));
-    }
-    if (groupDetails) {
-      Object.keys(groupDetails).forEach((gidStr) => {
-        const num = parseInt(gidStr, 10);
-        if (!isNaN(num) && num !== 0) ids.add(num);
-      });
-    }
-    return Array.from(ids);
-  }, [dashboardGroups, config, groupDetails]);
+    return [];
+  }, [dashboardGroups]);
 
   const [selectedGid, setSelectedGid] = useState<number>(() => {
     return availableGroupIds[0] || (dashboardGroups?.[0]?.id ?? -1003917025719);
@@ -234,7 +225,9 @@ export default function ManageView({
   function getGroupTitle(gid: number): string {
     const dg = dashboardGroups?.find((g) => g.id === gid);
     if (dg?.title) return dg.title;
-    return `Group ${gid}`;
+    const kg = knownGroups?.[String(gid)];
+    if (kg) return kg;
+    return "Group";
   }
 
   function triggerGroupToast(msg: string) {
