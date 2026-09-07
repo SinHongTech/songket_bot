@@ -545,3 +545,51 @@ export async function saveDomainWhitelist(domains: string[]) {
   return postAction({ action: "save_domain_whitelist", domains });
 }
 
+export async function saveGroupSettings(groupId: number, settings: Record<string, any>) {
+  return postAction({ action: "save_group_settings", group_id: groupId, settings });
+}
+
+export async function addGroupWhitelistUser(groupId: number, targetUserId: number, username?: string, name?: string) {
+  return postAction({
+    action: "add_group_whitelist_user",
+    group_id: groupId,
+    target_user_id: targetUserId,
+    username,
+    name,
+  });
+}
+
+export async function removeGroupWhitelistUser(groupId: number, targetUserId: number) {
+  return postAction({
+    action: "remove_group_whitelist_user",
+    group_id: groupId,
+    target_user_id: targetUserId,
+  });
+}
+
+export async function unmuteGroupUser(groupId: number, targetUserId: number) {
+  return postAction({
+    action: "unmute_group_user",
+    group_id: groupId,
+    target_user_id: targetUserId,
+  });
+}
+
+export async function addGroupWhitelistFile(groupId: number, sha256: string, filename?: string) {
+  return postAction({
+    action: "add_group_whitelist_file",
+    group_id: groupId,
+    sha256,
+    filename,
+  });
+}
+
+export async function removeGroupWhitelistFile(groupId: number, sha256: string) {
+  return postAction({
+    action: "remove_group_whitelist_file",
+    group_id: groupId,
+    sha256,
+  });
+}
+
+

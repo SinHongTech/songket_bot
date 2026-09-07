@@ -786,6 +786,9 @@ export default function AdminApp() {
         plans={apiData?.plans}
         subscriptions={apiData?.subscriptions}
         domainWhitelist={apiData?.domain_whitelist}
+        groupDetails={apiData?.group_details}
+        knownUsers={apiData?.known_users}
+        dashboardGroups={apiData?.dashboard?.groups}
         lang={lang}
         isSuperAdmin={isSuperAdmin}
         onRefresh={() => loadData(true, 31)}

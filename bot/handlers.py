@@ -23,15 +23,22 @@ from bot.redis_client import (
     add_allowed_group,
     add_domain_whitelist,
     add_group_handler,
+    add_group_muted_user,
+    add_group_whitelisted_file,
+    add_group_whitelisted_user,
     clear_pending,
+    get_daily_scan_usage,
     get_group_lang,
+    get_group_muted_users,
     get_group_settings,
+    get_group_whitelisted_files,
+    get_group_whitelisted_users,
+    get_join_time,
     get_known_groups,
+    get_known_users,
     get_pending,
     get_plan_catalog,
     get_scan_usage,
-    get_daily_scan_usage,
-    get_join_time,
     get_strikes,
     get_subscription,
     get_user_lang,
@@ -46,7 +53,11 @@ from bot.redis_client import (
     record_first_seen,
     record_join_time,
     record_known_group,
+    record_known_user,
     record_threat_event,
+    remove_group_muted_user,
+    remove_group_whitelisted_file,
+    remove_group_whitelisted_user,
     set_group_lang,
     set_group_settings,
     set_pending,
@@ -298,6 +309,7 @@ def apply_strike(api: TelegramAPI, chat_id: int, user_id: int, user_display: str
         api.restrict_chat_member(
             chat_id, user_id, can_send_messages=False, until_date=int(time.time()) + duration
         )
+        add_group_muted_user(chat_id, user_id, user_display, strikes=strikes)
         api.send_message(
             chat_id,
             f"📢 <b>{user_display}</b> is restricted for {hours}h due to {strikes} threat violations.",
@@ -1140,6 +1152,10 @@ def _build_group_settings_view(api: TelegramAPI, group_id: int) -> tuple[str, di
     timer = settings.get("safe_timeout", config.DEFAULT_SAFE_TIMEOUT)
     show_safe = settings.get("show_safe", config.ENABLE_SAFE_MESSAGES) and timer > 0
 
+    wl_users = get_group_whitelisted_users(group_id)
+    muted_users = get_group_muted_users(group_id)
+    wl_files = get_group_whitelisted_files(group_id)
+
     lang_labels = {
         "both": "🌐 ទាំងពីរ (Bilingual KH + EN)",
         "kh": "🇰🇭 ភាសាខ្មែរ (Khmer Only)",
@@ -1150,10 +1166,13 @@ def _build_group_settings_view(api: TelegramAPI, group_id: int) -> tuple[str, di
 
     text = (
         f"⚙️ <b>ការកំណត់សុវត្ថិភាពសម្រាប់ក្រុម / Group Settings:</b>\n"
-        f"📌 <b>{title}</b>\n"
+        f"📌 <b>{esc(title)}</b> (ID: <code>{group_id}</code>)\n\n"
         f"🔹 <b>ភាសា (Language):</b> {lang_display}\n"
         f"🔹 <b>សារសុវត្ថិភាព (Safe Message):</b> {timer_display}\n"
-        f"<i>ចុចប៊ូតុងខាងក្រោមដើម្បីកែប្រែការកំណត់ភ្លាមៗ៖</i>"
+        f"🔹 <b>Whitelist Users:</b> {len(wl_users)} នាក់ (members)\n"
+        f"🔹 <b>Muted / Blocklist:</b> {len(muted_users)} នាក់ (members)\n"
+        f"🔹 <b>Approved Files:</b> {len(wl_files)} ឯកសារ (files)\n\n"
+        f"<i>ចុចប៊ូតុងខាងក្រោមដើម្បីកែប្រែ ឬគ្រប់គ្រងការកំណត់ភ្លាមៗ៖</i>"
     )
 
     keyboard = [
@@ -1169,11 +1188,102 @@ def _build_group_settings_view(api: TelegramAPI, group_id: int) -> tuple[str, di
             {"text": f"{'✅ ' if not show_safe or timer == 0 else ''}❌ Off", "callback_data": f"adm_timer:{group_id}:0"},
         ],
         [
+            {"text": f"👥 Whitelist / Mute Users ({len(wl_users)}/{len(muted_users)})", "callback_data": f"adm_users:{group_id}"},
+            {"text": f"📁 Whitelist Files ({len(wl_files)})", "callback_data": f"adm_files:{group_id}"},
+        ],
+        [
             {"text": "🔙 ត្រឡប់ទៅបញ្ជីក្រុម (Back to Groups)", "callback_data": "adm_list_groups"}
         ],
     ]
 
     return text, {"inline_keyboard": keyboard}
+
+
+def _build_group_users_view(api: TelegramAPI, group_id: int) -> tuple[str, dict]:
+    real_gid, chat = _resolve_chat_id_and_info(api, group_id)
+    title = (chat or {}).get("title") or "ក្រុម (Group)"
+
+    wl_users = get_group_whitelisted_users(group_id)
+    muted_users = get_group_muted_users(group_id)
+
+    lines = [
+        f"👥 <b>ការគ្រប់គ្រងអ្នកប្រើប្រាស់ / Users Management:</b>",
+        f"📌 <b>{esc(title)}</b> (<code>{group_id}</code>)\n",
+        f"🛡️ <b>Whitelisted Users (អ្នកអនុញ្ញាត):</b>",
+    ]
+    if not wl_users:
+        lines.append("<i>គ្មានអ្នកប្រើប្រាស់ក្នុងបញ្ជីស (No whitelisted users)</i>")
+    else:
+        for idx, u in enumerate(wl_users, 1):
+            uname = f"@{u['username']}" if u.get("username") else u.get("name") or "User"
+            uid = u.get("user_id")
+            lines.append(f"{idx}. {esc(uname)} (ID: <code>{uid}</code>)")
+
+    lines.append(f"\n🔇 <b>Muted / Blocklisted Users (អ្នកត្រូវ Mute):</b>")
+    if not muted_users:
+        lines.append("<i>គ្មានសមាជិកដែលត្រូវ Mute ឡើយ (No muted members)</i>")
+    else:
+        for idx, u in enumerate(muted_users, 1):
+            uname = f"@{u['username']}" if u.get("username") else u.get("name") or "User"
+            uid = u.get("user_id")
+            strikes = u.get("strikes", 3)
+            lines.append(f"{idx}. {esc(uname)} (ID: <code>{uid}</code>) · Strikes: {strikes}")
+
+    keyboard = []
+    # Action buttons for muted users
+    for u in muted_users[:5]:
+        uid = u.get("user_id")
+        uname = f"@{u['username']}" if u.get("username") else str(uid)
+        keyboard.append([
+            {"text": f"🔊 Unmute {uname}", "callback_data": f"unmute:{group_id}:{uid}"}
+        ])
+
+    # Action buttons to remove whitelisted users
+    for u in wl_users[:5]:
+        uid = u.get("user_id")
+        uname = f"@{u['username']}" if u.get("username") else str(uid)
+        keyboard.append([
+            {"text": f"❌ Remove Whitelist {uname}", "callback_data": f"adm_rm_wl_user:{group_id}:{uid}"}
+        ])
+
+    keyboard.append([
+        {"text": "🔙 ត្រឡប់ទៅការកំណត់ក្រុម (Back to Settings)", "callback_data": f"adm_grp:{group_id}"}
+    ])
+
+    return "\n".join(lines), {"inline_keyboard": keyboard}
+
+
+def _build_group_files_view(api: TelegramAPI, group_id: int) -> tuple[str, dict]:
+    real_gid, chat = _resolve_chat_id_and_info(api, group_id)
+    title = (chat or {}).get("title") or "ក្រុម (Group)"
+
+    wl_files = get_group_whitelisted_files(group_id)
+
+    lines = [
+        f"📁 <b>ការគ្រប់គ្រងឯកសារអនុញ្ញាត / Whitelisted Files:</b>",
+        f"📌 <b>{esc(title)}</b> (<code>{group_id}</code>)\n",
+    ]
+    if not wl_files:
+        lines.append("<i>គ្មានឯកសារក្នុងបញ្ជីអនុញ្ញាតឡើយ (No approved files yet)</i>\n")
+    else:
+        for idx, f in enumerate(wl_files, 1):
+            fname = f.get("filename") or "Document"
+            sha = f.get("sha256", "")
+            lines.append(f"{idx}. 📄 <b>{esc(fname)}</b>\n   <code>{sha[:24]}...</code>")
+
+    keyboard = []
+    for f in wl_files[:6]:
+        sha = f.get("sha256", "")
+        fname = f.get("filename") or sha[:12]
+        keyboard.append([
+            {"text": f"🗑️ Remove {fname[:18]}", "callback_data": f"adm_rm_wl_file:{group_id}:{sha}"}
+        ])
+
+    keyboard.append([
+        {"text": "🔙 ត្រឡប់ទៅការកំណត់ក្រុម (Back to Settings)", "callback_data": f"adm_grp:{group_id}"}
+    ])
+
+    return "\n".join(lines), {"inline_keyboard": keyboard}
 
 
 ADMIN_COMMANDS = [
@@ -1680,6 +1790,7 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
                 can_add_web_page_previews=True,
             )
             if unmuted:
+                remove_group_muted_user(gid, target_uid)
                 api.answer_callback_query(query_id, text="🔊 User unmuted / បានបើកសិទ្ធិផ្ញើសារឡើងវិញ!", show_alert=True)
                 api.send_message(gid, f"🔊 <b>Admin Action:</b> Member (ID: <code>{target_uid}</code>) has been unmuted by admin.")
                 if chat_id > 0:
@@ -1972,7 +2083,61 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
         api.edit_message_text(chat_id, msg_id, text, reply_markup=markup)
         return
 
-    # 6. Admin Private Chat: Back to Group List
+    # 6. Admin Private Chat: Users Management Subview (Whitelist & Muted)
+    if data.startswith("adm_users:"):
+        target_gid = int(data.split(":")[1])
+        managed_groups = get_managed_groups_for_user(api, user_id)
+        if not any(g["id"] == target_gid for g in managed_groups):
+            api.answer_callback_query(query_id, text="❌ Unauthorized", show_alert=True)
+            return
+        text, markup = _build_group_users_view(api, target_gid)
+        api.edit_message_text(chat_id, msg_id, text, reply_markup=markup)
+        api.answer_callback_query(query_id)
+        return
+
+    # 7. Admin Private Chat: Files Management Subview (Approved / Whitelisted Files)
+    if data.startswith("adm_files:"):
+        target_gid = int(data.split(":")[1])
+        managed_groups = get_managed_groups_for_user(api, user_id)
+        if not any(g["id"] == target_gid for g in managed_groups):
+            api.answer_callback_query(query_id, text="❌ Unauthorized", show_alert=True)
+            return
+        text, markup = _build_group_files_view(api, target_gid)
+        api.edit_message_text(chat_id, msg_id, text, reply_markup=markup)
+        api.answer_callback_query(query_id)
+        return
+
+    # 8. Remove user from group whitelist
+    if data.startswith("adm_rm_wl_user:"):
+        parts = data.split(":")
+        target_gid = int(parts[1])
+        target_uid = int(parts[2])
+        managed_groups = get_managed_groups_for_user(api, user_id)
+        if not any(g["id"] == target_gid for g in managed_groups):
+            api.answer_callback_query(query_id, text="❌ Unauthorized", show_alert=True)
+            return
+        remove_group_whitelisted_user(target_gid, target_uid)
+        api.answer_callback_query(query_id, text="🛡️ User removed from group whitelist!", show_alert=True)
+        text, markup = _build_group_users_view(api, target_gid)
+        api.edit_message_text(chat_id, msg_id, text, reply_markup=markup)
+        return
+
+    # 9. Remove file from group whitelist
+    if data.startswith("adm_rm_wl_file:"):
+        parts = data.split(":")
+        target_gid = int(parts[1])
+        sha = parts[2]
+        managed_groups = get_managed_groups_for_user(api, user_id)
+        if not any(g["id"] == target_gid for g in managed_groups):
+            api.answer_callback_query(query_id, text="❌ Unauthorized", show_alert=True)
+            return
+        remove_group_whitelisted_file(target_gid, sha)
+        api.answer_callback_query(query_id, text="🗑️ File removed from whitelist!", show_alert=True)
+        text, markup = _build_group_files_view(api, target_gid)
+        api.edit_message_text(chat_id, msg_id, text, reply_markup=markup)
+        return
+
+    # 10. Admin Private Chat: Back to Group List
     if data == "adm_list_groups":
         managed_groups = get_managed_groups_for_user(api, user_id)
         admin_text = (
@@ -2152,6 +2317,8 @@ def process_update(api: TelegramAPI, update: dict) -> None:
     # 6. Extract Content & Decode QR Codes from Images
     user_display = get_user_display(sender)
     chat_title = chat.get("title", str(chat_id))
+    if sender_id:
+        record_known_user(sender_id, sender.get("username", ""), user_display)
 
     content = (message.get("text") or "") + " " + (message.get("caption") or "")
     if _is_duplicate_message(chat_id, msg_id, content):

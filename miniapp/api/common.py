@@ -920,6 +920,249 @@ def remove_domain_whitelist(domain: str) -> bool:
     return True
 
 
+# ── Group Settings ───────────────────────────────────────────────────────────
+DEFAULT_LANGUAGE = "both"
+DEFAULT_SAFE_TIMEOUT = 10
+ENABLE_SAFE_MESSAGES = True
+VERIFY_NEW_MEMBERS_DEFAULT = False
+LINK_PREVIEW_ENABLED = True
+TRUST_SCORE_ENABLED = True
+
+
+def get_group_settings(chat_id: int) -> dict:
+    data = kv_json_get(f"settings:group:{chat_id}")
+    default_settings = {
+        "lang": DEFAULT_LANGUAGE,
+        "safe_timeout": DEFAULT_SAFE_TIMEOUT,
+        "show_safe": ENABLE_SAFE_MESSAGES,
+        "verify_mode": VERIFY_NEW_MEMBERS_DEFAULT,
+        "link_preview": LINK_PREVIEW_ENABLED,
+        "trust_score": TRUST_SCORE_ENABLED,
+    }
+    if not data or not isinstance(data, dict):
+        return default_settings
+    return {
+        "lang": str(data.get("lang", DEFAULT_LANGUAGE)).lower(),
+        "safe_timeout": int(data.get("safe_timeout", DEFAULT_SAFE_TIMEOUT)),
+        "show_safe": bool(data.get("show_safe", ENABLE_SAFE_MESSAGES)),
+        "verify_mode": bool(data.get("verify_mode", VERIFY_NEW_MEMBERS_DEFAULT)),
+        "link_preview": bool(data.get("link_preview", LINK_PREVIEW_ENABLED)),
+        "trust_score": bool(data.get("trust_score", TRUST_SCORE_ENABLED)),
+    }
+
+
+def set_group_settings(chat_id: int, settings: dict) -> bool:
+    current = get_group_settings(chat_id)
+    current.update(settings)
+    return kv_json_set(f"settings:group:{chat_id}", current)
+
+
+def get_group_lang(chat_id: int) -> str:
+    return get_group_settings(chat_id).get("lang", DEFAULT_LANGUAGE)
+
+
+def set_group_lang(chat_id: int, lang: str) -> bool:
+    settings = get_group_settings(chat_id)
+    settings["lang"] = lang.strip().lower()
+    return set_group_settings(chat_id, settings)
+
+
+def get_user_lang(user_id: int) -> str:
+    data = kv_json_get(f"settings:user:{user_id}")
+    if data and isinstance(data, dict):
+        return str(data.get("lang", DEFAULT_LANGUAGE)).lower()
+    return DEFAULT_LANGUAGE
+
+
+def set_user_lang(user_id: int, lang: str) -> bool:
+    data = kv_json_get(f"settings:user:{user_id}") or {}
+    data["lang"] = lang.strip().lower()
+    return kv_json_set(f"settings:user:{user_id}", data)
+
+
+def get_strikes(chat_id: int, user_id: int) -> int:
+    value = kv_get(f"strikes:{chat_id}:{user_id}")
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def set_strikes(chat_id: int, user_id: int, strikes: int) -> None:
+    kv_set(f"strikes:{chat_id}:{user_id}", str(strikes))
+
+
+def add_strike(chat_id: int, user_id: int) -> int:
+    strikes = get_strikes(chat_id, user_id) + 1
+    set_strikes(chat_id, user_id, strikes)
+    return strikes
+
+
+def is_file_whitelisted(chat_id: int, sha256: str) -> bool:
+    return kv_get(f"whitelist:file:{chat_id}:{sha256}") is not None
+
+
+def whitelist_file(chat_id: int, sha256: str, filename: str = "") -> None:
+    add_group_whitelisted_file(chat_id, sha256, filename)
+
+
+# ── Group Whitelisted Users ──────────────────────────────────────────────────
+def get_group_whitelisted_users(chat_id: int) -> list[dict]:
+    data = kv_json_get(f"whitelist:users:{chat_id}") or []
+    if isinstance(data, list):
+        seen = set()
+        res = []
+        for u in data:
+            if isinstance(u, dict) and u.get("user_id"):
+                uid = int(u["user_id"])
+                if uid not in seen:
+                    seen.add(uid)
+                    res.append(u)
+        return res
+    return []
+
+
+def add_group_whitelisted_user(chat_id: int, user_id: int, username: str = "", name: str = "") -> bool:
+    users = get_group_whitelisted_users(chat_id)
+    uid = int(user_id)
+    for u in users:
+        if u.get("user_id") == uid:
+            if username and not u.get("username"):
+                u["username"] = username.lstrip("@")
+            return True
+    users.append({
+        "user_id": uid,
+        "username": username.lstrip("@") if username else "",
+        "name": name or "",
+        "added_at": int(time.time()),
+    })
+    return kv_json_set(f"whitelist:users:{chat_id}", users)
+
+
+def remove_group_whitelisted_user(chat_id: int, user_id: int) -> bool:
+    users = get_group_whitelisted_users(chat_id)
+    uid = int(user_id)
+    new_list = [u for u in users if u.get("user_id") != uid]
+    return kv_json_set(f"whitelist:users:{chat_id}", new_list)
+
+
+# ── Group Muted / Blocklisted Users ──────────────────────────────────────────
+def get_group_muted_users(chat_id: int) -> list[dict]:
+    data = kv_json_get(f"muted:users:{chat_id}") or []
+    if isinstance(data, list):
+        seen = set()
+        res = []
+        for u in data:
+            if isinstance(u, dict) and u.get("user_id"):
+                uid = int(u["user_id"])
+                if uid not in seen:
+                    seen.add(uid)
+                    res.append(u)
+        return res
+    return []
+
+
+def add_group_muted_user(chat_id: int, user_id: int, username: str = "", name: str = "", strikes: int = 3) -> bool:
+    users = get_group_muted_users(chat_id)
+    uid = int(user_id)
+    for u in users:
+        if u.get("user_id") == uid:
+            u["strikes"] = strikes
+            if username:
+                u["username"] = username.lstrip("@")
+            return kv_json_set(f"muted:users:{chat_id}", users)
+    users.append({
+        "user_id": uid,
+        "username": username.lstrip("@") if username else "",
+        "name": name or "",
+        "strikes": strikes,
+        "muted_at": int(time.time()),
+    })
+    return kv_json_set(f"muted:users:{chat_id}", users)
+
+
+def remove_group_muted_user(chat_id: int, user_id: int) -> bool:
+    users = get_group_muted_users(chat_id)
+    uid = int(user_id)
+    new_list = [u for u in users if u.get("user_id") != uid]
+    kv_json_set(f"muted:users:{chat_id}", new_list)
+    kv_set(f"strikes:{chat_id}:{uid}", "0")
+    return True
+
+
+# ── Group Whitelisted Files ──────────────────────────────────────────────────
+def get_group_whitelisted_files(chat_id: int) -> list[dict]:
+    data = kv_json_get(f"whitelist:files:{chat_id}") or []
+    if isinstance(data, list):
+        seen = set()
+        res = []
+        for f in data:
+            if isinstance(f, dict) and f.get("sha256"):
+                sha = str(f["sha256"]).lower()
+                if sha not in seen:
+                    seen.add(sha)
+                    res.append(f)
+        return res
+    return []
+
+
+def add_group_whitelisted_file(chat_id: int, sha256: str, filename: str = "") -> bool:
+    sha = sha256.strip().lower()
+    if not sha:
+        return False
+    kv_set(f"whitelist:file:{chat_id}:{sha}", "1")
+    files = get_group_whitelisted_files(chat_id)
+    for f in files:
+        if f.get("sha256") == sha:
+            if filename and not f.get("filename"):
+                f["filename"] = filename
+            return True
+    files.append({
+        "sha256": sha,
+        "filename": filename or f"file_{sha[:8]}",
+        "added_at": int(time.time()),
+    })
+    return kv_json_set(f"whitelist:files:{chat_id}", files)
+
+
+def remove_group_whitelisted_file(chat_id: int, sha256: str) -> bool:
+    sha = sha256.strip().lower()
+    kv_delete(f"whitelist:file:{chat_id}:{sha}")
+    files = get_group_whitelisted_files(chat_id)
+    new_list = [f for f in files if f.get("sha256") != sha]
+    return kv_json_set(f"whitelist:files:{chat_id}", new_list)
+
+
+# ── Known User Directory (User ID <-> Username resolution) ───────────────────
+def record_known_user(user_id: int, username: str, name: str = "") -> None:
+    if not user_id:
+        return
+    data = kv_json_get("known_users") or {}
+    uid_str = str(user_id)
+    clean_username = username.lstrip("@") if username else ""
+    data[uid_str] = {
+        "username": clean_username,
+        "name": name or "",
+        "updated_at": int(time.time()),
+    }
+    kv_json_set("known_users", data)
+
+
+def get_known_users() -> dict:
+    known = kv_json_get("known_users") or {}
+    defaults = {
+        "1221693150": {"username": "Sin_Hong", "name": "Sin Hong"},
+        "6903398617": {"username": "sin_hong_admin", "name": "Admin 690"},
+        "665698758": {"username": "admin_665", "name": "Admin 665"},
+        "1110438159": {"username": "admin_111", "name": "Admin 111"},
+        "918434351": {"username": "admin_918", "name": "Admin 918"},
+        "1130272106": {"username": "admin_113", "name": "Admin 113"},
+        "817197042": {"username": "admin_817", "name": "Admin 817"},
+    }
+    defaults.update(known)
+    return defaults
+
+
 # ── Threat Events ───────────────────────────────────────────────────────────
 
 def get_threat_events(chat_ids: list[int], days: int = 1) -> list[dict]:
