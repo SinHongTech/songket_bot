@@ -227,23 +227,16 @@ export default function ThreatsView({
         </div>
       ) : (
         filtered.map(t => {
-          // Format sender label based on Super Admin vs Regular Admin
+          // Format sender label: Username / Name only (no numeric IDs)
           let senderDisplay = "";
           if (t.sender_name || t.sender_username) {
             const uname = t.sender_username ? `@${t.sender_username}` : "";
             const name = t.sender_name || "";
-            if (isSuperAdmin && t.sender_id) {
-              senderDisplay = uname ? `${name} (${uname}, ID: ${t.sender_id})` : `${name} (ID: ${t.sender_id})`;
-            } else {
-              senderDisplay = uname ? (name && name !== uname ? `${name} (${uname})` : uname) : name;
-            }
+            senderDisplay = uname ? (name && name !== uname ? `${name} (${uname})` : uname) : name;
           }
 
-          // Format group label based on role
-          const groupDisplay =
-            isSuperAdmin && t.group_id
-              ? `${t.group_title || t.group} (${t.group_id})`
-              : t.group_title || t.group;
+          // Format group label: Group Name only (no numeric IDs)
+          const groupDisplay = t.group_title || t.group || "Group";
 
           return (
             <div

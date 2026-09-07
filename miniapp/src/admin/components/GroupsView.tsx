@@ -80,7 +80,7 @@ export default function GroupsView({ dashboard, threatEvents, isSuperAdmin, lang
                     {g.name}
                   </div>
                   <div style={{ fontSize: 11, color: G.muted, marginTop: 2 }}>
-                    ID: {g.id} · {g.totalScanned} {tx.scanned}
+                    {g.totalScanned} {tx.scanned}
                   </div>
                 </div>
               </div>
@@ -132,7 +132,7 @@ export default function GroupsView({ dashboard, threatEvents, isSuperAdmin, lang
                         {gThreats.map((t, tIdx) => {
                           const senderLabel = t.sender_username
                             ? `@${t.sender_username}`
-                            : t.sender_name || (isSuperAdmin && t.sender_id ? `User ID: ${t.sender_id}` : "User");
+                            : t.sender_name || "User";
                           return (
                             <div
                               key={t.id || tIdx}
