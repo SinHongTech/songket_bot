@@ -488,15 +488,15 @@ export default function AdminApp() {
   const [nav, setNav] = useState<Nav>("dashboard");
   const [dark, setDark] = useState<boolean>(() => {
     try {
-      const v = localStorage.getItem("songket.admin.dark");
-      return v === null ? false : v === "1";
+      const v = localStorage.getItem("songket.admin.dark") || sessionStorage.getItem("songket.admin.dark") || localStorage.getItem("songket.dark");
+      return v === null ? true : v === "1";
     } catch {
-      return false;
+      return true;
     }
   });
   const [lang, setLang] = useState<Lang>(() => {
     try {
-      const v = localStorage.getItem("songket.admin.lang");
+      const v = localStorage.getItem("songket.admin.lang") || sessionStorage.getItem("songket.admin.lang") || localStorage.getItem("songket.lang");
       return v === "km" || v === "en" ? v : "km";
     } catch {
       return "km";
@@ -543,6 +543,8 @@ export default function AdminApp() {
   useEffect(() => {
     try {
       localStorage.setItem("songket.admin.dark", dark ? "1" : "0");
+      localStorage.setItem("songket.dark", dark ? "1" : "0");
+      sessionStorage.setItem("songket.admin.dark", dark ? "1" : "0");
     } catch {
       // ignore storage errors
     }
@@ -551,6 +553,8 @@ export default function AdminApp() {
   useEffect(() => {
     try {
       localStorage.setItem("songket.admin.lang", lang);
+      localStorage.setItem("songket.lang", lang);
+      sessionStorage.setItem("songket.admin.lang", lang);
     } catch {
       // ignore storage errors
     }
@@ -669,7 +673,14 @@ export default function AdminApp() {
         onNavigate={tab => setNav(tab)}
       />
     ),
-    groups: <GroupsView dashboard={dashboard} lang={lang} />,
+    groups: (
+      <GroupsView
+        dashboard={dashboard}
+        threatEvents={apiData?.threat_events}
+        isSuperAdmin={isSuperAdmin}
+        lang={lang}
+      />
+    ),
     threats: (
       <ThreatsView
         dashboard={dashboard}

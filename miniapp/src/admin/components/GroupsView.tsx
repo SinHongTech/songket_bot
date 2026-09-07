@@ -1,42 +1,30 @@
 import { useState } from "react";
-import { MessageSquare, ArrowRight, ChevronUp, Shield } from "lucide-react";
+import { MessageSquare, ArrowRight, ChevronUp, Shield, AlertTriangle, CheckCircle } from "lucide-react";
 import { G, type Lang } from "../palette";
 import { t as T, kh } from "../i18n";
-import type { DashboardData } from "../types";
+import type { DashboardData, ThreatEvent } from "../types";
 import { getGroupCardsFromDashboard } from "../data";
 import { SectionHeader } from "./Badges";
 
 interface GroupsViewProps {
   dashboard: DashboardData | null;
+  threatEvents?: ThreatEvent[] | null;
+  isSuperAdmin?: boolean;
   lang: Lang;
 }
 
-export default function GroupsView({ dashboard, lang }: GroupsViewProps) {
+export default function GroupsView({ dashboard, threatEvents, isSuperAdmin, lang }: GroupsViewProps) {
   const tx = T(lang);
   const [expanded, setExpanded] = useState<number | null>(null);
   const [addToast, setAddToast] = useState(false);
 
   const groupCards = getGroupCardsFromDashboard(dashboard);
   const maxGroups = 5;
+  const isKm = lang === "km";
 
   function handleAdd() {
     setAddToast(true);
     setTimeout(() => setAddToast(false), 3500);
-  }
-
-  const PLACEHOLDER_SENDERS = [
-    "alex_songket",
-    "dara_phnompenh",
-    "sreymom_dev",
-    "khmer_user_02",
-    "security_alert",
-    "visal_kh",
-    "chanth_tech",
-    "nara_security",
-  ];
-
-  function getSenderPlaceholder(idx: number): string {
-    return PLACEHOLDER_SENDERS[idx % PLACEHOLDER_SENDERS.length];
   }
 
   return (
@@ -75,98 +63,174 @@ export default function GroupsView({ dashboard, lang }: GroupsViewProps) {
           </div>
         </div>
       ) : (
-        groupCards.map(g => (
-          <div key={g.id} style={{ background: G.surface, border: `1px solid ${g.status === "alert" ? "rgba(224,64,64,0.4)" : G.border}`, borderRadius: 14, padding: "16px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-              <div style={{ width: 40, height: 40, borderRadius: 11, background: G.goldSurface, border: `1px solid ${G.goldBorder}`, display: "flex", alignItems: "center", justifyContent: "center", color: G.gold, flexShrink: 0 }}>
-                <MessageSquare size={19} />
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 600, color: G.text, fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {g.name}
+        groupCards.map(g => {
+          // Real threats for this specific group
+          const gThreats = (threatEvents || []).filter(
+            t => (t.group_id && String(t.group_id) === String(g.id)) || (t.group_title && t.group_title === g.name)
+          );
+
+          return (
+            <div key={g.id} style={{ background: G.surface, border: `1px solid ${g.status === "alert" ? "rgba(224,64,64,0.4)" : G.border}`, borderRadius: 14, padding: "16px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+                <div style={{ width: 40, height: 40, borderRadius: 11, background: G.goldSurface, border: `1px solid ${G.goldBorder}`, display: "flex", alignItems: "center", justifyContent: "center", color: G.gold, flexShrink: 0 }}>
+                  <MessageSquare size={19} />
                 </div>
-                <div style={{ fontSize: 11, color: G.muted, marginTop: 2 }}>
-                  ID: {g.id} · {g.totalScanned} {tx.scanned}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, color: G.text, fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {g.name}
+                  </div>
+                  <div style={{ fontSize: 11, color: G.muted, marginTop: 2 }}>
+                    ID: {g.id} · {g.totalScanned} {tx.scanned}
+                  </div>
                 </div>
               </div>
+
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", gap: 16 }}>
+                  <div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: g.threats > 0 ? G.danger : G.text }}>
+                      {g.threats}
+                    </div>
+                    <div style={{ fontSize: 10, color: G.muted }}>
+                      <span className={kh(lang)}>{tx.malicious}</span>
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: g.suspicious > 0 ? G.warn : G.text }}>
+                      {g.suspicious}
+                    </div>
+                    <div style={{ fontSize: 10, color: G.muted }}>
+                      <span className={kh(lang)}>{tx.suspicious}</span>
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, color: g.status === "protected" ? G.safe : G.danger }}>
+                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: g.status === "protected" ? G.safe : G.danger, display: "inline-block" }} />
+                    <span className={kh(lang)}>{g.status === "protected" ? (lang === "km" ? "ការពារ" : "Protected") : (lang === "km" ? "ជូនដំណឹង" : "Alert")}</span>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setExpanded(expanded === g.id ? null : g.id)}
+                  style={{ background: "transparent", border: `1px solid ${G.goldBorder}`, color: G.gold, borderRadius: 8, padding: "6px 14px", cursor: "pointer", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}
+                >
+                  <span className={kh(lang)}>{expanded === g.id ? tx.viewHide[1] : tx.viewHide[0]}</span>
+                  {expanded === g.id ? <ChevronUp size={12} /> : <ArrowRight size={12} />}
+                </button>
+              </div>
+
+              {expanded === g.id && (
+                <div style={{ borderTop: `1px solid ${G.border}`, marginTop: 14, paddingTop: 14, display: "flex", flexDirection: "column", gap: 14 }}>
+                  {/* 1. Real Malicious Scan Logs */}
+                  <div>
+                    <div className={kh(lang)} style={{ fontSize: 12, color: G.gold, fontWeight: 700, marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                      <AlertTriangle size={14} color={G.gold} />
+                      <span>{isKm ? "អ្នកប្រើប្រាស់ដែលបានផ្ញើតំណភ្ជាប់/ឯកសារគ្រោះថ្នាក់ (Real Scan Logs)" : "Detected Senders & Malicious Content"}</span>
+                    </div>
+
+                    {gThreats.length > 0 ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                        {gThreats.map((t, tIdx) => {
+                          const senderLabel = t.sender_username
+                            ? `@${t.sender_username}`
+                            : t.sender_name || (isSuperAdmin && t.sender_id ? `User ID: ${t.sender_id}` : "User");
+                          return (
+                            <div
+                              key={t.id || tIdx}
+                              style={{
+                                background: G.surface2,
+                                border: `1px solid ${t.risk === "critical" ? "rgba(224,64,64,0.3)" : G.border}`,
+                                borderRadius: 8,
+                                padding: "8px 12px",
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "center",
+                                flexWrap: "wrap",
+                                gap: 6,
+                              }}
+                            >
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ fontSize: 12, fontWeight: 700, color: G.text, display: "flex", alignItems: "center", gap: 6 }}>
+                                  <span style={{ color: G.gold }}>{senderLabel}</span>
+                                  {isSuperAdmin && t.sender_id && (
+                                    <span style={{ fontSize: 10, color: G.muted, fontFamily: "JetBrains Mono, monospace" }}>({t.sender_id})</span>
+                                  )}
+                                </div>
+                                <div style={{ fontSize: 11, color: G.textSec, marginTop: 2, fontFamily: "JetBrains Mono, monospace", wordBreak: "break-all" }}>
+                                  {t.content}
+                                </div>
+                              </div>
+                              <div style={{ textAlign: "right", flexShrink: 0 }}>
+                                <span
+                                  style={{
+                                    fontSize: 10,
+                                    fontWeight: 700,
+                                    padding: "2px 6px",
+                                    borderRadius: 4,
+                                    background: t.risk === "critical" ? "rgba(224,64,64,0.18)" : "rgba(208,120,32,0.18)",
+                                    color: t.risk === "critical" ? G.danger : G.warn,
+                                  }}
+                                >
+                                  {t.risk ? t.risk.toUpperCase() : "ALERT"}
+                                </span>
+                                <div style={{ fontSize: 9, color: G.muted, marginTop: 2 }}>
+                                  {t.date} {t.time || ""}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div style={{ background: G.surface2, border: `1px solid ${G.border}`, borderRadius: 8, padding: "10px 14px", fontSize: 12, color: G.safe, display: "flex", alignItems: "center", gap: 6 }}>
+                        <CheckCircle size={14} />
+                        <span className={kh(lang)}>{isKm ? "គ្មានសកម្មភាពមេរោគក្នុងក្រុមនេះទេ" : "No malicious threats detected in this group"}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 2. Daily Scan Activity Table */}
+                  <div>
+                    <div className={kh(lang)} style={{ fontSize: 11, color: G.muted, fontWeight: 600, marginBottom: 8, letterSpacing: "0.06em" }}>
+                      {tx.recentScanHistory}
+                    </div>
+                    {g.daily && g.daily.length > 0 ? (
+                      <div style={{ overflowX: "auto" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                          <thead>
+                            <tr style={{ color: G.muted, borderBottom: `1px solid ${G.border}`, textAlign: "left" }}>
+                              <th style={{ padding: "6px 4px" }}>Date</th>
+                              <th style={{ padding: "6px 4px" }}>Scanned</th>
+                              <th style={{ padding: "6px 4px" }}>URLs</th>
+                              <th style={{ padding: "6px 4px" }}>Files</th>
+                              <th style={{ padding: "6px 4px" }}>Threats</th>
+                              <th style={{ padding: "6px 4px" }}>Deleted</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {g.daily.map((d, idx) => (
+                              <tr key={idx} style={{ borderBottom: idx < g.daily.length - 1 ? `1px solid ${G.surface2}` : "none" }}>
+                                <td style={{ padding: "6px 4px", fontFamily: "JetBrains Mono, monospace", color: G.text }}>{d.date}</td>
+                                <td style={{ padding: "6px 4px", fontWeight: 600, color: G.text }}>{d.scanned}</td>
+                                <td style={{ padding: "6px 4px", color: G.textSec }}>{d.urls}</td>
+                                <td style={{ padding: "6px 4px", color: G.textSec }}>{d.files}</td>
+                                <td style={{ padding: "6px 4px", color: d.malicious > 0 ? G.danger : G.safe, fontWeight: d.malicious > 0 ? 700 : 400 }}>{d.malicious}</td>
+                                <td style={{ padding: "6px 4px", color: d.deleted > 0 ? G.danger : G.textSec }}>{d.deleted}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: G.safe }}>
+                        <Shield size={13} /> <span className={kh(lang)}>{tx.noThreats}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
-
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <div style={{ display: "flex", gap: 16 }}>
-                <div>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: g.threats > 0 ? G.danger : G.text }}>
-                    {g.threats}
-                  </div>
-                  <div style={{ fontSize: 10, color: G.muted }}>
-                    <span className={kh(lang)}>{tx.malicious}</span>
-                  </div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: g.suspicious > 0 ? G.warn : G.text }}>
-                    {g.suspicious}
-                  </div>
-                  <div style={{ fontSize: 10, color: G.muted }}>
-                    <span className={kh(lang)}>{tx.suspicious}</span>
-                  </div>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, color: g.status === "protected" ? G.safe : G.danger }}>
-                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: g.status === "protected" ? G.safe : G.danger, display: "inline-block" }} />
-                  <span className={kh(lang)}>{g.status === "protected" ? (lang === "km" ? "ការពារ" : "Protected") : (lang === "km" ? "ជូនដំណឹង" : "Alert")}</span>
-                </div>
-              </div>
-
-              <button
-                onClick={() => setExpanded(expanded === g.id ? null : g.id)}
-                style={{ background: "transparent", border: `1px solid ${G.goldBorder}`, color: G.gold, borderRadius: 8, padding: "6px 14px", cursor: "pointer", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}
-              >
-                <span className={kh(lang)}>{expanded === g.id ? tx.viewHide[1] : tx.viewHide[0]}</span>
-                {expanded === g.id ? <ChevronUp size={12} /> : <ArrowRight size={12} />}
-              </button>
-            </div>
-
-            {expanded === g.id && (
-              <div style={{ borderTop: `1px solid ${G.border}`, marginTop: 14, paddingTop: 14 }}>
-                <div className={kh(lang)} style={{ fontSize: 11, color: G.muted, fontWeight: 600, marginBottom: 10, letterSpacing: "0.06em" }}>
-                  {tx.recentScanHistory}
-                </div>
-                {g.daily && g.daily.length > 0 ? (
-                  <div style={{ overflowX: "auto" }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
-                      <thead>
-                        <tr style={{ color: G.muted, borderBottom: `1px solid ${G.border}`, textAlign: "left" }}>
-                          <th style={{ padding: "6px 4px" }}>Date</th>
-                          <th style={{ padding: "6px 4px" }}>Sender</th>
-                          <th style={{ padding: "6px 4px" }}>Scanned</th>
-                          <th style={{ padding: "6px 4px" }}>URLs</th>
-                          <th style={{ padding: "6px 4px" }}>Files</th>
-                          <th style={{ padding: "6px 4px" }}>Threats</th>
-                          <th style={{ padding: "6px 4px" }}>Deleted</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {g.daily.map((d, idx) => (
-                          <tr key={idx} style={{ borderBottom: idx < g.daily.length - 1 ? `1px solid ${G.surface2}` : "none" }}>
-                            <td style={{ padding: "6px 4px", fontFamily: "JetBrains Mono, monospace", color: G.text }}>{d.date}</td>
-                            <td style={{ padding: "6px 4px", color: G.muted }}>@{getSenderPlaceholder(idx)}</td>
-                            <td style={{ padding: "6px 4px", fontWeight: 600, color: G.text }}>{d.scanned}</td>
-                            <td style={{ padding: "6px 4px", color: G.textSec }}>{d.urls}</td>
-                            <td style={{ padding: "6px 4px", color: G.textSec }}>{d.files}</td>
-                            <td style={{ padding: "6px 4px", color: d.malicious > 0 ? G.danger : G.safe, fontWeight: d.malicious > 0 ? 700 : 400 }}>{d.malicious}</td>
-                            <td style={{ padding: "6px 4px", color: d.deleted > 0 ? G.danger : G.textSec }}>{d.deleted}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: G.safe }}>
-                    <Shield size={13} /> <span className={kh(lang)}>{tx.noThreats}</span>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        ))
+          );
+        })
       )}
     </div>
   );
