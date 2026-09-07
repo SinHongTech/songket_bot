@@ -211,6 +211,10 @@ class TelegramAPI:
         data = self._post("getChatMember", {"chat_id": chat_id, "user_id": user_id})
         return data.get("result") if data.get("ok") else None
 
+    def get_chat_administrators(self, chat_id: int) -> list[dict]:
+        data = self._post("getChatAdministrators", {"chat_id": chat_id})
+        return data.get("result") if data.get("ok") and isinstance(data.get("result"), list) else []
+
     def is_group_admin(self, user_id: int, chat_id: int) -> bool:
         member = self.get_chat_member(chat_id, user_id)
         return bool(member) and member.get("status") in {"creator", "administrator"}
