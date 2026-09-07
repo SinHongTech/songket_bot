@@ -80,15 +80,15 @@ def kv_delete(key: str) -> bool:
     return True
 
 
-def kv_json_get(key: str) -> Optional[dict]:
+def kv_json_get(key: str):
     value = kv_get(key)
     if value is None:
         return None
-    if isinstance(value, dict):
+    if isinstance(value, (dict, list)):
         return value
     try:
         obj = json.loads(value)
-        return obj if isinstance(obj, dict) else None
+        return obj if isinstance(obj, (dict, list)) else None
     except Exception:
         return None
 
@@ -405,4 +405,171 @@ def get_user_plan_status(user_id: int, is_super: bool = False, is_wl: bool = Fal
         "remaining_month": max(0, monthly_limit - used_month) if not is_free else None,
         "expiry": expiry,
     }
+
+
+# ── Domain Whitelist Management ─────────────────────────────────────────────
+
+DEFAULT_TRUSTED_DOMAINS = [
+    "t.me",
+    "telegram.org",
+    "google.com",
+    "youtube.com",
+    "youtu.be",
+    "drive.google.com",
+    "docs.google.com",
+    "microsoft.com",
+    "github.com",
+    "facebook.com",
+    "instagram.com",
+    "tiktok.com",
+    "twitter.com",
+    "x.com",
+    "wikipedia.org",
+    "apple.com",
+]
+
+
+def get_domain_whitelist() -> list[str]:
+    """Return all whitelisted domains from Redis."""
+    raw = kv_get("config:domain_whitelist")
+    if not raw:
+        return list(DEFAULT_TRUSTED_DOMAINS)
+    try:
+        if isinstance(raw, str):
+            data = json.loads(raw)
+            if isinstance(data, list):
+                return data
+            return [d.strip().lower() for d in raw.split(",") if d.strip()]
+        if isinstance(raw, list):
+            return [str(d).strip().lower() for d in raw if str(d).strip()]
+    except Exception:
+        pass
+    return list(DEFAULT_TRUSTED_DOMAINS)
+
+
+def save_domain_whitelist(domains: list[str]) -> bool:
+    """Save full domain whitelist to Redis."""
+    clean = sorted(list(dict.fromkeys(str(d).strip().lower() for d in domains if str(d).strip())))
+    return kv_set("config:domain_whitelist", json.dumps(clean))
+
+
+def add_domain_whitelist(domain: str) -> bool:
+    clean = domain.strip().lower()
+    if not clean:
+        return False
+    current = get_domain_whitelist()
+    if clean not in current:
+        current.append(clean)
+        return save_domain_whitelist(current)
+    return True
+
+
+def remove_domain_whitelist(domain: str) -> bool:
+    clean = domain.strip().lower()
+    current = get_domain_whitelist()
+    if clean in current:
+        current.remove(clean)
+        return save_domain_whitelist(current)
+    return True
+
+
+def is_domain_whitelisted(url_or_domain: str) -> bool:
+    """Check if a URL or domain is in the trusted domain whitelist."""
+    from bot.utils import extract_domain
+    domain = extract_domain(url_or_domain).lower()
+    if not domain:
+        return False
+    whitelist = get_domain_whitelist()
+    for wl in whitelist:
+        wl_clean = wl.lower()
+        if domain == wl_clean or domain.endswith(f".{wl_clean}"):
+            return True
+    return False
+
+
+# ── Threat Event Persistence ───────────────────────────────────────────────
+
+def record_threat_event(
+    chat_id: int,
+    chat_title: str,
+    sender: dict,
+    target: str,
+    threat_type: str,
+    risk: str = "critical",
+    action_taken: str = "deleted",
+) -> None:
+    """Record an individual threat occurrence with sender details in Redis."""
+    try:
+        from bot.reports import local_date
+        day = local_date()
+    except Exception:
+        day = time.strftime("%Y-%m-%d")
+
+    now = time.time()
+    t_id = f"th_{int(now * 1000)}"
+    time_str = time.strftime("%H:%M:%S")
+
+    sender_username = sender.get("username") or ""
+    sender_first = sender.get("first_name") or ""
+    sender_last = sender.get("last_name") or ""
+    sender_full = f"{sender_first} {sender_last}".strip() or sender_username or f"User_{sender.get('id', 'unknown')}"
+
+    event = {
+        "id": t_id,
+        "timestamp": int(now),
+        "date": day,
+        "time": time_str,
+        "type": threat_type,
+        "risk": risk,
+        "content": target,
+        "sender_id": sender.get("id"),
+        "sender_username": sender_username,
+        "sender_name": sender_full,
+        "group_id": chat_id,
+        "group_title": chat_title or str(chat_id),
+        "action_taken": action_taken,
+    }
+
+    # 1. Group daily list
+    g_key = f"threat_events:{day}:{chat_id}"
+    g_events = kv_json_get(g_key) or []
+    if isinstance(g_events, list):
+        g_events.insert(0, event)
+        kv_json_set(g_key, g_events[:100], ttl=30 * 86400)
+
+    # 2. Global recent threats list (capped at 200)
+    all_key = "threat_events:recent"
+    all_events = kv_json_get(all_key) or []
+    if isinstance(all_events, list):
+        all_events.insert(0, event)
+        kv_json_set(all_key, all_events[:200], ttl=30 * 86400)
+
+
+def get_threat_events(chat_ids: list[int], days: int = 1) -> list[dict]:
+    """Retrieve threat events for specified group IDs across the requested days."""
+    from datetime import date, timedelta
+    try:
+        from bot.reports import local_date
+        today = date.fromisoformat(local_date())
+    except Exception:
+        today = date.today()
+
+    events: list[dict] = []
+    seen_ids = set()
+
+    for offset in range(days):
+        day_str = (today - timedelta(days=offset)).isoformat()
+        for gid in chat_ids:
+            key = f"threat_events:{day_str}:{gid}"
+            day_events = kv_json_get(key) or []
+            if isinstance(day_events, list):
+                for ev in day_events:
+                    if isinstance(ev, dict) and ev.get("id") and ev["id"] not in seen_ids:
+                        seen_ids.add(ev["id"])
+                        events.append(ev)
+
+    # Sort newest first
+    events.sort(key=lambda x: x.get("timestamp", 0), reverse=True)
+    return events
+
 

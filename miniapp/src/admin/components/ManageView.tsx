@@ -1,21 +1,22 @@
 import { useState, useEffect } from "react";
-import { Users, MessageSquare, Plus, Trash2, Check, ShieldCheck, Loader2, Save, ArrowRight, CreditCard, Tag } from "lucide-react";
+import { Users, MessageSquare, Plus, Trash2, Check, ShieldCheck, Loader2, Save, ArrowRight, CreditCard, Tag, Globe } from "lucide-react";
 import { G, type Lang } from "../palette";
 import { t as T, kh } from "../i18n";
 import type { SystemConfig, PlanEntry, Subscription } from "../types";
-import { saveSystemConfig, savePlans, saveGroups, assignPlan, removePlan } from "../api";
+import { saveSystemConfig, savePlans, saveGroups, assignPlan, removePlan, saveDomainWhitelist } from "../api";
 import { SectionHeader } from "./Badges";
 
 interface ManageViewProps {
   config?: SystemConfig | null;
   plans?: Record<string, PlanEntry> | null;
   subscriptions?: Subscription[] | null;
+  domainWhitelist?: string[] | null;
   lang: Lang;
   isSuperAdmin: boolean;
   onRefresh: () => void;
 }
 
-export default function ManageView({ config, plans, subscriptions, lang, isSuperAdmin, onRefresh }: ManageViewProps) {
+export default function ManageView({ config, plans, subscriptions, domainWhitelist, lang, isSuperAdmin, onRefresh }: ManageViewProps) {
   const tx = T(lang);
 
   type ManageTab = "super" | "whitelist";
@@ -35,6 +36,12 @@ export default function ManageView({ config, plans, subscriptions, lang, isSuper
   const [savedToast, setSavedToast] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // Trusted Domain Whitelist State
+  const [domains, setDomains] = useState<string[]>([]);
+  const [newDomain, setNewDomain] = useState("");
+  const [savingDomains, setSavingDomains] = useState(false);
+  const [domainToast, setDomainToast] = useState(false);
+
   // Plan management state
   const [planCatalog, setPlanCatalog] = useState<Record<string, PlanEntry>>({});
   const [subs, setSubs] = useState<Subscription[]>([]);
@@ -50,6 +57,12 @@ export default function ManageView({ config, plans, subscriptions, lang, isSuper
       setGroupHandlers(config.group_handlers || {});
     }
   }, [config]);
+
+  useEffect(() => {
+    if (domainWhitelist) {
+      setDomains(domainWhitelist);
+    }
+  }, [domainWhitelist]);
 
   useEffect(() => {
     if (plans) setPlanCatalog(plans);
@@ -124,6 +137,33 @@ export default function ManageView({ config, plans, subscriptions, lang, isSuper
       }
       return { ...prev, [uid]: current };
     });
+  }
+
+  function handleAddDomain() {
+    const clean = newDomain.trim().toLowerCase().replace(/^https?:\/\//, "").split("/")[0];
+    if (!clean) return;
+    if (!domains.includes(clean)) {
+      setDomains(prev => [...prev, clean]);
+    }
+    setNewDomain("");
+  }
+
+  function handleRemoveDomain(dom: string) {
+    setDomains(prev => prev.filter(d => d !== dom));
+  }
+
+  async function handleSaveDomains() {
+    setSavingDomains(true);
+    try {
+      await saveDomainWhitelist(domains);
+      setDomainToast(true);
+      setTimeout(() => setDomainToast(false), 3000);
+      onRefresh();
+    } catch (err: any) {
+      console.error("Save domains error:", err);
+    } finally {
+      setSavingDomains(false);
+    }
   }
 
   // Save all to Redis
@@ -405,6 +445,124 @@ export default function ManageView({ config, plans, subscriptions, lang, isSuper
           >
             <Plus size={14} />
             <span className={kh(lang)}>{tx.add}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* 2.5 Trusted Domains Whitelist Management */}
+      <div style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 14, padding: "18px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Globe size={16} color={G.gold} />
+            <div style={{ fontSize: 14, fontWeight: 700, color: G.text }}>
+              <span className={kh(lang)}>{lang === "km" ? "បញ្ជីគេហទំព័រសុវត្ថិភាព (Trusted Domains)" : "Trusted Domain Whitelist"}</span>
+            </div>
+          </div>
+          {domainToast && (
+            <span style={{ fontSize: 11, color: G.safe, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
+              <Check size={12} /> {lang === "km" ? "បានរក្សាទុក" : "Saved"}
+            </span>
+          )}
+        </div>
+        <div style={{ fontSize: 11, color: G.muted, marginBottom: 14 }}>
+          <span className={kh(lang)}>
+            {lang === "km"
+              ? "តំណភ្ជាប់ដែលស្ថិតក្នុងបញ្ជីនេះនឹងមិនត្រូវបានកាត់សេចក្តីជាមេរោគឡើយ និងរំលងការស្កេនដើម្បីសន្សំកូតា។"
+              : "Links matching these trusted domains will skip deep scanning and won't be flagged."}
+          </span>
+        </div>
+
+        {/* Domain Items List */}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
+          {domains.length === 0 ? (
+            <div style={{ fontSize: 12, color: G.muted, fontStyle: "italic", padding: "8px 0" }}>
+              <span className={kh(lang)}>{lang === "km" ? "មិនទាន់មានគេហទំព័រ" : "No custom domains added."}</span>
+            </div>
+          ) : (
+            domains.map(dom => (
+              <div
+                key={dom}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  background: G.surface2,
+                  border: `1px solid ${G.border}`,
+                  borderRadius: 8,
+                  padding: "6px 10px",
+                }}
+              >
+                <span style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 12, color: G.text, fontWeight: 600 }}>
+                  {dom}
+                </span>
+                <button
+                  onClick={() => handleRemoveDomain(dom)}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: G.danger,
+                    cursor: "pointer",
+                    padding: "2px",
+                    display: "flex",
+                    alignItems: "center",
+                  }}
+                  title={tx.remove}
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Add Domain Form & Save Button */}
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            value={newDomain}
+            onChange={e => setNewDomain(e.target.value)}
+            placeholder={lang === "km" ? "ឧ. example.com" : "e.g. example.com"}
+            style={inputStyle}
+          />
+          <button
+            onClick={handleAddDomain}
+            style={{
+              background: G.surface2,
+              color: G.gold,
+              border: `1px solid ${G.goldBorder}`,
+              borderRadius: 8,
+              padding: "0 14px",
+              fontWeight: 700,
+              cursor: "pointer",
+              fontSize: 12,
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              flexShrink: 0,
+            }}
+          >
+            <Plus size={14} />
+            <span className={kh(lang)}>{tx.add}</span>
+          </button>
+          <button
+            onClick={handleSaveDomains}
+            disabled={savingDomains}
+            style={{
+              background: G.gold,
+              color: "#1a1200",
+              border: "none",
+              borderRadius: 8,
+              padding: "0 14px",
+              fontWeight: 700,
+              cursor: "pointer",
+              fontSize: 12,
+              display: "flex",
+              alignItems: "center",
+              gap: 4,
+              flexShrink: 0,
+            }}
+          >
+            {savingDomains ? <Loader2 size={14} className="spin-animation" /> : <Save size={14} />}
+            <span className={kh(lang)}>{tx.saveConfig || "Save"}</span>
           </button>
         </div>
       </div>

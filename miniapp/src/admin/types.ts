@@ -50,11 +50,29 @@ export interface SystemConfig {
   super_admin_ids: number[];
 }
 
+export interface ThreatEvent {
+  id: string;
+  timestamp: number;
+  date: string;
+  time: string;
+  type: string;
+  risk: "critical" | "high" | "medium";
+  content: string;
+  sender_id?: number | null;
+  sender_username?: string;
+  sender_name?: string;
+  group_id?: number | null;
+  group_title?: string;
+  action_taken: string;
+}
+
 export interface DashboardApiResponse {
   authorized: boolean;
   is_super_admin?: boolean;
   user?: TelegramUser;
   dashboard?: DashboardData;
+  threat_events?: ThreatEvent[];
+  domain_whitelist?: string[];
   config?: SystemConfig;
   plans?: Record<string, PlanEntry> | null;
   subscriptions?: Subscription[] | null;
@@ -81,3 +99,4 @@ export interface Subscription {
   plan: string;
   expiry: number;
 }
+

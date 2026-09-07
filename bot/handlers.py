@@ -21,6 +21,7 @@ from bot.file_handler import fetch_and_validate
 from bot.redis_client import (
     add_strike,
     add_allowed_group,
+    add_domain_whitelist,
     add_group_handler,
     clear_pending,
     get_group_lang,
@@ -45,6 +46,7 @@ from bot.redis_client import (
     record_first_seen,
     record_join_time,
     record_known_group,
+    record_threat_event,
     set_group_lang,
     set_group_settings,
     set_pending,
@@ -697,16 +699,29 @@ def _send_threat_alert(
     deleted: bool,
     lang: str = "both",
     extra: str = "",
+    target_user_id: int = 0,
+    target_domain: str = "",
 ) -> None:
     action_kh = "សារត្រូវបានលុបចោលភ្លាមៗ" if deleted else "មិនអាចលុបសារ, ពិនិត្យសិទ្ធិ Admin របស់ Bot"
     action_en = "Message deleted immediately" if deleted else "Could not delete message, check Bot admin rights"
     text = get_msg_threat(lang, user_display, flag, action_kh, action_en) + extra
 
-    reply_markup = {
-        "inline_keyboard": [
-            [{"text": "💡 ការពន្យល់សុវត្ថិភាព | Security Guide", "callback_data": "explain_threat"}]
-        ]
-    }
+    kb = []
+    action_row = []
+    if target_user_id:
+        action_row.append({"text": "🔨 Ban Spammer", "callback_data": f"ban:{chat_id}:{target_user_id}"})
+        action_row.append({"text": "🔇 Mute 24h", "callback_data": f"mute:{chat_id}:{target_user_id}"})
+    if action_row:
+        kb.append(action_row)
+
+    second_row = []
+    if target_domain:
+        dom_clean = target_domain.lower().replace("http://", "").replace("https://", "").split("/")[0][:30]
+        second_row.append({"text": "🛡️ Whitelist", "callback_data": f"wl_dom:{chat_id}:{dom_clean}"})
+    second_row.append({"text": "💡 ការពន្យល់សុវត្ថិភាព | Guide", "callback_data": "explain_threat"})
+    kb.append(second_row)
+
+    reply_markup = {"inline_keyboard": kb}
     api.send_message(chat_id, text, reply_markup=reply_markup)
 
     if config.ADMIN_CHAT_ID:
@@ -1513,6 +1528,61 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
             api.answer_callback_query(query_id, text="🗑️ File deleted.")
             return
 
+    # 0.65 1-Click Group Admin Inline Actions
+    if data.startswith("ban:"):
+        parts = data.split(":")
+        if len(parts) == 3:
+            gid = int(parts[1])
+            target_uid = int(parts[2])
+            if not (is_super_admin(user_id) or api.is_group_admin(user_id, gid)):
+                api.answer_callback_query(query_id, text="❌ Admin only / សម្រាប់តែ Admin ក្រុមប៉ុណ្ណោះ", show_alert=True)
+                return
+            banned = api.ban_chat_member(gid, target_uid)
+            if banned:
+                api.answer_callback_query(query_id, text="🔨 Spammer banned / បាន Ban អ្នកផ្ញើជោគជ័យ!")
+                api.send_message(gid, f"🔨 <b>Admin Action:</b> Member (ID: <code>{target_uid}</code>) was banned by admin.")
+            else:
+                api.answer_callback_query(query_id, text="⚠️ Failed to ban member. Check bot admin permissions.", show_alert=True)
+            return
+
+    if data.startswith("mute:"):
+        parts = data.split(":")
+        if len(parts) == 3:
+            gid = int(parts[1])
+            target_uid = int(parts[2])
+            if not (is_super_admin(user_id) or api.is_group_admin(user_id, gid)):
+                api.answer_callback_query(query_id, text="❌ Admin only / សម្រាប់តែ Admin ក្រុមប៉ុណ្ណោះ", show_alert=True)
+                return
+            until_date = int(time.time()) + 86400
+            muted = api.restrict_chat_member(gid, target_uid, can_send_messages=False, until_date=until_date)
+            if muted:
+                api.answer_callback_query(query_id, text="🔇 User muted for 24h / បានផ្អាកសិទ្ធិផ្ញើសារ 24 ម៉ោង!")
+                api.send_message(gid, f"🔇 <b>Admin Action:</b> Member (ID: <code>{target_uid}</code>) has been muted for 24 hours.")
+            else:
+                api.answer_callback_query(query_id, text="⚠️ Failed to mute member. Check bot admin permissions.", show_alert=True)
+            return
+
+    if data.startswith("wl_dom:"):
+        parts = data.split(":")
+        if len(parts) == 3:
+            gid = int(parts[1])
+            domain_to_add = parts[2].strip()
+            if not (is_super_admin(user_id) or api.is_group_admin(user_id, gid)):
+                api.answer_callback_query(query_id, text="❌ Admin only / សម្រាប់តែ Admin ក្រុមប៉ុណ្ណោះ", show_alert=True)
+                return
+            add_domain_whitelist(domain_to_add)
+            api.answer_callback_query(query_id, text=f"🛡️ {domain_to_add} added to trusted whitelist!")
+            api.send_message(gid, f"🛡️ <b>Trusted Domain:</b> <code>{esc(domain_to_add)}</code> was added to the trusted whitelist.")
+            return
+
+    if data == "explain_threat":
+        api.answer_callback_query(
+            query_id,
+            text="💡 Songket Security Bot scans links, files, and QR codes for trojans, phishing, and scam tokens to protect group members.",
+            show_alert=True,
+        )
+        return
+
     # 0.7 Link & Protect Group (doc section 5)
     if data == "link_group":
         api.answer_callback_query(query_id)
@@ -1729,6 +1799,111 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
     api.answer_callback_query(query_id)
 
 
+# ── Inline Query Mode (@songket_beyda_bot <link>) ───────────────────────────
+
+def _handle_inline_query(api: TelegramAPI, inline_query: dict) -> None:
+    query_id = inline_query.get("id", "")
+    query_text = (inline_query.get("query") or "").strip()
+
+    if not query_text:
+        results = [
+            {
+                "type": "article",
+                "id": "help",
+                "title": "🛡️ Songket Security Link Scanner",
+                "description": "Type a link or domain to scan in real-time (e.g. @songket_beyda_bot google.com)",
+                "input_message_content": {
+                    "message_text": (
+                        "🛡️ <b>Songket Security Bot — Inline Link Scanner</b>\n\n"
+                        "To check whether a link is safe before sharing, type:\n"
+                        "<code>@songket_beyda_bot &lt;URL or Domain&gt;</code>\n\n"
+                        "⚡ <i>Scans for malware, phishing domains, and scam tokens instantly.</i>"
+                    ),
+                    "parse_mode": "HTML",
+                },
+            }
+        ]
+        api.answer_inline_query(query_id, results, cache_time=300, is_personal=True)
+        return
+
+    # Extract target URL/domain from input
+    urls = extract_urls(query_text)
+    target_url = urls[0] if urls else (f"https://{query_text}" if "." in query_text else "")
+
+    if not target_url:
+        results = [
+            {
+                "type": "article",
+                "id": "invalid",
+                "title": f"❓ Invalid URL: {query_text[:30]}",
+                "description": "Please enter a valid website domain or link (e.g. https://example.com)",
+                "input_message_content": {
+                    "message_text": f"⚠️ <b>Invalid Link Query</b>: <code>{esc(query_text)}</code>\nPlease provide a full URL or valid domain name.",
+                    "parse_mode": "HTML",
+                },
+            }
+        ]
+        api.answer_inline_query(query_id, results, cache_time=10, is_personal=True)
+        return
+
+    domain = extract_domain(target_url) or query_text
+    result = vt_scan_url(target_url)
+    
+    malicious = result.get("malicious", 0)
+    suspicious = result.get("suspicious", 0)
+    is_whitelisted_flag = result.get("whitelisted", False)
+
+    if is_whitelisted_flag or (malicious == 0 and suspicious == 0 and "error" not in result):
+        title = f"✅ SAFE: {domain}"
+        description = "Verified Safe (0 security engines detected threats)"
+        msg_text = (
+            f"🛡️ <b>Songket Security Report</b>\n\n"
+            f"🔗 <b>Target:</b> <code>{esc(domain)}</code>\n"
+            f"✅ <b>Status:</b> <b>CLEAN &amp; SAFE</b> (0 Detections)\n"
+            f"⚡ <i>Verified safe in real-time by Songket Security</i>"
+        )
+    elif malicious >= config.VT_MALICIOUS_THRESHOLD:
+        title = f"🚨 MALICIOUS: {domain}"
+        description = f"CRITICAL THREAT: {malicious} security vendor(s) flagged this link!"
+        msg_text = (
+            f"🚨 <b>Songket Security Alert: MALICIOUS THREAT</b>\n\n"
+            f"🔗 <b>Target:</b> <code>{esc(domain)}</code>\n"
+            f"❌ <b>Status:</b> <b>MALICIOUS / PHISHING</b> ({malicious} flags)\n"
+            f"⛔ <b>DO NOT OPEN THIS LINK!</b> It may steal your accounts or infect your device."
+        )
+    elif suspicious >= config.VT_SUSPICIOUS_THRESHOLD:
+        title = f"⚠️ SUSPICIOUS: {domain}"
+        description = f"Suspicious Activity ({suspicious} vendor flags). Exercise caution."
+        msg_text = (
+            f"⚠️ <b>Songket Security Warning: SUSPICIOUS LINK</b>\n\n"
+            f"🔗 <b>Target:</b> <code>{esc(domain)}</code>\n"
+            f"⚠️ <b>Status:</b> <b>SUSPICIOUS</b> ({suspicious} flags)\n"
+            f"🔍 <i>Proceed with extreme caution. Avoid entering sensitive credentials.</i>"
+        )
+    else:
+        title = f"🔍 Scanned: {domain}"
+        description = f"Scan complete. Status: {result.get('error', 'Pending')}"
+        msg_text = (
+            f"🔍 <b>Songket Security Scan</b>\n\n"
+            f"🔗 <b>Target:</b> <code>{esc(domain)}</code>\n"
+            f"ℹ️ <b>Status:</b> {esc(str(result.get('error', 'No threats detected')))}"
+        )
+
+    results = [
+        {
+            "type": "article",
+            "id": f"scan_{int(time.time() * 1000)}",
+            "title": title,
+            "description": description,
+            "input_message_content": {
+                "message_text": msg_text,
+                "parse_mode": "HTML",
+            },
+        }
+    ]
+    api.answer_inline_query(query_id, results, cache_time=120, is_personal=False)
+
+
 # ── Main Update Router ──────────────────────────────────────────────────────
 
 def process_update(api: TelegramAPI, update: dict) -> None:
@@ -1741,7 +1916,12 @@ def process_update(api: TelegramAPI, update: dict) -> None:
             record_known_group(chat.get("id", 0), chat.get("title", "") or "")
         return
 
-    # 1. Handle Callback Queries (Button clicks)
+    # 1. Handle Inline Queries (@songket_beyda_bot <link>)
+    if "inline_query" in update:
+        _handle_inline_query(api, update["inline_query"])
+        return
+
+    # 2. Handle Callback Queries (Button clicks)
     if "callback_query" in update:
         process_callback_query(api, update["callback_query"])
         return
@@ -1760,32 +1940,61 @@ def process_update(api: TelegramAPI, update: dict) -> None:
     msg_id = message.get("message_id", 0)
     sender_id = sender.get("id", 0)
 
-    # 2. Handle Private Chats (Mini App & Admin settings)
+    # 3. Handle Private Chats (Mini App & Admin settings)
     if chat_type == "private":
         _handle_private_chat(api, chat_id, message)
         return
 
-    # 3. Check Group Authorization
+    # 4. Check Group Authorization
     allowed_groups = get_allowed_groups()
     if allowed_groups and chat_id not in allowed_groups:
         logger.info("Unauthorized group %d — ignored", chat_id)
         return
 
-    # 3.5 New members (verification gate + join tracking)
+    # 4.5 New members (verification gate + join tracking)
     new_members = message.get("new_chat_members") or []
     if new_members:
         _handle_new_members(api, chat_id, new_members, get_group_settings(chat_id))
 
-    # 4. Handle In-Group Admin Commands
+    # 5. Handle In-Group Admin Commands
     if _handle_group_commands(api, chat_id, message, sender_id):
         return
 
-    # 5. Extract Content
+    # 6. Extract Content & Decode QR Codes from Images
     user_display = get_user_display(sender)
     chat_title = chat.get("title", str(chat_id))
 
     content = (message.get("text") or "") + " " + (message.get("caption") or "")
     urls = extract_urls(content)
+
+    # 6.1 Extract QR Code from Photos or Stickers
+    photos = message.get("photo") or []
+    sticker = message.get("sticker") or {}
+    qr_urls = []
+
+    if photos:
+        largest_photo = photos[-1]
+        photo_file_id = largest_photo.get("file_id")
+        if photo_file_id:
+            photo_bytes = api.download_file(photo_file_id)
+            if photo_bytes:
+                from bot.qr_scanner import extract_urls_from_qr
+                qr_urls = extract_urls_from_qr(photo_bytes)
+                if qr_urls:
+                    logger.info("Decoded QR URLs from photo: %s", qr_urls)
+    elif sticker and not sticker.get("is_animated") and not sticker.get("is_video"):
+        sticker_file_id = sticker.get("file_id")
+        if sticker_file_id:
+            sticker_bytes = api.download_file(sticker_file_id)
+            if sticker_bytes:
+                from bot.qr_scanner import extract_urls_from_qr
+                qr_urls = extract_urls_from_qr(sticker_bytes)
+                if qr_urls:
+                    logger.info("Decoded QR URLs from sticker: %s", qr_urls)
+
+    for qu in qr_urls:
+        if qu not in urls:
+            urls.append(qu)
 
     doc = message.get("document") or {}
     filename = doc.get("file_name", "")
@@ -1864,6 +2073,15 @@ def process_update(api: TelegramAPI, update: dict) -> None:
 
         if verdict == "suspicious":
             delete_notice()
+            record_threat_event(
+                chat_id=chat_id,
+                chat_title=chat_title,
+                sender=sender,
+                target=domain,
+                threat_type="suspicious_link",
+                risk="medium",
+                action_taken="warned",
+            )
             warn_text = (
                 get_msg_suspicious_url(lang, sender_label, mask_domain(domain), timeout=15)
                 + redirect_note
@@ -1880,9 +2098,20 @@ def process_update(api: TelegramAPI, update: dict) -> None:
         deleted = api.delete_message(chat_id, msg_id)
         if deleted:
             record_report(chat_id, chat_title, "deleted")
+        record_threat_event(
+            chat_id=chat_id,
+            chat_title=chat_title,
+            sender=sender,
+            target=domain,
+            threat_type="phishing" if (result.get("heuristic") or "phish" in str(result)) else "malware",
+            risk="critical",
+            action_taken="deleted" if deleted else "alerted",
+        )
         _send_threat_alert(
             api, chat_id, sender_label, mask_domain(domain), deleted, lang=lang,
             extra=redirect_note + consensus,
+            target_user_id=sender_id,
+            target_domain=domain,
         )
         apply_strike(api, chat_id, sender_id, user_display)
         logger.warning("URL THREAT | domain=%s | malicious=%d | deleted=%s", domain, malicious, deleted)
@@ -1943,9 +2172,20 @@ def process_update(api: TelegramAPI, update: dict) -> None:
         deleted = api.delete_message(chat_id, msg_id)
         if deleted:
             record_report(chat_id, chat_title, "deleted")
+        record_threat_event(
+            chat_id=chat_id,
+            chat_title=chat_title,
+            sender=sender,
+            target=filename,
+            threat_type="malware_file",
+            risk="critical",
+            action_taken="deleted" if deleted else "alerted",
+        )
         _send_threat_alert(
             api, chat_id, sender_label, esc(filename), deleted, lang=lang,
             extra="\n\n" + engine_consensus(result),
+            target_user_id=sender_id,
+            target_domain="",
         )
         apply_strike(api, chat_id, sender_id, user_display)
         logger.warning("FILE THREAT | %s | malicious=%d | suspicious=%d | deleted=%s", filename, malicious, suspicious, deleted)
@@ -1953,6 +2193,15 @@ def process_update(api: TelegramAPI, update: dict) -> None:
 
     if verdict == "suspicious":
         delete_notice()
+        record_threat_event(
+            chat_id=chat_id,
+            chat_title=chat_title,
+            sender=sender,
+            target=filename,
+            threat_type="suspicious_file",
+            risk="medium",
+            action_taken="pending_admin",
+        )
         warn_text = get_msg_suspicious_file(lang, sender_label, esc(filename)) + "\n\n" + engine_consensus(result)
         kb = {
             "inline_keyboard": [
@@ -1969,3 +2218,4 @@ def process_update(api: TelegramAPI, update: dict) -> None:
     logger.info("File clean | %s | malicious=%d | suspicious=%d", filename, malicious, suspicious)
     all_clean = scanned_clean_targets + [filename]
     display_safe_feedback(", ".join(all_clean))
+
