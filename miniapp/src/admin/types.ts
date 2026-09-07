@@ -111,6 +111,7 @@ export interface DashboardApiResponse {
   domain_whitelist?: string[];
   group_details?: Record<string, GroupDetail>;
   known_users?: Record<string, KnownUser>;
+  known_groups?: Record<string, string>;
   config?: SystemConfig;
   plans?: Record<string, PlanEntry> | null;
   subscriptions?: Subscription[] | null;
