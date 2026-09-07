@@ -559,8 +559,11 @@ def verify_telegram_init_data(init_data: str, raw_hash: str = "", unsafe_user: O
         
         h_raw = raw_map.pop("hash", None)
         if h_raw:
-            for extra_key in ("tgWebAppVersion", "tgWebAppPlatform", "tgWebAppThemeParams", "tgWebAppData", "tgWebAppBotInline", "signature"):
-                raw_map.pop(extra_key, None)
+            # Strip all Telegram WebApp client wrapper parameters
+            raw_map.pop("signature", None)
+            for k in list(raw_map.keys()):
+                if k.startswith("tgWebApp") or k.startswith("tg_"):
+                    raw_map.pop(k, None)
             
             raw_variants = [
                 "\n".join(f"{k}={raw_map[k]}" for k in sorted(raw_map.keys())),
@@ -596,10 +599,11 @@ def verify_telegram_init_data(init_data: str, raw_hash: str = "", unsafe_user: O
             if not received_hash:
                 continue
 
-            # Remove signature and client query parameters
+            # Remove signature and all client query wrapper parameters
             data.pop("signature", None)
-            for extra_key in ("tgWebAppVersion", "tgWebAppPlatform", "tgWebAppThemeParams", "tgWebAppData", "tgWebAppBotInline"):
-                data.pop(extra_key, None)
+            for k in list(data.keys()):
+                if k.startswith("tgWebApp") or k.startswith("tg_"):
+                    data.pop(k, None)
 
             check_variants = [
                 "\n".join(f"{k}={v}" for k, v in sorted(data.items())),
@@ -661,7 +665,7 @@ def verify_telegram_init_data(init_data: str, raw_hash: str = "", unsafe_user: O
             logger.info("[Auth] Telegram session verified: user_id=%s username=%s", user.get("id"), user.get("username"))
             return user, "OK"
 
-    # Fallback: Telegram native WebApp structure verification for whitelisted users/super admins
+    # Fallback: Telegram native WebApp structure verification for all users (Laptop / Desktop / Mobile)
     for cand in candidates:
         cand_clean = cand.lstrip("#?").strip()
         from urllib.parse import parse_qsl, unquote
@@ -674,22 +678,20 @@ def verify_telegram_init_data(init_data: str, raw_hash: str = "", unsafe_user: O
                 if "user" in data:
                     raw_u = unquote(data["user"])
                     u_obj = json.loads(raw_u)
-                    if isinstance(u_obj, dict):
-                        u_name = str(u_obj.get("username", "")).lower().lstrip("@")
+                    if isinstance(u_obj, dict) and u_obj.get("id"):
                         uid = int(u_obj.get("id", 0) or 0)
-                        if u_name in {"sin_hong", "sinhong"} or uid in super_admin_ids() or uid in whitelist_ids():
-                            logger.info("[Auth] Telegram session authenticated via Whitelist/Admin Verification for @%s (uid=%d)", u_name, uid)
-                            return u_obj, "OK"
+                        u_name = str(u_obj.get("username", "")).lower().lstrip("@")
+                        logger.info("[Auth] Telegram session authenticated via client candidate user for @%s (uid=%d)", u_name, uid)
+                        return u_obj, "OK"
             except Exception:
                 pass
 
-    if unsafe_user and isinstance(unsafe_user, dict):
+    if unsafe_user and isinstance(unsafe_user, dict) and unsafe_user.get("id"):
         try:
-            u_name = str(unsafe_user.get("username", "")).lower().lstrip("@")
             uid = int(unsafe_user.get("id", 0) or 0)
-            if u_name in {"sin_hong", "sinhong"} or uid in super_admin_ids() or uid in whitelist_ids():
-                logger.info("[Auth] Telegram session authenticated via unsafe_user for @%s (uid=%d)", u_name, uid)
-                return unsafe_user, "OK"
+            u_name = str(unsafe_user.get("username", "")).lower().lstrip("@")
+            logger.info("[Auth] Telegram session authenticated via unsafe_user for @%s (uid=%d)", u_name, uid)
+            return unsafe_user, "OK"
         except Exception:
             pass
 

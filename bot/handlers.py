@@ -289,7 +289,7 @@ def classify_verdict(malicious: int, suspicious: int) -> str:
     return "clean"
 
 
-def apply_strike(api: TelegramAPI, chat_id: int, user_id: int, user_display: str) -> int:
+def apply_strike(api: TelegramAPI, chat_id: int, user_id: int, user_display: str, chat_title: str = "") -> int:
     """Increment a user's strike count; mute when a threshold is reached (doc section 3)."""
     strikes = add_strike(chat_id, user_id)
     duration = config.STRIKE_MUTE_RULES.get(strikes)
@@ -302,7 +302,45 @@ def apply_strike(api: TelegramAPI, chat_id: int, user_id: int, user_display: str
             chat_id,
             f"📢 <b>{user_display}</b> is restricted for {hours}h due to {strikes} threat violations.",
         )
+        _send_mute_alert_to_admin(api, chat_id, chat_title, user_id, user_display, hours, strikes)
     return strikes
+
+
+def _send_mute_alert_to_admin(
+    api: TelegramAPI,
+    chat_id: int,
+    chat_title: str,
+    user_id: int,
+    user_display: str,
+    hours: int,
+    strikes: int,
+) -> None:
+    grp_name = chat_title or str(chat_id)
+    text = (
+        "🔇 <b>User Muted Notice | សេចក្តីជូនដំណឹងអំពីការ Mute សមាជិក</b>\n\n"
+        f"👤 <b>User :</b> <b>{user_display}</b> (ID: <code>{user_id}</code>)\n"
+        f"👥 <b>Group :</b> <b>{esc(grp_name)}</b> (ID: <code>{chat_id}</code>)\n"
+        f"⚠️ <b>Reason :</b> {strikes} Threat Violation(s)\n"
+        f"⏳ <b>Duration :</b> <code>{hours} Hour(s) ({hours} ម៉ោង)</code>\n\n"
+        "👇 <i>Admin Controls: Tap below to Unmute, Kick, or Ban this member:</i>"
+    )
+    kb = {
+        "inline_keyboard": [
+            [
+                {"text": "🔊 Unmute", "callback_data": f"unmute:{chat_id}:{user_id}"},
+                {"text": "👢 Kick", "callback_data": f"kick:{chat_id}:{user_id}"},
+                {"text": "🔨 Ban", "callback_data": f"ban:{chat_id}:{user_id}"},
+            ]
+        ]
+    }
+    if config.ADMIN_CHAT_ID:
+        for admin_id_str in config.ADMIN_CHAT_ID.split(","):
+            admin_id_str = admin_id_str.strip()
+            if admin_id_str:
+                try:
+                    api.send_message(int(admin_id_str), text, reply_markup=kb)
+                except Exception as e:
+                    logger.error("Failed to send mute alert to admin %s: %s", admin_id_str, e)
 
 
 def trust_label(chat_id: int, user_id: int, settings: dict) -> str:
@@ -779,6 +817,8 @@ def _send_threat_alert(
     extra: str = "",
     target_user_id: int = 0,
     target_domain: str = "",
+    target_file_sha: str = "",
+    target_file_name: str = "",
 ) -> None:
     action_kh = "សារត្រូវបានលុបចោលភ្លាមៗ" if deleted else "មិនអាចលុបសារ, ពិនិត្យសិទ្ធិ Admin របស់ Bot"
     action_en = "Message deleted immediately" if deleted else "Could not delete message, check Bot admin rights"
@@ -787,16 +827,19 @@ def _send_threat_alert(
     kb = []
     action_row = []
     if target_user_id:
-        action_row.append({"text": "🔨 Ban Spammer", "callback_data": f"ban:{chat_id}:{target_user_id}"})
+        action_row.append({"text": "🔨 Ban", "callback_data": f"ban:{chat_id}:{target_user_id}"})
         action_row.append({"text": "🔇 Mute 24h", "callback_data": f"mute:{chat_id}:{target_user_id}"})
+        action_row.append({"text": "👢 Kick", "callback_data": f"kick:{chat_id}:{target_user_id}"})
     if action_row:
         kb.append(action_row)
 
     second_row = []
     if target_domain:
         dom_clean = target_domain.lower().replace("http://", "").replace("https://", "").split("/")[0][:30]
-        second_row.append({"text": "🛡️ Whitelist", "callback_data": f"wl_dom:{chat_id}:{dom_clean}"})
-    second_row.append({"text": "💡 ការពន្យល់សុវត្ថិភាព | Guide", "callback_data": "explain_threat"})
+        second_row.append({"text": "🛡️ Whitelist Domain", "callback_data": f"wl_dom:{chat_id}:{dom_clean}"})
+    if target_file_sha:
+        second_row.append({"text": "🛡️ Whitelist File", "callback_data": f"approve_file:{chat_id}:{target_file_sha}"})
+    second_row.append({"text": "💡 Guide", "callback_data": "explain_threat"})
     kb.append(second_row)
 
     reply_markup = {"inline_keyboard": kb}
@@ -807,7 +850,13 @@ def _send_threat_alert(
             for admin_id_str in config.ADMIN_CHAT_ID.split(","):
                 admin_id_str = admin_id_str.strip()
                 if admin_id_str:
-                    api.send_message(int(admin_id_str), text)
+                    admin_alert_text = (
+                        f"🚨 <b>Security Threat Alert | Group Alert</b>\n"
+                        f"👥 <b>Group :</b> <code>{chat_id}</code>\n"
+                        f"👤 <b>Sender :</b> {user_display} (ID: <code>{target_user_id}</code>)\n\n"
+                        f"{text}"
+                    )
+                    api.send_message(int(admin_id_str), admin_alert_text, reply_markup=reply_markup)
         except Exception as exc:
             logger.error("Admin alert failed: %s", exc)
 
@@ -1587,11 +1636,18 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
             gid = int(parts[1])
             sha = parts[2]
             if not (is_super_admin(user_id) or api.is_group_admin(user_id, gid)):
-                api.answer_callback_query(query_id, text="❌ Admin only.", show_alert=True)
+                api.answer_callback_query(query_id, text="❌ Admin only / សម្រាប់តែ Admin ប៉ុណ្ណោះ", show_alert=True)
                 return
             whitelist_file(gid, sha)
-            api.answer_callback_query(query_id, text="✅ File approved for this group.")
-            api.edit_message_reply_markup(chat_id, msg_id, reply_markup=None)
+            api.answer_callback_query(
+                query_id,
+                text="🛡️ File approved and added to whitelist! Future uploads will be permitted.",
+                show_alert=True,
+            )
+            if chat_id < 0:
+                api.send_message(gid, f"🛡️ <b>File Whitelisted:</b> File hash <code>{sha[:16]}...</code> approved by admin.")
+            else:
+                api.send_message(chat_id, f"🛡️ <b>File Whitelisted:</b> File hash <code>{sha[:16]}...</code> approved for group <code>{gid}</code>.")
             return
 
     if data.startswith("delete_file:"):
@@ -1606,7 +1662,51 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
             api.answer_callback_query(query_id, text="🗑️ File deleted.")
             return
 
-    # 0.65 1-Click Group Admin Inline Actions
+    # 0.65 1-Click Group Admin Inline Actions (Unmute / Kick / Ban / Whitelist)
+    if data.startswith("unmute:"):
+        parts = data.split(":")
+        if len(parts) == 3:
+            gid = int(parts[1])
+            target_uid = int(parts[2])
+            if not (is_super_admin(user_id) or api.is_group_admin(user_id, gid)):
+                api.answer_callback_query(query_id, text="❌ Admin only / សម្រាប់តែ Admin ក្រុមប៉ុណ្ណោះ", show_alert=True)
+                return
+            unmuted = api.restrict_chat_member(
+                gid,
+                target_uid,
+                can_send_messages=True,
+                can_send_media_messages=True,
+                can_send_other_messages=True,
+                can_add_web_page_previews=True,
+            )
+            if unmuted:
+                api.answer_callback_query(query_id, text="🔊 User unmuted / បានបើកសិទ្ធិផ្ញើសារឡើងវិញ!", show_alert=True)
+                api.send_message(gid, f"🔊 <b>Admin Action:</b> Member (ID: <code>{target_uid}</code>) has been unmuted by admin.")
+                if chat_id > 0:
+                    api.send_message(chat_id, f"🔊 Member <code>{target_uid}</code> unmuted in group <code>{gid}</code>.")
+            else:
+                api.answer_callback_query(query_id, text="⚠️ Failed to unmute member. Check bot admin permissions.", show_alert=True)
+            return
+
+    if data.startswith("kick:"):
+        parts = data.split(":")
+        if len(parts) == 3:
+            gid = int(parts[1])
+            target_uid = int(parts[2])
+            if not (is_super_admin(user_id) or api.is_group_admin(user_id, gid)):
+                api.answer_callback_query(query_id, text="❌ Admin only / សម្រាប់តែ Admin ក្រុមប៉ុណ្ណោះ", show_alert=True)
+                return
+            api.ban_chat_member(gid, target_uid)
+            kicked = api.unban_chat_member(gid, target_uid)
+            if kicked:
+                api.answer_callback_query(query_id, text="👢 User kicked / បានទាត់អ្នកប្រើប្រាស់ចេញពីក្រុម!", show_alert=True)
+                api.send_message(gid, f"👢 <b>Admin Action:</b> Member (ID: <code>{target_uid}</code>) was kicked from group by admin.")
+                if chat_id > 0:
+                    api.send_message(chat_id, f"👢 Member <code>{target_uid}</code> kicked from group <code>{gid}</code>.")
+            else:
+                api.answer_callback_query(query_id, text="⚠️ Failed to kick member. Check bot admin permissions.", show_alert=True)
+            return
+
     if data.startswith("ban:"):
         parts = data.split(":")
         if len(parts) == 3:
@@ -1617,8 +1717,10 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
                 return
             banned = api.ban_chat_member(gid, target_uid)
             if banned:
-                api.answer_callback_query(query_id, text="🔨 Spammer banned / បាន Ban អ្នកផ្ញើជោគជ័យ!")
+                api.answer_callback_query(query_id, text="🔨 Spammer banned / បាន Ban អ្នកផ្ញើជោគជ័យ!", show_alert=True)
                 api.send_message(gid, f"🔨 <b>Admin Action:</b> Member (ID: <code>{target_uid}</code>) was banned by admin.")
+                if chat_id > 0:
+                    api.send_message(chat_id, f"🔨 Member <code>{target_uid}</code> banned in group <code>{gid}</code>.")
             else:
                 api.answer_callback_query(query_id, text="⚠️ Failed to ban member. Check bot admin permissions.", show_alert=True)
             return
@@ -1634,8 +1736,10 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
             until_date = int(time.time()) + 86400
             muted = api.restrict_chat_member(gid, target_uid, can_send_messages=False, until_date=until_date)
             if muted:
-                api.answer_callback_query(query_id, text="🔇 User muted for 24h / បានផ្អាកសិទ្ធិផ្ញើសារ 24 ម៉ោង!")
+                api.answer_callback_query(query_id, text="🔇 User muted for 24h / បានផ្អាកសិទ្ធិផ្ញើសារ 24 ម៉ោង!", show_alert=True)
                 api.send_message(gid, f"🔇 <b>Admin Action:</b> Member (ID: <code>{target_uid}</code>) has been muted for 24 hours.")
+                if chat_id > 0:
+                    api.send_message(chat_id, f"🔇 Member <code>{target_uid}</code> muted in group <code>{gid}</code>.")
             else:
                 api.answer_callback_query(query_id, text="⚠️ Failed to mute member. Check bot admin permissions.", show_alert=True)
             return
@@ -1649,8 +1753,15 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
                 api.answer_callback_query(query_id, text="❌ Admin only / សម្រាប់តែ Admin ក្រុមប៉ុណ្ណោះ", show_alert=True)
                 return
             add_domain_whitelist(domain_to_add)
-            api.answer_callback_query(query_id, text=f"🛡️ {domain_to_add} added to trusted whitelist!")
-            api.send_message(gid, f"🛡️ <b>Trusted Domain:</b> <code>{esc(domain_to_add)}</code> was added to the trusted whitelist.")
+            api.answer_callback_query(
+                query_id,
+                text=f"🛡️ Domain '{domain_to_add}' added to trusted whitelist! Future links will be permitted.",
+                show_alert=True,
+            )
+            if chat_id < 0:
+                api.send_message(gid, f"🛡️ <b>Trusted Domain:</b> <code>{esc(domain_to_add)}</code> was added to the trusted whitelist.")
+            else:
+                api.send_message(chat_id, f"🛡️ <b>Trusted Domain:</b> <code>{esc(domain_to_add)}</code> added to whitelist for group <code>{gid}</code>.")
             return
 
     if data == "explain_threat":
@@ -2209,7 +2320,7 @@ def process_update(api: TelegramAPI, update: dict) -> None:
             target_user_id=sender_id,
             target_domain=domain,
         )
-        apply_strike(api, chat_id, sender_id, user_display)
+        apply_strike(api, chat_id, sender_id, user_display, chat_title=chat_title)
         logger.warning("URL THREAT | domain=%s | malicious=%d | deleted=%s", domain, malicious, deleted)
         return
 
@@ -2282,8 +2393,10 @@ def process_update(api: TelegramAPI, update: dict) -> None:
             extra="\n\n" + engine_consensus(result),
             target_user_id=sender_id,
             target_domain="",
+            target_file_sha=sha256,
+            target_file_name=filename,
         )
-        apply_strike(api, chat_id, sender_id, user_display)
+        apply_strike(api, chat_id, sender_id, user_display, chat_title=chat_title)
         logger.warning("FILE THREAT | %s | malicious=%d | suspicious=%d | deleted=%s", filename, malicious, suspicious, deleted)
         return
 
@@ -2302,12 +2415,28 @@ def process_update(api: TelegramAPI, update: dict) -> None:
         kb = {
             "inline_keyboard": [
                 [
-                    {"text": "🛡️ Approve for Group", "callback_data": f"approve_file:{chat_id}:{sha256}"},
+                    {"text": "🛡️ Approve & Whitelist", "callback_data": f"approve_file:{chat_id}:{sha256}"},
                     {"text": "🗑️ Delete File", "callback_data": f"delete_file:{chat_id}:{msg_id}"},
                 ]
             ]
         }
         api.send_message(chat_id, warn_text, reply_markup=kb)
+        if config.ADMIN_CHAT_ID:
+            for admin_id_str in config.ADMIN_CHAT_ID.split(","):
+                admin_id_str = admin_id_str.strip()
+                if admin_id_str:
+                    try:
+                        admin_warn = (
+                            f"⚠️ <b>Suspicious File Detected | Group Alert</b>\n"
+                            f"👥 <b>Group :</b> <code>{chat_id}</code>\n"
+                            f"👤 <b>Sender :</b> {user_display} (ID: <code>{sender_id}</code>)\n"
+                            f"📁 <b>File :</b> <code>{esc(filename)}</code>\n"
+                            f"🛡️ <b>Consensus :</b> {engine_consensus(result)}\n\n"
+                            f"👇 <i>Admin Controls: Tap below to Whitelist or Delete:</i>"
+                        )
+                        api.send_message(int(admin_id_str), admin_warn, reply_markup=kb)
+                    except Exception as e:
+                        logger.error("Failed to send suspicious file alert to admin: %s", e)
         logger.warning("FILE SUSPICIOUS | %s | malicious=%d | suspicious=%d", filename, malicious, suspicious)
         return
 
