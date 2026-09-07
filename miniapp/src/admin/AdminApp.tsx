@@ -205,205 +205,7 @@ function UpgradeModal({ onClose, lang }: { onClose: () => void; lang: Lang }) {
   );
 }
 
-function AdminLoginModal({
-  onClose,
-  lang,
-  onSuccess,
-}: {
-  onClose: () => void;
-  lang: Lang;
-  onSuccess: () => void;
-}) {
-  const [pin, setPin] = useState("");
-  const [err, setErr] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [showTotp, setShowTotp] = useState(false);
-  const [totpCode, setTotpCode] = useState("");
-  const isKm = lang === "km";
 
-  async function handlePinSubmit() {
-    if (pin.length !== 6) {
-      setErr(isKm ? "PIN ត្រូវតែមាន ៦ ខ្ទង់" : "PIN must be 6 digits");
-      return;
-    }
-    setErr(null);
-    setBusy(true);
-    try {
-      const res = await loginPin(pin);
-      if (res && res.session) {
-        setSessionToken(res.session);
-        onSuccess();
-        onClose();
-        return;
-      }
-      setErr(res?.error || (isKm ? "PIN មិនត្រឹមត្រូវ" : "Incorrect PIN"));
-    } catch (e: any) {
-      setErr(e?.message || "Login failed");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleTotpSubmit() {
-    if (!totpCode.trim()) {
-      setErr(isKm ? "សូមបញ្ចូលកូដ 2FA" : "Enter 2FA Code");
-      return;
-    }
-    setErr(null);
-    setBusy(true);
-    try {
-      const res = await resetPinWithTotp(totpCode);
-      if (res && res.ok) {
-        onSuccess();
-        onClose();
-        return;
-      }
-      setErr(res?.error || (isKm ? "កូដមិនត្រឹមត្រូវ" : "Invalid 2FA code"));
-    } catch (e: any) {
-      setErr(e?.message || "Verification failed");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 200,
-        background: "rgba(0,0,0,0.75)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "20px 16px",
-      }}
-      onClick={onClose}
-    >
-      <div
-        onClick={e => e.stopPropagation()}
-        style={{
-          background: G.surface,
-          borderRadius: 20,
-          border: `1px solid ${G.goldBorder}`,
-          width: "100%",
-          maxWidth: 380,
-          padding: "24px 20px",
-          textAlign: "center",
-          boxShadow: "0 24px 80px rgba(0,0,0,0.6)",
-        }}
-      >
-        <LogoMark size={44} />
-        <div style={{ fontSize: 17, fontWeight: 800, color: G.gold, marginTop: 10 }}>
-          {showTotp ? (isKm ? "ផ្ទៀងផ្ទាត់ 2FA / Authenticator" : "2FA Verification") : (isKm ? "ចូលប្រើប្រព័ន្ធគ្រប់គ្រង (Admin Login)" : "Admin PIN Login")}
-        </div>
-        <div style={{ fontSize: 12, color: G.textSec, margin: "6px 0 16px", lineHeight: 1.4 }}>
-          {showTotp
-            ? (isKm ? "បញ្ចូលកូដ ៦ ខ្ទង់ពី Google Authenticator ឬ Backup Code:" : "Enter your 6-digit Google Authenticator or Backup Code:")
-            : (isKm ? "បញ្ចូលកូដសម្ងាត់ PIN ៦ ខ្ទង់របស់អ្នកដើម្បីភ្ជាប់ទិន្នន័យផ្ទាល់:" : "Enter your 6-digit Admin PIN to unlock live dashboard:")}
-        </div>
-
-        {showTotp ? (
-          <input
-            type="text"
-            value={totpCode}
-            onChange={e => setTotpCode(e.target.value.toUpperCase())}
-            placeholder="000000 / A1B2-C3D4"
-            disabled={busy}
-            style={{
-              width: "100%",
-              background: G.surface2,
-              border: `1px solid ${G.border}`,
-              borderRadius: 10,
-              padding: "12px 14px",
-              color: G.text,
-              fontSize: 16,
-              letterSpacing: "0.2em",
-              textAlign: "center",
-              outline: "none",
-              marginBottom: 12,
-              fontFamily: "JetBrains Mono, monospace",
-            }}
-          />
-        ) : (
-          <input
-            type="password"
-            inputMode="numeric"
-            pattern="[0-9]*"
-            maxLength={6}
-            value={pin}
-            onChange={e => setPin(e.target.value.replace(/\D/g, ""))}
-            placeholder="••••••"
-            disabled={busy}
-            style={{
-              width: "100%",
-              background: G.surface2,
-              border: `1px solid ${G.border}`,
-              borderRadius: 10,
-              padding: "12px 14px",
-              color: G.text,
-              fontSize: 20,
-              letterSpacing: "0.3em",
-              textAlign: "center",
-              outline: "none",
-              marginBottom: 12,
-              fontFamily: "JetBrains Mono, monospace",
-            }}
-          />
-        )}
-
-        {err && <div style={{ color: G.danger, fontSize: 12, marginBottom: 12, fontWeight: 600 }}>{err}</div>}
-
-        <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-          <button
-            onClick={onClose}
-            style={{
-              flex: 1,
-              background: "transparent",
-              border: `1px solid ${G.border}`,
-              color: G.muted,
-              borderRadius: 8,
-              padding: "10px 0",
-              fontSize: 12,
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
-            {isKm ? "បិទ" : "Cancel"}
-          </button>
-          <button
-            onClick={showTotp ? handleTotpSubmit : handlePinSubmit}
-            disabled={busy || (showTotp ? !totpCode.trim() : pin.length !== 6)}
-            style={{
-              flex: 1.5,
-              background: G.gold,
-              color: "#1a1200",
-              border: "none",
-              borderRadius: 8,
-              padding: "10px 0",
-              fontSize: 12,
-              fontWeight: 800,
-              cursor: "pointer",
-              opacity: busy || (showTotp ? !totpCode.trim() : pin.length !== 6) ? 0.6 : 1,
-            }}
-          >
-            {busy ? (isKm ? "កំពុងផ្ទៀងផ្ទាត់..." : "Verifying...") : (isKm ? "ចូលប្រើ" : "Unlock Live")}
-          </button>
-        </div>
-
-        <button
-          onClick={() => {
-            setErr(null);
-            setShowTotp(s => !s);
-          }}
-          style={{ background: "transparent", border: "none", color: G.gold, fontSize: 11, cursor: "pointer", fontWeight: 600 }}
-        >
-          {showTotp ? (isKm ? "🔑 ចូលប្រើជាមួយ PIN" : "🔑 Login with PIN instead") : (isKm ? "🛡️ ប្រើ Google Authenticator (2FA)" : "🛡️ Use Google Authenticator (2FA)")}
-        </button>
-      </div>
-    </div>
-  );
-}
 
 function PinGate({
   mode,
@@ -701,7 +503,6 @@ export default function AdminApp() {
     }
   });
   const [upgradeOpen, setUpgradeOpen] = useState(false);
-  const [loginModalOpen, setLoginModalOpen] = useState(false);
 
   // Helper date functions
   const getToday = () => new Date().toISOString().split("T")[0];
@@ -724,7 +525,6 @@ export default function AdminApp() {
   const [historyDateTo, setHistoryDateTo] = useState<string>(() => getToday());
 
   const [showNotifications, setShowNotifications] = useState(false);
-  const [showDebug, setShowDebug] = useState(false);
   const [readNotifications, setReadNotifications] = useState<Set<string>>(() => {
     try {
       const saved = localStorage.getItem("songket.admin.readNotifications");
@@ -896,7 +696,43 @@ export default function AdminApp() {
         }}
       />
     ),
-    manage: !manageUnlocked ? (
+    manage: isMock ? (
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "60dvh", padding: "16px" }}>
+        <div style={{ background: G.surface, border: `1px solid ${G.goldBorder}`, borderRadius: 20, padding: "32px 24px", width: "100%", maxWidth: 400, textAlign: "center" }}>
+          <LogoMark size={52} />
+          <div style={{ fontSize: 18, fontWeight: 800, color: G.gold, marginTop: 16, marginBottom: 8 }}>
+            <span className={kh(lang)}>{lang === "km" ? "ការគ្រប់គ្រងសម្រាប់តែ Admin" : "Admin Access Only"}</span>
+          </div>
+          <div style={{ fontSize: 13, color: G.textSec, lineHeight: 1.6, marginBottom: 24 }}>
+            <span className={kh(lang)}>
+              {lang === "km"
+                ? "ផ្ទាំងគ្រប់គ្រងប្រព័ន្ធត្រូវបានការពារ។ សូមទាក់ទងមកកាន់ @Sin_Hong ដើម្បីស្នើសុំសិទ្ធិគ្រប់គ្រង។"
+                : "System configuration is restricted to authorized administrators. Please contact @Sin_Hong to request access."}
+            </span>
+          </div>
+          <button
+            onClick={() => openTelegramDirect("Sin_Hong")}
+            style={{
+              width: "100%",
+              background: G.gold,
+              color: "#1a1200",
+              border: "none",
+              borderRadius: 10,
+              padding: "13px 0",
+              fontWeight: 800,
+              cursor: "pointer",
+              fontSize: 14,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+            }}
+          >
+            💬 <span className={kh(lang)}>{lang === "km" ? "ទាក់ទង @Sin_Hong" : "Contact @Sin_Hong"}</span>
+          </button>
+        </div>
+      </div>
+    ) : !manageUnlocked ? (
       <PinGate
         mode={apiData?.pin_exists ? "login" : "setup"}
         locked={apiData?.locked || 0}
@@ -923,16 +759,6 @@ export default function AdminApp() {
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100dvh", background: G.bg, color: G.text, fontFamily: "Outfit, sans-serif" }}>
       {upgradeOpen && <UpgradeModal onClose={() => setUpgradeOpen(false)} lang={lang} />}
-      {loginModalOpen && (
-        <AdminLoginModal
-          onClose={() => setLoginModalOpen(false)}
-          lang={lang}
-          onSuccess={() => {
-            setManageUnlocked(true);
-            loadData(true, 31);
-          }}
-        />
-      )}
 
       <header style={{ padding: "12px 16px", borderBottom: `1px solid ${G.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: G.surface, flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -1133,23 +959,23 @@ export default function AdminApp() {
       )}
 
       {apiData && !apiData.authorized && (
-        <div style={{ background: "rgba(212,167,44,0.12)", borderBottom: `1px solid ${G.goldBorder}`, padding: "10px 16px", display: "flex", flexDirection: "column", gap: 6, flexShrink: 0 }}>
+        <div style={{ background: "rgba(212,167,44,0.12)", borderBottom: `1px solid ${G.goldBorder}`, padding: "10px 16px", flexShrink: 0 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <ShieldAlert size={16} color={G.warn} />
               <div style={{ fontSize: 12, color: G.text }}>
-                <strong style={{ color: G.gold }}>Preview Mode</strong> — Contact <strong>@Sin_Hong</strong> to enable live protection for your group.
+                <strong style={{ color: G.gold }}>Preview Mode</strong> — {lang === "km" ? "សូមទាក់ទង @Sin_Hong ដើម្បីបើកការការពារផ្ទាល់សម្រាប់ក្រុមរបស់អ្នក។" : "Contact @Sin_Hong to enable live protection for your group."}
               </div>
             </div>
-            <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <button
-                onClick={() => setLoginModalOpen(true)}
+                onClick={() => openTelegramDirect("Sin_Hong")}
                 style={{
                   background: G.gold,
                   color: "#1a1200",
                   border: "none",
                   borderRadius: 6,
-                  padding: "5px 12px",
+                  padding: "6px 14px",
                   fontSize: 11,
                   fontWeight: 800,
                   cursor: "pointer",
@@ -1158,7 +984,7 @@ export default function AdminApp() {
                   gap: 4,
                 }}
               >
-                🔑 {lang === "km" ? "ចូលប្រើជាមួយ PIN / 2FA" : "Login with PIN / 2FA"}
+                💬 {lang === "km" ? "ទាក់ទង @Sin_Hong" : "Contact @Sin_Hong"}
               </button>
               <button
                 onClick={() => openTelegramDirect("songket_beyda_bot")}
@@ -1178,33 +1004,8 @@ export default function AdminApp() {
               >
                 🤖 {lang === "km" ? "បើកតាម Bot" : "Open Bot Chat"}
               </button>
-              <button
-                onClick={() => setShowDebug(s => !s)}
-                style={{
-                  background: "transparent",
-                  border: `1px solid ${G.border}`,
-                  color: G.muted,
-                  borderRadius: 6,
-                  padding: "4px 8px",
-                  fontSize: 10,
-                  cursor: "pointer",
-                }}
-              >
-                {showDebug ? "Hide Debug" : "🔍 Debug Log"}
-              </button>
-              <button onClick={() => openTelegramDirect("Sin_Hong")} style={{ background: "transparent", border: `1px solid ${G.border}`, color: G.muted, borderRadius: 6, padding: "5px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
-                @Sin_Hong
-              </button>
             </div>
           </div>
-          {showDebug && (
-            <div style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 8, padding: "8px 10px", fontSize: 10, fontFamily: "monospace", color: G.muted, marginTop: 4, wordBreak: "break-all" }}>
-              <div><strong>User ID:</strong> {user?.id || "None"} (@{user?.username || "none"})</div>
-              <div><strong>API Error:</strong> {apiData.error || "None"}</div>
-              <div><strong>InitData cached:</strong> {typeof window !== "undefined" ? (sessionStorage.getItem("songket_init_data") || localStorage.getItem("songket_init_data") ? "Yes (length " + (sessionStorage.getItem("songket_init_data") || localStorage.getItem("songket_init_data") || "").length + ")" : "None") : "SSR"}</div>
-              <div><strong>URL:</strong> {typeof window !== "undefined" ? window.location.href : ""}</div>
-            </div>
-          )}
         </div>
       )}
 

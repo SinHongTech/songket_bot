@@ -73,6 +73,23 @@ from bot.utils import (
 
 logger = logging.getLogger("BeydaBot.handlers")
 
+_PROCESSED_MESSAGES: dict[str, float] = {}
+
+
+def _is_duplicate_message(chat_id: int, msg_id: int, content: str) -> bool:
+    """Prevent double-scanning when Telegram sends edited_message after link preview."""
+    now = time.time()
+    # Clean up entries older than 60 seconds
+    expired = [k for k, t in _PROCESSED_MESSAGES.items() if now - t > 60]
+    for k in expired:
+        _PROCESSED_MESSAGES.pop(k, None)
+
+    msg_key = f"{chat_id}:{msg_id}:{hashlib.md5(content.encode('utf-8')).hexdigest()}"
+    if msg_key in _PROCESSED_MESSAGES:
+        return True
+    _PROCESSED_MESSAGES[msg_key] = now
+    return False
+
 
 # ── Multilingual & Non-Technical Message Templates ──────────────────────────
 
@@ -466,7 +483,29 @@ def _handle_personal_scan(api: TelegramAPI, chat_id: int, message: dict, user_id
     has_file = bool(file_id)
     lang = get_user_lang(user_id)
 
-    if not urls and not has_file:
+    # Extract QR Code from Photos, Stickers, or Image Documents
+    photos = message.get("photo") or []
+    sticker = message.get("sticker") or {}
+    qr_image_bytes = None
+
+    if photos:
+        largest_photo = photos[-1]
+        photo_file_id = largest_photo.get("file_id")
+        if photo_file_id:
+            qr_image_bytes = api.download_file(photo_file_id)
+    elif sticker and not sticker.get("is_animated") and not sticker.get("is_video"):
+        sticker_file_id = sticker.get("file_id")
+        if sticker_file_id:
+            qr_image_bytes = api.download_file(sticker_file_id)
+
+    if qr_image_bytes:
+        from bot.qr_scanner import extract_urls_from_qr
+        qr_urls = extract_urls_from_qr(qr_image_bytes)
+        for qu in qr_urls:
+            if qu not in urls:
+                urls.append(qu)
+
+    if not urls and not has_file and not photos and not sticker:
         _send_scan_prompt(api, chat_id, user_id)
         return
 
@@ -513,6 +552,28 @@ def _handle_personal_scan(api: TelegramAPI, chat_id: int, message: dict, user_id
     results = []
     scanned = 0
 
+    if has_file:
+        filename = doc.get("file_name", "")
+        filesize = doc.get("file_size", 0)
+        mime = doc.get("mime_type", "")
+        decision = fetch_and_validate(api, file_id, filename, filesize, mime)
+
+        # If document is an image (e.g. .png, .jpg), also extract QR code from file bytes!
+        if decision.file_bytes and any(filename.lower().endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".webp", ".bmp")):
+            from bot.qr_scanner import extract_urls_from_qr
+            qr_urls = extract_urls_from_qr(decision.file_bytes)
+            for qu in qr_urls:
+                if qu not in urls:
+                    urls.append(qu)
+
+        if decision.oversize:
+            results.append(("file", filename, {"error": "File too large to scan"}))
+        elif decision.ok:
+            results.append(("file", filename, vt_scan_file(decision.file_bytes, filename)))
+        elif not urls:
+            results.append(("file", filename, {"malicious": 0, "suspicious": 0, "harmless": 100, "undetected": 0}))
+        scanned += 1
+
     for url in urls:
         if is_whitelisted(url):
             continue
@@ -520,17 +581,8 @@ def _handle_personal_scan(api: TelegramAPI, chat_id: int, message: dict, user_id
         results.append(("link", domain, vt_scan_url(url)))
         scanned += 1
 
-    if has_file:
-        filename = doc.get("file_name", "")
-        filesize = doc.get("file_size", 0)
-        mime = doc.get("mime_type", "")
-        decision = fetch_and_validate(api, file_id, filename, filesize, mime)
-        if decision.oversize:
-            results.append(("file", filename, {"error": "File too large to scan"}))
-        elif decision.ok:
-            results.append(("file", filename, vt_scan_file(decision.file_bytes, filename)))
-        else:
-            results.append(("file", filename, {"error": "File skipped (safe prefilter)"}))
+    if not results and (photos or sticker):
+        results.append(("file", "Photo/Image", {"malicious": 0, "suspicious": 0, "harmless": 100, "undetected": 0}))
         scanned += 1
 
     if scanned:
@@ -1382,9 +1434,9 @@ def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
             )
             return
 
-    # Personal scanning — any link or file sent privately
+    # Personal scanning — any link, photo, sticker, or file sent privately
     content = (message.get("text") or "") + " " + (message.get("caption") or "")
-    if extract_urls(content) or (message.get("document") or {}).get("file_id"):
+    if extract_urls(content) or message.get("photo") or message.get("sticker") or (message.get("document") or {}).get("file_id"):
         _handle_personal_scan(api, chat_id, message, user_id)
         return
 
@@ -1965,6 +2017,10 @@ def process_update(api: TelegramAPI, update: dict) -> None:
     chat_title = chat.get("title", str(chat_id))
 
     content = (message.get("text") or "") + " " + (message.get("caption") or "")
+    if _is_duplicate_message(chat_id, msg_id, content):
+        logger.debug("Duplicate message update ignored: chat_id=%d msg_id=%d", chat_id, msg_id)
+        return
+
     urls = extract_urls(content)
 
     # 6.1 Extract QR Code from Photos or Stickers
