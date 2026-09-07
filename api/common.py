@@ -872,7 +872,7 @@ def is_group_admin(user_id: int, chat_id: int) -> bool:
 
 
 def groups_for_user(user_id: int, allowed_groups: set[int]) -> list[int]:
-    """Return groups for user: super admins see all; regular admins see their handled groups and allowed groups."""
+    """Return groups for user: super admins see all; regular admins ONLY see their explicitly assigned/handled groups."""
     explicit_map = explicit_group_map()
     explicit = explicit_map.get(user_id, [])
 
@@ -883,14 +883,11 @@ def groups_for_user(user_id: int, allowed_groups: set[int]) -> list[int]:
             all_ids.add(g)
         return list(sorted(all_ids))[:MAX_DASHBOARD_GROUPS]
 
-    # 2. Explicit handler mapping has highest precedence for regular admin
+    # 2. Regular admin ONLY sees groups specifically assigned to their user ID
     if explicit:
         return explicit[:MAX_DASHBOARD_GROUPS]
 
-    # 3. If whitelisted and allowed groups exist, return allowed groups
-    if allowed_groups:
-        return list(sorted(allowed_groups))[:MAX_DASHBOARD_GROUPS]
-
+    # 3. Regular admin with no assigned groups sees NO other admin's groups
     return []
 
 
@@ -1188,12 +1185,13 @@ def get_known_users() -> dict:
     known = kv_json_get("known_users") or {}
     defaults = {
         "1221693150": {"username": "Sin_Hong", "name": "Sin Hong"},
-        "6903398617": {"username": "sin_hong_admin", "name": "Admin 690"},
-        "665698758": {"username": "admin_665", "name": "Admin 665"},
-        "1110438159": {"username": "admin_111", "name": "Admin 111"},
-        "918434351": {"username": "admin_918", "name": "Admin 918"},
-        "1130272106": {"username": "admin_113", "name": "Admin 113"},
-        "817197042": {"username": "admin_817", "name": "Admin 817"},
+        "6903398617": {"username": "Sochealikaa", "name": "Sao Sochealika"},
+        "665698758": {"username": "", "name": "Bet SreyPich"},
+        "1110438159": {"username": "cheezeri", "name": "Chanmonyneath PO"},
+        "918434351": {"username": "GekleangMong", "name": "Gekleang CADT"},
+        "1130272106": {"username": "kongleaksmey", "name": "Kong Leak Smey"},
+        "817197042": {"username": "Panhakhonn", "name": "KHON PANHA"},
+        "772640725": {"username": "Sovathana168", "name": "Ne Sovathana"},
     }
     defaults.update(known)
     return defaults

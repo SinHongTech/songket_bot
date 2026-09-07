@@ -355,12 +355,13 @@ def get_known_users() -> dict:
     known = kv_json_get("known_users") or {}
     defaults = {
         "1221693150": {"username": "Sin_Hong", "name": "Sin Hong"},
-        "6903398617": {"username": "sin_hong_admin", "name": "Admin 690"},
-        "665698758": {"username": "admin_665", "name": "Admin 665"},
-        "1110438159": {"username": "admin_111", "name": "Admin 111"},
-        "918434351": {"username": "admin_918", "name": "Admin 918"},
-        "1130272106": {"username": "admin_113", "name": "Admin 113"},
-        "817197042": {"username": "admin_817", "name": "Admin 817"},
+        "6903398617": {"username": "Sochealikaa", "name": "Sao Sochealika"},
+        "665698758": {"username": "", "name": "Bet SreyPich"},
+        "1110438159": {"username": "cheezeri", "name": "Chanmonyneath PO"},
+        "918434351": {"username": "GekleangMong", "name": "Gekleang CADT"},
+        "1130272106": {"username": "kongleaksmey", "name": "Kong Leak Smey"},
+        "817197042": {"username": "Panhakhonn", "name": "KHON PANHA"},
+        "772640725": {"username": "Sovathana168", "name": "Ne Sovathana"},
     }
     defaults.update(known)
     return defaults
