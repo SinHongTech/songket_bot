@@ -247,29 +247,40 @@ def check_google_safebrowsing(url: str) -> Optional[dict]:
 
 
 def vt_scan_url(url: str) -> dict:
-    # 1. Check Trusted Domain Whitelist
+    # 1. Resolve potential redirect / shortener destination
+    from bot.utils import resolve_redirect
+    final_url = resolve_redirect(url)
+    urls_to_check = [url]
+    if final_url and final_url != url:
+        urls_to_check.append(final_url)
+
+    # 2. Check Trusted Domain Whitelist (only if NOT a shortener)
     from bot.redis_client import is_domain_whitelisted
-    if is_domain_whitelisted(url):
+    if all(is_domain_whitelisted(u) for u in urls_to_check):
         return {"malicious": 0, "suspicious": 0, "harmless": 100, "undetected": 0, "whitelisted": True}
 
-    # 2. Check Fast Local Heuristics
-    heuristic_hit = check_telegram_phishing_heuristics(url)
-    if heuristic_hit:
-        return heuristic_hit
+    # 3. Check Fast Local Heuristics on all URLs in redirect chain
+    for u in urls_to_check:
+        heuristic_hit = check_telegram_phishing_heuristics(u)
+        if heuristic_hit:
+            return heuristic_hit
 
-    # 3. Check Multi-Engine Pre-Filters (URLhaus & Google Safe Browsing)
-    urlhaus_hit = check_urlhaus_prefilter(url)
-    if urlhaus_hit:
-        return urlhaus_hit
+    # 4. Check Multi-Engine Pre-Filters (URLhaus & Google Safe Browsing)
+    for u in urls_to_check:
+        urlhaus_hit = check_urlhaus_prefilter(u)
+        if urlhaus_hit:
+            return urlhaus_hit
 
-    gsb_hit = check_google_safebrowsing(url)
-    if gsb_hit:
-        return gsb_hit
+        gsb_hit = check_google_safebrowsing(u)
+        if gsb_hit:
+            return gsb_hit
 
     if not config.VT_API_KEY:
         return {"error": "VT_API_KEY not configured"}
 
-    key = _make_cache_key(url)
+    # Target the final unshortened URL for VT scan if different
+    target_scan_url = final_url if (final_url and final_url != url) else url
+    key = _make_cache_key(target_scan_url)
     cached = cache_get(key)
     if cached:
         return cached
