@@ -1,10 +1,10 @@
 import { useState } from "react";
-import { MessageSquare, ArrowRight, ChevronUp, Shield, AlertTriangle, CheckCircle, Plus, ExternalLink, X, Loader2 } from "lucide-react";
+import { MessageSquare, ArrowRight, ChevronUp, Shield, AlertTriangle, CheckCircle, Plus, ExternalLink, X, Loader2, Trash2 } from "lucide-react";
 import { G, type Lang } from "../palette";
 import { t as T, kh } from "../i18n";
 import type { DashboardData, ThreatEvent, CandidateGroup } from "../types";
 import { getGroupCardsFromDashboard } from "../data";
-import { addManagedGroup } from "../api";
+import { addManagedGroup, removeManagedGroup } from "../api";
 import { SectionHeader } from "./Badges";
 
 interface GroupsViewProps {
@@ -28,6 +28,7 @@ export default function GroupsView({
   const [expanded, setExpanded] = useState<number | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [linkingId, setLinkingId] = useState<number | null>(null);
+  const [unlinkingId, setUnlinkingId] = useState<number | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   const groupCards = getGroupCardsFromDashboard(dashboard);
@@ -54,6 +55,32 @@ export default function GroupsView({
       setTimeout(() => setToastMsg(null), 3500);
     } finally {
       setLinkingId(null);
+    }
+  }
+
+  async function handleUnlinkGroup(groupId: number, groupTitle: string) {
+    const confirmed = window.confirm(
+      isKm
+        ? `តើអ្នកពិតជាចង់ដកក្រុម "${groupTitle}" ចេញពីការការពារមែនទេ?`
+        : `Are you sure you want to unlink and remove protection for "${groupTitle}"?`
+    );
+    if (!confirmed) return;
+    setUnlinkingId(groupId);
+    try {
+      const res = await removeManagedGroup(groupId);
+      if (res && res.ok) {
+        setToastMsg(isKm ? `✅ បានដកក្រុម "${groupTitle}" ជោគជ័យ!` : `✅ Successfully unlinked "${groupTitle}"!`);
+        setTimeout(() => setToastMsg(null), 3500);
+        onRefresh?.();
+      } else {
+        setToastMsg(res?.error || (isKm ? "❌ ការដកក្រុមបានបរាជ័យ" : "❌ Failed to unlink group"));
+        setTimeout(() => setToastMsg(null), 3500);
+      }
+    } catch (err: any) {
+      setToastMsg(err?.message || "❌ Error unlinking group");
+      setTimeout(() => setToastMsg(null), 3500);
+    } finally {
+      setUnlinkingId(null);
     }
   }
 
@@ -311,6 +338,32 @@ export default function GroupsView({
                     {g.totalScanned} {tx.scanned}
                   </div>
                 </div>
+                <button
+                  onClick={() => handleUnlinkGroup(g.id, g.name)}
+                  disabled={unlinkingId === g.id}
+                  style={{
+                    background: "rgba(224,64,64,0.1)",
+                    border: "1px solid rgba(224,64,64,0.25)",
+                    color: G.danger,
+                    borderRadius: 8,
+                    padding: "6px 10px",
+                    cursor: "pointer",
+                    fontSize: 11,
+                    fontWeight: 700,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                    flexShrink: 0,
+                  }}
+                  title={isKm ? "ដកក្រុមចេញ (Unlink Group)" : "Unlink Group"}
+                >
+                  {unlinkingId === g.id ? (
+                    <Loader2 size={12} className="animate-spin" />
+                  ) : (
+                    <Trash2 size={12} />
+                  )}
+                  <span className={kh(lang)}>{isKm ? "ដកចេញ" : "Unlink"}</span>
+                </button>
               </div>
 
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>

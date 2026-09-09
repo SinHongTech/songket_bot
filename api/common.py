@@ -15,7 +15,7 @@ import logging
 import os
 import secrets
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 from urllib.parse import parse_qsl
@@ -275,6 +275,16 @@ def add_allowed_group(chat_id: int) -> bool:
     return True
 
 
+def remove_allowed_group(chat_id: int) -> bool:
+    raw = kv_get("config:allowed_groups") or ""
+    ids = [x.strip() for x in str(raw).split(",") if x.strip()]
+    sid = str(chat_id)
+    if sid in ids:
+        ids.remove(sid)
+        return kv_set("config:allowed_groups", ",".join(ids))
+    return True
+
+
 def add_group_handler(user_id: int, chat_id: int) -> bool:
     data = kv_json_get("config:group_handlers") or {}
     uid = str(user_id)
@@ -309,6 +319,92 @@ def record_known_group(chat_id: int, title: str, inviter_id: Optional[int] = Non
     if inviter_id:
         record_group_inviter(chat_id, inviter_id)
     return res
+
+
+def remove_known_group(chat_id: int) -> bool:
+    data = kv_json_get("known_groups") or {}
+    sid = str(chat_id)
+    if sid in data:
+        del data[sid]
+        kv_json_set("known_groups", data)
+    cfg_known = kv_json_get("config:known_groups")
+    if isinstance(cfg_known, dict) and sid in cfg_known:
+        del cfg_known[sid]
+        kv_json_set("config:known_groups", cfg_known)
+    kv_delete(f"group:inviter:{chat_id}")
+    kv_delete(f"cache:chat_title:{chat_id}")
+    return True
+
+
+def unlink_group_for_user(user_id: int, chat_id: int) -> bool:
+    """Unlink a group from a specific user. Remove from allowed_groups if no other user is handling it."""
+    uid = str(user_id)
+    target_gid = int(chat_id)
+
+    # 1. Remove from config:group_handlers
+    gh = kv_json_get("config:group_handlers") or {}
+    if uid in gh and isinstance(gh[uid], list):
+        gh[uid] = [int(g) for g in gh[uid] if int(g) != target_gid]
+        kv_json_set("config:group_handlers", gh)
+
+    # 2. Remove from config:explicit_group_map
+    egm = kv_json_get("config:explicit_group_map") or {}
+    if uid in egm and isinstance(egm[uid], list):
+        egm[uid] = [int(g) for g in egm[uid] if int(g) != target_gid]
+        kv_json_set("config:explicit_group_map", egm)
+
+    # 3. Clear inviter if this user was the recorded inviter
+    inviter = get_group_inviter(target_gid)
+    if inviter == user_id:
+        kv_delete(f"group:inviter:{target_gid}")
+
+    # 4. If no other admin is handling this group, remove from allowed_groups
+    still_handled = False
+    for other_uid, grps in gh.items():
+        if str(other_uid) != uid and target_gid in [int(g) for g in grps]:
+            still_handled = True
+            break
+    if not still_handled:
+        for other_uid, grps in egm.items():
+            if str(other_uid) != uid and target_gid in [int(g) for g in grps]:
+                still_handled = True
+                break
+
+    if not still_handled:
+        remove_allowed_group(target_gid)
+
+    return True
+
+
+def unlink_group_completely(chat_id: int) -> bool:
+    """Completely remove all references to a group when bot is kicked/banned/left."""
+    target_gid = int(chat_id)
+    remove_known_group(target_gid)
+    remove_allowed_group(target_gid)
+
+    # Remove from all group_handlers
+    gh = kv_json_get("config:group_handlers") or {}
+    changed_gh = False
+    for uid in list(gh.keys()):
+        if isinstance(gh[uid], list) and any(int(g) == target_gid for g in gh[uid]):
+            gh[uid] = [int(g) for g in gh[uid] if int(g) != target_gid]
+            changed_gh = True
+    if changed_gh:
+        kv_json_set("config:group_handlers", gh)
+
+    # Remove from all explicit_group_map
+    egm = kv_json_get("config:explicit_group_map") or {}
+    changed_egm = False
+    for uid in list(egm.keys()):
+        if isinstance(egm[uid], list) and any(int(g) == target_gid for g in egm[uid]):
+            egm[uid] = [int(g) for g in egm[uid] if int(g) != target_gid]
+            changed_egm = True
+    if changed_egm:
+        kv_json_set("config:explicit_group_map", egm)
+
+    kv_delete(f"group:inviter:{target_gid}")
+    kv_delete(f"cache:chat_title:{target_gid}")
+    return True
 
 
 def get_known_groups() -> dict:
@@ -920,6 +1016,30 @@ def local_date() -> str:
         return datetime.utcnow().date().isoformat()
 
 
+def local_time_str() -> str:
+    try:
+        from zoneinfo import ZoneInfo
+
+        return datetime.now(ZoneInfo(REPORT_TIMEZONE)).strftime("%H:%M")
+    except Exception:
+        return datetime.utcnow().strftime("%H:%M")
+
+
+def get_report(chat_id: int, day: str) -> dict:
+    return kv_json_get(f"report:{day}:{chat_id}") or {
+        "date": day,
+        "group_id": chat_id,
+        "scanned": 0,
+        "files": 0,
+        "urls": 0,
+        "malicious": 0,
+        "deleted": 0,
+        "suspicious": 0,
+        "errors": 0,
+        "oversize": 0,
+    }
+
+
 # ── Domain Whitelist ────────────────────────────────────────────────────────
 
 DEFAULT_DOMAIN_WHITELIST = [
@@ -1034,16 +1154,27 @@ def set_user_lang(user_id: int, lang: str) -> bool:
 
 
 def get_user_daily_report_settings(user_id: int) -> dict:
+    """Return user DM report configuration (defaults to enabled daily at 07:00 AM in both languages)."""
     data = kv_json_get(f"settings:user:{user_id}") or {}
     if not isinstance(data, dict):
         data = {}
     en = bool(data.get("daily_report_enabled", True))
     t_val = str(data.get("daily_report_time", "07:00"))
+    freq = str(data.get("report_frequency", "daily")).lower().strip()
+    if freq not in {"daily", "weekly", "monthly"}:
+        freq = "daily"
+    rlang = str(data.get("report_lang", data.get("lang", "both"))).lower().strip()
+    if rlang not in {"both", "kh", "en"}:
+        rlang = "both"
     return {
         "daily_report_enabled": en,
         "daily_report_time": t_val,
+        "report_frequency": freq,
+        "report_lang": rlang,
         "enabled": en,
         "time": t_val,
+        "frequency": freq,
+        "lang": rlang,
     }
 
 
@@ -1051,7 +1182,10 @@ def set_user_daily_report_settings(
     user_id: int,
     enabled: Optional[bool] = None,
     time_str: Optional[str] = None,
+    frequency: Optional[str] = None,
+    lang: Optional[str] = None,
 ) -> bool:
+    """Update user DM report schedule, frequency ('daily'|'weekly'|'monthly'), and language ('both'|'kh'|'en')."""
     data = kv_json_get(f"settings:user:{user_id}") or {}
     if not isinstance(data, dict):
         data = {}
@@ -1066,7 +1200,599 @@ def set_user_daily_report_settings(
             data["daily_report_time"] = formatted
         else:
             return False
+    if frequency is not None:
+        clean_freq = frequency.strip().lower()
+        if clean_freq in {"daily", "weekly", "monthly"}:
+            data["report_frequency"] = clean_freq
+    if lang is not None:
+        clean_lang = lang.strip().lower()
+        if clean_lang in {"both", "kh", "en"}:
+            data["report_lang"] = clean_lang
+            data["lang"] = clean_lang
     return kv_json_set(f"settings:user:{user_id}", data)
+
+
+def telegram_send_message(
+    chat_id: int,
+    text: str,
+    parse_mode: str = "HTML",
+    disable_web_page_preview: bool = True,
+) -> dict:
+    return telegram_post("sendMessage", {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": parse_mode,
+        "disable_web_page_preview": disable_web_page_preview,
+    })
+
+
+def telegram_send_document(
+    chat_id: int,
+    document_bytes: bytes,
+    filename: str = "security_report.pdf",
+    caption: Optional[str] = None,
+    parse_mode: str = "HTML",
+) -> dict:
+    try:
+        data = {
+            "chat_id": str(chat_id),
+            "parse_mode": parse_mode,
+        }
+        if caption:
+            data["caption"] = caption
+        files = {"document": (filename, document_bytes, "application/pdf")}
+        r = requests.post(f"{TELEGRAM_API}/sendDocument", data=data, files=files, timeout=30)
+        return r.json()
+    except Exception as exc:
+        logger.warning("Telegram sendDocument failed: %s", exc)
+        return {"ok": False}
+
+
+def _get_dates_for_period(period: str = "daily", end_date_str: Optional[str] = None) -> tuple[list[str], str, str]:
+    """Return (date_list, start_date_str, end_date_str) for period ('daily' | 'weekly' | 'monthly')."""
+    end_str = end_date_str or local_date()
+    try:
+        end_d = datetime.strptime(end_str, "%Y-%m-%d").date()
+    except Exception:
+        end_d = datetime.utcnow().date()
+        end_str = end_d.isoformat()
+
+    period_clean = (period or "daily").lower().strip()
+    if period_clean == "weekly":
+        start_d = end_d - timedelta(days=6)
+        dates = [(start_d + timedelta(days=i)).isoformat() for i in range(7)]
+        return dates, start_d.isoformat(), end_str
+    elif period_clean == "monthly":
+        start_d = end_d - timedelta(days=29)
+        dates = [(start_d + timedelta(days=i)).isoformat() for i in range(30)]
+        return dates, start_d.isoformat(), end_str
+    else:  # daily
+        return [end_str], end_str, end_str
+
+
+def format_security_dm_report(
+    user_id: int,
+    period: str = "daily",
+    lang: Optional[str] = None,
+    target_date: Optional[str] = None,
+) -> Optional[str]:
+    """Build a rich DM summary report for daily, weekly, or monthly periods in user's selected language."""
+    period_clean = (period or "daily").lower().strip()
+    if period_clean not in {"daily", "weekly", "monthly"}:
+        period_clean = "daily"
+
+    date_list, start_str, end_str = _get_dates_for_period(period_clean, target_date)
+    allowed = get_allowed_groups()
+    user_gids = groups_for_user(user_id, allowed)
+    if not user_gids:
+        return None
+
+    settings = get_user_daily_report_settings(user_id)
+    selected_lang = lang or settings.get("report_lang", "both")
+
+    total_scanned = 0
+    total_files = 0
+    total_urls = 0
+    total_malicious = 0
+    total_suspicious = 0
+    total_deleted = 0
+
+    group_blocks = []
+    for gid in user_gids:
+        chat_info = get_chat(gid)
+        title = (chat_info or {}).get("title") or f"Group {gid}"
+
+        scanned = 0
+        files = 0
+        urls = 0
+        malicious = 0
+        suspicious = 0
+        deleted = 0
+
+        for d in date_list:
+            rep = get_report(gid, d)
+            scanned += int(rep.get("scanned", 0))
+            files += int(rep.get("files", 0))
+            urls += int(rep.get("urls", 0))
+            malicious += int(rep.get("malicious", 0))
+            suspicious += int(rep.get("suspicious", 0))
+            deleted += int(rep.get("deleted", 0))
+
+        total_scanned += scanned
+        total_files += files
+        total_urls += urls
+        total_malicious += malicious
+        total_suspicious += suspicious
+        total_deleted += deleted
+
+        status_emoji = "🟢" if malicious == 0 and suspicious == 0 else "🔴"
+        threat_text = ""
+
+        if selected_lang == "kh":
+            if malicious > 0:
+                threat_text += f"\n   🚨 <b>មេរោគ:</b> {malicious} (លុបស្វ័យប្រវត្តិ: {deleted})"
+            if suspicious > 0:
+                threat_text += f"\n   ⚠️ <b>សង្ស័យ:</b> {suspicious}"
+            if malicious == 0 and suspicious == 0:
+                threat_text = "\n   ✨ <i>100% ស្អាត និងមានសុវត្ថិភាព</i>"
+            group_blocks.append(
+                f"{status_emoji} <b>{title}</b>\n"
+                f"   🔍 ស្កេន: <b>{scanned}</b> (📁 {files} ឯកសារ · 🔗 {urls} តំណ){threat_text}"
+            )
+        elif selected_lang == "en":
+            if malicious > 0:
+                threat_text += f"\n   🚨 <b>Malicious:</b> {malicious} (Auto-deleted: {deleted})"
+            if suspicious > 0:
+                threat_text += f"\n   ⚠️ <b>Suspicious:</b> {suspicious}"
+            if malicious == 0 and suspicious == 0:
+                threat_text = "\n   ✨ <i>100% Clean & Protected</i>"
+            group_blocks.append(
+                f"{status_emoji} <b>{title}</b>\n"
+                f"   🔍 Scans: <b>{scanned}</b> (📁 {files} files · 🔗 {urls} links){threat_text}"
+            )
+        else:  # bilingual
+            if malicious > 0:
+                threat_text += f"\n   🚨 <b>Malicious / មេរោគ:</b> {malicious} (Auto-deleted: {deleted})"
+            if suspicious > 0:
+                threat_text += f"\n   ⚠️ <b>Suspicious / សង្ស័យ:</b> {suspicious}"
+            if malicious == 0 and suspicious == 0:
+                threat_text = "\n   ✨ <i>100% Clean & Protected</i>"
+            group_blocks.append(
+                f"{status_emoji} <b>{title}</b>\n"
+                f"   🔍 Scans: <b>{scanned}</b> (📁 {files} files · 🔗 {urls} links){threat_text}"
+            )
+
+    groups_summary = "\n\n".join(group_blocks)
+    today_time = local_time_str()
+
+    if period_clean == "weekly":
+        title_kh = "📊 <b>របាយការណ៍សន្តិសុខប្រចាំសប្តាហ៍</b> (Songket Security Weekly Report)"
+        title_en = "📊 <b>Songket Security Weekly Report</b>"
+        title_both = "📊 <b>របាយការណ៍សន្តិសុខប្រចាំសប្តាហ៍ | Songket Security Weekly Report</b>"
+        date_kh = f"📅 <b>រយៈពេល (៧ ថ្ងៃ):</b> <code>{start_str}</code> ដល់ <code>{end_str}</code> (ម៉ោង {today_time})"
+        date_en = f"📅 <b>Period (7 Days):</b> <code>{start_str}</code> to <code>{end_str}</code> (Generated at {today_time})"
+        date_both = f"📅 <b>Period / រយៈពេល:</b> <code>{start_str}</code> ដល់ <code>{end_str}</code> (7 Days · {today_time})"
+    elif period_clean == "monthly":
+        title_kh = "📊 <b>របាយការណ៍សន្តិសុខប្រចាំខែ</b> (Songket Security Monthly Report)"
+        title_en = "📊 <b>Songket Security Monthly Report</b>"
+        title_both = "📊 <b>របាយការណ៍សន្តិសុខប្រចាំខែ | Songket Security Monthly Report</b>"
+        date_kh = f"📅 <b>រយៈពេល (៣០ ថ្ងៃ):</b> <code>{start_str}</code> ដល់ <code>{end_str}</code> (ម៉ោង {today_time})"
+        date_en = f"📅 <b>Period (30 Days):</b> <code>{start_str}</code> to <code>{end_str}</code> (Generated at {today_time})"
+        date_both = f"📅 <b>Period / រយៈពេល:</b> <code>{start_str}</code> ដល់ <code>{end_str}</code> (30 Days · {today_time})"
+    else:  # daily
+        title_kh = "📊 <b>របាយការណ៍សន្តិសុខប្រចាំថ្ងៃ</b> (Songket Security Daily Report)"
+        title_en = "📊 <b>Songket Security Daily Report</b>"
+        title_both = "📊 <b>របាយការណ៍សន្តិសុខប្រចាំថ្ងៃ | Songket Security Daily Report</b>"
+        date_kh = f"📅 <b>កាលបរិច្ឆេទ:</b> <code>{end_str}</code> (ម៉ោង {today_time})"
+        date_en = f"📅 <b>Date:</b> <code>{end_str}</code> (Generated at {today_time})"
+        date_both = f"📅 <b>Date / កាលបរិច្ឆេទ:</b> <code>{end_str}</code> (Asia/Phnom_Penh {today_time})"
+
+    if selected_lang == "kh":
+        header = title_kh
+        date_line = date_kh
+        summary_title = "📈 <b>សរុបសកម្មភាពស្កេនទាំងអស់ (Overall Summary):</b>"
+        summary_body = (
+            f"• 🔍 ស្កេនសរុប: <b>{total_scanned}</b> (📁 {total_files} ឯកសារ · 🔗 {total_urls} តំណ)\n"
+            f"• 🚨 មេរោគគ្រោះថ្នាក់: <b>{total_malicious}</b> (លុបស្វ័យប្រវត្តិ: {total_deleted})\n"
+            f"• ⚠️ គួរឱ្យសង្ស័យ: <b>{total_suspicious}</b>"
+        )
+        groups_title = f"👥 <b>ក្រុមដែលកំពុងការពារ ({len(user_gids)} ក្រុម):</b>"
+        footer = "🛡️ <i>Songket Security Bot ការពារក្រុមរបស់អ្នក 24/7</i>\n⚙️ ផ្លាស់ប្តូរការកំណត់របាយការណ៍៖ /daily ឬ /report"
+    elif selected_lang == "en":
+        header = title_en
+        date_line = date_en
+        summary_title = "📈 <b>Overall Threat & Scan Statistics:</b>"
+        summary_body = (
+            f"• 🔍 Total Scans: <b>{total_scanned}</b> (📁 {total_files} files · 🔗 {total_urls} links)\n"
+            f"• 🚨 Malicious Threats: <b>{total_malicious}</b> (Auto-deleted: {total_deleted})\n"
+            f"• ⚠️ Suspicious Items: <b>{total_suspicious}</b>"
+        )
+        groups_title = f"👥 <b>Monitored Groups ({len(user_gids)} active):</b>"
+        footer = "🛡️ <i>Songket Security Bot is protecting your groups 24/7</i>\n⚙️ Change report schedule: /daily or /report"
+    else:  # bilingual
+        header = title_both
+        date_line = date_both
+        summary_title = "📈 <b>សរុបស្ថិតិស្កេន (Security Overview):</b>"
+        summary_body = (
+            f"• 🔍 Total Scans: <b>{total_scanned}</b> (📁 {total_files} files · 🔗 {total_urls} links)\n"
+            f"• 🚨 Malicious / មេរោគ: <b>{total_malicious}</b> (Auto-deleted: {total_deleted})\n"
+            f"• ⚠️ Suspicious / សង្ស័យ: <b>{total_suspicious}</b>"
+        )
+        groups_title = f"👥 <b>ក្រុមដែលកំពុងការពារ | Monitored Groups ({len(user_gids)}):</b>"
+        footer = "🛡️ <i>Songket Security Bot is protecting your groups 24/7</i>\n⚙️ កំណត់ម៉ោងផ្ញើ / Schedule: /daily ឬ /report"
+
+    return (
+        f"{header}\n"
+        f"{date_line}\n\n"
+        f"{summary_title}\n"
+        f"{summary_body}\n\n"
+        f"{groups_title}\n\n"
+        f"{groups_summary}\n\n"
+        f"{footer}"
+    )
+
+
+def generate_security_pdf_report(
+    user_id: int,
+    period: str = "daily",
+    lang: Optional[str] = None,
+    target_date: Optional[str] = None,
+) -> Optional[bytes]:
+    """Generate a detailed PDF security audit report for daily, weekly, or monthly periods."""
+    try:
+        import io
+        from reportlab.lib.pagesizes import letter
+        from reportlab.lib import colors
+        from reportlab.platypus import (
+            SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+        )
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.platypus import Image as RLImage
+
+        period_clean = (period or "daily").lower().strip()
+        if period_clean not in {"daily", "weekly", "monthly"}:
+            period_clean = "daily"
+
+        date_list, start_str, end_str = _get_dates_for_period(period_clean, target_date)
+        allowed = get_allowed_groups()
+        user_gids = groups_for_user(user_id, allowed)
+        if not user_gids:
+            return None
+
+        today_time = local_time_str()
+
+        total_scanned = 0
+        total_files = 0
+        total_urls = 0
+        total_malicious = 0
+        total_suspicious = 0
+        total_deleted = 0
+
+        group_rows = []
+        for gid in user_gids:
+            chat_info = get_chat(gid)
+            title = (chat_info or {}).get("title") or f"Group {gid}"
+
+            scanned = 0
+            files = 0
+            urls = 0
+            malicious = 0
+            suspicious = 0
+            deleted = 0
+
+            for d in date_list:
+                rep = get_report(gid, d)
+                scanned += int(rep.get("scanned", 0))
+                files += int(rep.get("files", 0))
+                urls += int(rep.get("urls", 0))
+                malicious += int(rep.get("malicious", 0))
+                suspicious += int(rep.get("suspicious", 0))
+                deleted += int(rep.get("deleted", 0))
+
+            total_scanned += scanned
+            total_files += files
+            total_urls += urls
+            total_malicious += malicious
+            total_suspicious += suspicious
+            total_deleted += deleted
+
+            group_rows.append({
+                "title": title,
+                "id": str(gid),
+                "scanned": scanned,
+                "files": files,
+                "urls": urls,
+                "malicious": malicious,
+                "suspicious": suspicious,
+                "deleted": deleted,
+            })
+
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=letter,
+            leftMargin=36,
+            rightMargin=36,
+            topMargin=36,
+            bottomMargin=36,
+        )
+
+        styles = getSampleStyleSheet()
+
+        title_style = ParagraphStyle(
+            'DocTitle',
+            parent=styles['Normal'],
+            fontName='Helvetica-Bold',
+            fontSize=18,
+            leading=22,
+            textColor=colors.HexColor('#0F172A'),
+        )
+
+        subtitle_style = ParagraphStyle(
+            'DocSubTitle',
+            parent=styles['Normal'],
+            fontName='Helvetica',
+            fontSize=9,
+            leading=13,
+            textColor=colors.HexColor('#64748B'),
+        )
+
+        section_style = ParagraphStyle(
+            'SectionHeading',
+            parent=styles['Normal'],
+            fontName='Helvetica-Bold',
+            fontSize=12,
+            leading=16,
+            textColor=colors.HexColor('#1E293B'),
+            spaceBefore=10,
+            spaceAfter=6,
+        )
+
+        body_style = ParagraphStyle(
+            'DocBody',
+            parent=styles['Normal'],
+            fontName='Helvetica',
+            fontSize=9,
+            leading=13,
+            textColor=colors.HexColor('#334155'),
+        )
+
+        bold_body_style = ParagraphStyle(
+            'DocBodyBold',
+            parent=body_style,
+            fontName='Helvetica-Bold',
+        )
+
+        story = []
+
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        logo_path = os.path.join(base_dir, "bot", "assets", "logo.png")
+
+        if period_clean == "weekly":
+            pdf_title = "SONGKET SECURITY WEEKLY REPORT"
+            pdf_badge = "Weekly Security Audit Report"
+            pdf_period_text = f"Period: <b>{start_str} to {end_str}</b> (7 Days)"
+        elif period_clean == "monthly":
+            pdf_title = "SONGKET SECURITY MONTHLY REPORT"
+            pdf_badge = "Monthly Security Audit Report"
+            pdf_period_text = f"Period: <b>{start_str} to {end_str}</b> (30 Days)"
+        else:
+            pdf_title = "SONGKET SECURITY DAILY REPORT"
+            pdf_badge = "Daily Security Audit Report"
+            pdf_period_text = f"Date: <b>{end_str}</b> ({today_time} Asia/Phnom_Penh)"
+
+        if os.path.exists(logo_path):
+            logo_img = RLImage(logo_path, width=40, height=40)
+            brand_cell = Table(
+                [[
+                    logo_img,
+                    Paragraph(
+                        f"<b>{pdf_title}</b><br/>"
+                        "<font size=8.5 color='#64748B'>Songket Security Bot &bull; Beta version</font>",
+                        title_style
+                    )
+                ]],
+                colWidths=[48, 290]
+            )
+            brand_cell.setStyle(TableStyle([
+                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                ('LEFTPADDING', (0,0), (-1,-1), 0),
+                ('RIGHTPADDING', (0,0), (-1,-1), 0),
+                ('TOPPADDING', (0,0), (-1,-1), 0),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+            ]))
+        else:
+            brand_cell = Paragraph(
+                f"<b>{pdf_title}</b><br/>"
+                "<font size=8.5 color='#64748B'>Songket Security Bot &bull; Beta version</font>",
+                title_style
+            )
+
+        header_data = [
+            [
+                brand_cell,
+                Paragraph(
+                    f"<b>CONFIDENTIAL</b><br/>{pdf_badge}<br/><font size=8 color='#64748B'>{pdf_period_text}</font>",
+                    ParagraphStyle('Conf', parent=subtitle_style, alignment=2, fontName='Helvetica-Bold', textColor=colors.HexColor('#2563EB'))
+                )
+            ]
+        ]
+        header_table = Table(header_data, colWidths=[340, 200])
+        header_table.setStyle(TableStyle([
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 2),
+            ('TOPPADDING', (0,0), (-1,-1), 0),
+            ('LEFTPADDING', (0,0), (-1,-1), 0),
+            ('RIGHTPADDING', (0,0), (-1,-1), 0),
+        ]))
+        story.append(header_table)
+        story.append(Spacer(1, 6))
+        story.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor('#2563EB'), spaceBefore=2, spaceAfter=10))
+
+        story.append(Paragraph("Executive Summary & Protection Metrics", section_style))
+
+        health_status = "100% SECURE" if total_malicious == 0 and total_suspicious == 0 else f"{total_malicious} MITIGATED"
+        health_color = "#059669" if total_malicious == 0 else "#DC2626"
+
+        kpi_data = [
+            [
+                Paragraph(f"<b>Total Scans</b><br/><font size=13 color='#2563EB'><b>{total_scanned}</b></font><br/><font size=7 color='#64748B'>{total_files} Files &bull; {total_urls} Links</font>", body_style),
+                Paragraph(f"<b>Malicious Threats</b><br/><font size=13 color='{health_color}'><b>{total_malicious}</b></font><br/><font size=7 color='#64748B'>Auto-deleted: {total_deleted}</font>", body_style),
+                Paragraph(f"<b>Suspicious Items</b><br/><font size=13 color='#D97706'><b>{total_suspicious}</b></font><br/><font size=7 color='#64748B'>Flagged warnings: {total_suspicious}</font>", body_style),
+                Paragraph(f"<b>Security Health</b><br/><font size=13 color='{health_color}'><b>{health_status}</b></font><br/><font size=7 color='#64748B'>{len(user_gids)} Groups Protected</font>", body_style),
+            ]
+        ]
+        kpi_table = Table(kpi_data, colWidths=[135, 135, 135, 135])
+        kpi_table.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#F8FAFC')),
+            ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#CBD5E1')),
+            ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor('#E2E8F0')),
+            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('TOPPADDING', (0,0), (-1,-1), 7),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 7),
+            ('LEFTPADDING', (0,0), (-1,-1), 6),
+            ('RIGHTPADDING', (0,0), (-1,-1), 6),
+        ]))
+        story.append(kpi_table)
+        story.append(Spacer(1, 10))
+
+        story.append(Paragraph(f"Monitored Groups Activity Breakdown ({len(user_gids)} Active Groups)", section_style))
+
+        table_header = [
+            Paragraph("<b>Group Name</b>", bold_body_style),
+            Paragraph("<b>Scans</b>", bold_body_style),
+            Paragraph("<b>Files</b>", bold_body_style),
+            Paragraph("<b>URLs</b>", bold_body_style),
+            Paragraph("<b>Threats</b>", bold_body_style),
+            Paragraph("<b>Deleted</b>", bold_body_style),
+            Paragraph("<b>Status</b>", bold_body_style),
+        ]
+
+        groups_data = [table_header]
+        for row in group_rows:
+            mal = row["malicious"]
+            susp = row["suspicious"]
+            del_count = row["deleted"]
+            if mal == 0 and susp == 0:
+                status_html = "<font color='#059669'><b>CLEAN</b></font>"
+            elif mal > 0:
+                status_html = f"<font color='#DC2626'><b>{mal} BLOCKED</b></font>"
+            else:
+                status_html = f"<font color='#D97706'><b>{susp} SUSPICIOUS</b></font>"
+
+            clean_title = (row["title"][:32] + "...") if len(row["title"]) > 34 else row["title"]
+            groups_data.append([
+                Paragraph(f"<b>{clean_title}</b>", body_style),
+                Paragraph(str(row["scanned"]), body_style),
+                Paragraph(str(row["files"]), body_style),
+                Paragraph(str(row["urls"]), body_style),
+                Paragraph(str(mal), body_style),
+                Paragraph(str(del_count), body_style),
+                Paragraph(status_html, body_style),
+            ])
+
+        group_table = Table(groups_data, colWidths=[190, 55, 55, 55, 55, 55, 75])
+        group_table.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#F1F5F9')),
+            ('TEXTCOLOR', (0,0), (-1,0), colors.HexColor('#1E293B')),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 5),
+            ('TOPPADDING', (0,0), (-1,-1), 5),
+            ('LEFTPADDING', (0,0), (-1,-1), 6),
+            ('RIGHTPADDING', (0,0), (-1,-1), 6),
+            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#F8FAFC')]),
+        ]))
+        story.append(group_table)
+        story.append(Spacer(1, 10))
+
+        story.append(Paragraph("Threat Mitigation & Security Policies", section_style))
+        policies = (
+            "&bull; <b>Real-Time Antivirus & Phishing Filter:</b> Active inspection on all Telegram messages, media, APKs, documents, and URLs.<br/>"
+            "&bull; <b>Dual-Engine Intelligence:</b> Powered by VirusTotal Intelligence and Google Safe Browsing API v5.<br/>"
+            "&bull; <b>Zero-Trust Auto Quarantine:</b> Detected malware and dangerous phishing links are automatically purged with warnings.<br/>"
+            "&bull; <b>Isolated Admin Routing:</b> Threat notifications and security audits are strictly sent to handling administrators."
+        )
+        policy_table = Table([[Paragraph(policies, body_style)]], colWidths=[540])
+        policy_table.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#EFF6FF')),
+            ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#BFDBFE')),
+            ('TOPPADDING', (0,0), (-1,-1), 7),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 7),
+            ('LEFTPADDING', (0,0), (-1,-1), 9),
+            ('RIGHTPADDING', (0,0), (-1,-1), 9),
+        ]))
+        story.append(policy_table)
+
+        story.append(Spacer(1, 16))
+        story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor('#94A3B8'), spaceBefore=2, spaceAfter=6))
+
+        footer_text = f"Songket Security Bot &bull; Beta version &bull; {pdf_title} &bull; Generated {end_str} {today_time}"
+        story.append(Paragraph(f"<font color='#94A3B8' size=7.5>{footer_text}</font>", ParagraphStyle('Footer', parent=body_style, alignment=1)))
+
+        doc.build(story)
+        pdf_bytes = buffer.getvalue()
+        buffer.close()
+        return pdf_bytes
+    except Exception as exc:
+        logger.error("Failed to generate PDF %s report: %s", period, exc)
+        return None
+
+
+def send_security_report_to_user_dm(
+    user_id: int,
+    period: str = "daily",
+    lang: Optional[str] = None,
+    target_date: Optional[str] = None,
+) -> dict:
+    """Generate security report (summary text and PDF) and deliver directly to the user's Telegram DM."""
+    period_clean = (period or "daily").lower().strip()
+    if period_clean not in {"daily", "weekly", "monthly"}:
+        period_clean = "daily"
+
+    settings = get_user_daily_report_settings(user_id)
+    report_lang = lang or settings.get("report_lang", "both")
+
+    report_text = format_security_dm_report(
+        user_id=user_id,
+        period=period_clean,
+        lang=report_lang,
+        target_date=target_date,
+    )
+
+    if not report_text:
+        return {"ok": False, "error": "No active monitored groups to report."}
+
+    # 1. Send Text DM
+    telegram_send_message(user_id, report_text, parse_mode="HTML")
+
+    # 2. Generate and Send PDF
+    pdf_bytes = generate_security_pdf_report(
+        user_id=user_id,
+        period=period_clean,
+        lang=report_lang,
+        target_date=target_date,
+    )
+
+    period_title = {
+        "weekly": "Weekly",
+        "monthly": "Monthly",
+        "daily": "Daily",
+    }.get(period_clean, "Daily")
+
+    if pdf_bytes:
+        cur_d = target_date or local_date()
+        filename = f"Songket_Security_{period_title}_Report_{cur_d}.pdf"
+        caption = f"📄 <b>Songket Security {period_title} Report (Beta version)</b>"
+        telegram_send_document(
+            user_id,
+            pdf_bytes,
+            filename=filename,
+            caption=caption,
+        )
+
+    return {"ok": True, "message": f"{period_title} report sent to your Telegram DM."}
 
 
 def get_candidate_groups_for_user(user_id: int) -> list[dict]:
@@ -1074,6 +1800,7 @@ def get_candidate_groups_for_user(user_id: int) -> list[dict]:
     known = get_known_groups()
     user_active = set(groups_for_user(user_id, get_allowed_groups()))
     candidates = []
+    to_purge = []
     for gid_str, title in known.items():
         try:
             gid = int(gid_str)
@@ -1081,9 +1808,21 @@ def get_candidate_groups_for_user(user_id: int) -> list[dict]:
             continue
         if gid in user_active:
             continue
+
+        # Verify chat is still valid/accessible by bot
+        chat_info = get_chat(gid)
+        if not chat_info:
+            to_purge.append(gid)
+            continue
+
+        resolved_title = chat_info.get("title") or title or f"Group {gid}"
         inviter = get_group_inviter(gid)
         if inviter == user_id or (is_super_admin(user_id) and not inviter) or is_group_admin(user_id, gid):
-            candidates.append({"id": gid, "title": title or f"Group {gid}"})
+            candidates.append({"id": gid, "title": resolved_title})
+
+    for gid in to_purge:
+        unlink_group_completely(gid)
+
     return candidates
 
 

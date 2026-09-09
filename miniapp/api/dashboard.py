@@ -61,11 +61,16 @@ try:
         get_known_users,
         get_known_groups,
         add_allowed_group,
+        remove_allowed_group,
         add_group_handler,
         record_known_group,
+        remove_known_group,
+        unlink_group_for_user,
+        unlink_group_completely,
         get_candidate_groups_for_user,
         get_user_daily_report_settings,
         set_user_daily_report_settings,
+        send_security_report_to_user_dm,
     )
     from api.totp import (
         generate_totp_secret,
@@ -127,11 +132,16 @@ except ImportError:
         get_known_users,
         get_known_groups,
         add_allowed_group,
+        remove_allowed_group,
         add_group_handler,
         record_known_group,
+        remove_known_group,
+        unlink_group_for_user,
+        unlink_group_completely,
         get_candidate_groups_for_user,
         get_user_daily_report_settings,
         set_user_daily_report_settings,
+        send_security_report_to_user_dm,
     )
     from totp import (
         generate_totp_secret,
@@ -480,6 +490,25 @@ class handler(BaseHTTPRequestHandler):
                     "config": get_system_config(),
                 })
 
+            # Action: Remove / Unlink group (handles both super & group admin)
+            if body.get("action") in {"remove_group", "unlink_group"}:
+                if not (super_admin or uid in whitelist_ids() or is_admin):
+                    return self._json(403, {"ok": False, "error": "Unauthorized"})
+                try:
+                    raw_gid = body.get("group_id")
+                    target_gid = int(raw_gid)
+                except (TypeError, ValueError):
+                    return self._json(400, {"ok": False, "error": "Invalid group_id"})
+                if not target_gid:
+                    return self._json(400, {"ok": False, "error": "Missing group_id"})
+
+                unlink_group_for_user(uid, target_gid)
+                return self._json(200, {
+                    "ok": True,
+                    "group_id": target_gid,
+                    "config": get_system_config(),
+                })
+
             # Action: Save plan catalog (Super Admin only)
             if body.get("action") == "save_plans":
                 if not super_admin:
@@ -582,12 +611,27 @@ class handler(BaseHTTPRequestHandler):
                 ok = remove_group_whitelisted_file(gid, sha)
                 return self._json(200, {"ok": ok, "whitelisted_files": get_group_whitelisted_files(gid)})
 
-            # Action: Save User Preferences & Daily Report Schedule
+            # Action: Save User Preferences & Report Settings
             if body.get("action") == "save_user_settings":
                 en = body.get("daily_report_enabled")
                 t_str = body.get("daily_report_time")
-                ok = set_user_daily_report_settings(uid, enabled=en, time_str=t_str)
+                freq = body.get("report_frequency")
+                rlang = body.get("report_lang") or body.get("lang")
+                ok = set_user_daily_report_settings(
+                    uid,
+                    enabled=en,
+                    time_str=t_str,
+                    frequency=freq,
+                    lang=rlang,
+                )
                 return self._json(200, {"ok": ok, "user_settings": get_user_daily_report_settings(uid)})
+
+            # Action: Request Immediate Report Delivery to Telegram DM (Daily, Weekly, Monthly)
+            if body.get("action") == "request_report":
+                period = str(body.get("period", "daily")).strip().lower()
+                rlang = body.get("report_lang") or body.get("lang")
+                result = send_security_report_to_user_dm(uid, period=period, lang=rlang)
+                return self._json(200, result)
 
             user_groups = groups_for_user(uid, get_allowed_groups())
             has_dashboard_access = super_admin or is_admin or uid in whitelist_ids() or bool(user_groups)

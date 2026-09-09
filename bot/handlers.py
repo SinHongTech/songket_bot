@@ -21,6 +21,7 @@ from bot.file_handler import fetch_and_validate
 from bot.redis_client import (
     add_strike,
     add_allowed_group,
+    remove_allowed_group,
     add_domain_whitelist,
     add_group_handler,
     add_group_muted_user,
@@ -55,6 +56,9 @@ from bot.redis_client import (
     record_group_inviter,
     record_join_time,
     record_known_group,
+    remove_known_group,
+    unlink_group_for_user,
+    unlink_group_completely,
     record_known_user,
     record_threat_event,
     remove_group_muted_user,
@@ -68,7 +72,9 @@ from bot.redis_client import (
 )
 from bot.reports import (
     format_daily_dm_report,
+    format_security_dm_report,
     generate_daily_pdf_report,
+    generate_security_pdf_report,
     get_user_daily_report_settings,
     record_report,
     set_user_daily_report_settings,
@@ -964,15 +970,81 @@ def _send_threat_alert(
 
 # ── Admin Private Chat Control Panel ────────────────────────────────────────
 
-def _build_admin_menu_keyboard(managed_groups: list[dict]) -> dict:
+def _chat_id_variants(gid: int) -> set[int]:
+    variants = {gid}
+    s = str(gid)
+    if s.startswith("-100"):
+        try:
+            variants.add(-int(s[4:]))
+            variants.add(int(s[4:]))
+        except ValueError:
+            pass
+    elif gid < 0:
+        try:
+            variants.add(-int(f"100{abs(gid)}"))
+            variants.add(abs(gid))
+        except ValueError:
+            pass
+    elif gid > 0:
+        try:
+            variants.add(-int(f"100{gid}"))
+            variants.add(-gid)
+        except ValueError:
+            pass
+    return variants
+
+
+def _build_admin_menu_keyboard(managed_groups: list[dict], lang: str = "both") -> dict:
     keyboard = []
     for grp in managed_groups:
         keyboard.append([{"text": f"👥 {grp['title']}", "callback_data": f"adm_grp:{grp['id']}"}])
+
+    if managed_groups:
+        rm_label = {
+            "kh": "🗑️ ដកក្រុមចេញ (Remove Group)",
+            "en": "🗑️ Remove Group",
+            "both": "🗑️ ដកក្រុមចេញ | Remove Group",
+        }.get(lang, "🗑️ Remove Group")
+        keyboard.append([{"text": rm_label, "callback_data": "adm_rm_groups"}])
 
     if config.WEB_APP_DASHBOARD_URL:
         keyboard.append([{"text": "🛡️ Open Security Mini App", "web_app": {"url": config.WEB_APP_DASHBOARD_URL}}])
 
     return {"inline_keyboard": keyboard}
+
+
+def _build_remove_groups_view(api: TelegramAPI, user_id: int, lang: str = "both") -> tuple[str, dict]:
+    managed_groups = get_managed_groups_for_user(api, user_id)
+    if not managed_groups:
+        text = {
+            "kh": "ℹ️ គ្មានក្រុមដែលកំពុងភ្ជាប់សម្រាប់ដកចេញឡើយ។",
+            "en": "ℹ️ No linked groups to remove.",
+            "both": "ℹ️ គ្មានក្រុមដែលកំពុងភ្ជាប់ (No linked groups to remove).",
+        }.get(lang, "No linked groups to remove.")
+        return text, {"inline_keyboard": [[{"text": "🔙 ត្រឡប់ក្រោយ (Back)", "callback_data": "adm_list_groups"}]]}
+
+    text = {
+        "kh": (
+            "🗑️ <b>ជ្រើសរើសក្រុមដែលអ្នកចង់ដកចេញពីការការពារ៖</b>\n\n"
+            "<i>ចុចលើប៊ូតុងក្រុមខាងក្រោមដើម្បីផ្ដាច់ការការពារ (Unlink Group)៖</i>"
+        ),
+        "en": (
+            "🗑️ <b>Select a group to remove and unlink:</b>\n\n"
+            "<i>Tap a button below to stop monitoring and unlink that group:</i>"
+        ),
+        "both": (
+            "🗑️ <b>ដកក្រុមចេញ | Remove Group:</b>\n\n"
+            "សូមជ្រើសរើសក្រុមដែលអ្នកចង់ដកចេញពីការការពារ (Tap below to unlink):"
+        ),
+    }.get(lang, "Select a group to remove:")
+
+    keyboard = []
+    for grp in managed_groups:
+        title = grp.get("title") or f"Group {grp['id']}"
+        keyboard.append([{"text": f"🗑️ Remove {title}", "callback_data": f"rmgrp:{grp['id']}:{user_id}"}])
+
+    keyboard.append([{"text": "🔙 ត្រឡប់ក្រោយ (Back)", "callback_data": "adm_list_groups"}])
+    return text, {"inline_keyboard": keyboard}
 
 
 def _resolve_chat_id_and_info(api: TelegramAPI, gid: int) -> tuple[int, dict]:
@@ -1323,7 +1395,8 @@ def _build_group_settings_view(api: TelegramAPI, group_id: int) -> tuple[str, di
             {"text": f"📁 Whitelist Files ({len(wl_files)})", "callback_data": f"adm_files:{group_id}"},
         ],
         [
-            {"text": "🔙 ត្រឡប់ទៅបញ្ជីក្រុម (Back to Groups)", "callback_data": "adm_list_groups"}
+            {"text": "🗑️ ដកក្រុមនេះចេញ (Remove Group)", "callback_data": f"rmgrp:{group_id}:0"},
+            {"text": "🔙 ត្រឡប់ទៅបញ្ជីក្រុម (Back)", "callback_data": "adm_list_groups"},
         ],
     ]
 
@@ -1418,6 +1491,10 @@ def _build_group_files_view(api: TelegramAPI, group_id: int) -> tuple[str, dict]
 ADMIN_COMMANDS = [
     {"command": "app", "description": "Open Mini App"},
     {"command": "settings", "description": "Bot Settings"},
+    {"command": "daily", "description": "Daily security report"},
+    {"command": "weekly", "description": "Weekly security report"},
+    {"command": "monthly", "description": "Monthly security report"},
+    {"command": "report", "description": "Security reports & schedule"},
     {"command": "guide", "description": "How to use"},
     {"command": "lang", "description": "My chat language"},
     {"command": "help", "description": "Safety guide"},
@@ -1590,14 +1667,34 @@ def _info(kind: str, lang: str) -> str:
 
 
 MENU_ALIASES = {
+    # Scan
     "🔍 Scan Link / File": "scan",
     "🔍 ស្កេន Link / ឯកសារ": "scan",
+    "🔍 Scan Link/File": "scan",
+    "🔍 ស្កេន Link/File": "scan",
     "🔍 Scan": "scan",
     "🔍 ស្កេន": "scan",
+    # Plan
     "📊 My Plan & Limit": "plan",
     "📊 គម្រោង & ដែនកំណត់": "plan",
+    "📊 Plan & Limit": "plan",
     "📊 Plan & Quota": "plan",
+    "📊 My Plan": "plan",
     "📊 គម្រោង": "plan",
+    # Reports
+    "📊 Daily Report": "daily",
+    "📊 Weekly Report": "weekly",
+    "📊 Monthly Report": "monthly",
+    "📊 Security Report": "report",
+    "📊 របាយការណ៍ប្រចាំថ្ងៃ": "daily",
+    "📊 របាយការណ៍ប្រចាំសប្តាហ៍": "weekly",
+    "📊 របាយការណ៍ប្រចាំខែ": "monthly",
+    "📊 របាយការណ៍": "report",
+    "📊 Daily": "daily",
+    "📊 Weekly": "weekly",
+    "📊 Monthly": "monthly",
+    "📊 Report": "report",
+    # Guide / Privacy / Terms / Lang
     "📖 Guide": "guide",
     "📖 មគ្គុទ្ទេសក៍": "guide",
     "🔒 Privacy": "privacy",
@@ -1607,6 +1704,7 @@ MENU_ALIASES = {
     "🌐 Lang": "lang",
     "🌐 Language": "lang",
     "🌐 ភាសា": "lang",
+    # Settings & Group linking
     "⚙️ Settings": "settings",
     "⚙️ ការកំណត់": "settings",
     "➕ Link Group": "addgroup",
@@ -1622,24 +1720,126 @@ def _menu_keyboard(whitelisted: bool, lang: str = "both") -> dict:
         rows.append([{"text": "🛡️ Mini App", "web_app": {"url": config.WEB_APP_DASHBOARD_URL}}])
 
     if lang == "kh":
-        rows.append([{"text": "🔍 ស្កេន Link / ឯកសារ"}, {"text": "📊 គម្រោង & ដែនកំណត់"}])
-        rows.append([{"text": "📖 មគ្គុទ្ទេសក៍"}, {"text": "🔒 ភាពឯកជន"}])
-        rows.append([{"text": "📜 លក្ខខណ្ឌ"}, {"text": "🌐 ភាសា"}])
+        rows.append([
+            {"text": "🔍 ស្កេន"},
+            {"text": "📊 គម្រោង"},
+            {"text": "📊 របាយការណ៍"},
+        ])
         if whitelisted:
-            rows.append([{"text": "➕ ភ្ជាប់ក្រុម"}, {"text": "⚙️ ការកំណត់"}])
+            rows.append([
+                {"text": "➕ ភ្ជាប់ក្រុម"},
+                {"text": "⚙️ ការកំណត់"},
+                {"text": "🌐 ភាសា"},
+            ])
+            rows.append([
+                {"text": "📖 មគ្គុទ្ទេសក៍"},
+                {"text": "🔒 ភាពឯកជន"},
+                {"text": "📜 លក្ខខណ្ឌ"},
+            ])
+        else:
+            rows.append([
+                {"text": "📖 មគ្គុទ្ទេសក៍"},
+                {"text": "🔒 ភាពឯកជន"},
+                {"text": "📜 លក្ខខណ្ឌ"},
+            ])
+            rows.append([
+                {"text": "🌐 ភាសា"},
+            ])
     elif lang == "en":
-        rows.append([{"text": "🔍 Scan Link / File"}, {"text": "📊 My Plan & Limit"}])
-        rows.append([{"text": "📖 Guide"}, {"text": "🔒 Privacy"}])
-        rows.append([{"text": "📜 Terms"}, {"text": "🌐 Language"}])
+        rows.append([
+            {"text": "🔍 Scan"},
+            {"text": "📊 My Plan"},
+            {"text": "📊 Daily Report"},
+        ])
         if whitelisted:
-            rows.append([{"text": "➕ Link Group"}, {"text": "⚙️ Settings"}])
-    else:
-        rows.append([{"text": "🔍 Scan Link / File"}, {"text": "📊 My Plan & Limit"}])
-        rows.append([{"text": "📖 Guide"}, {"text": "🔒 Privacy"}])
-        rows.append([{"text": "📜 Terms"}, {"text": "🌐 Lang"}])
+            rows.append([
+                {"text": "➕ Link Group"},
+                {"text": "⚙️ Settings"},
+                {"text": "🌐 Language"},
+            ])
+            rows.append([
+                {"text": "📖 Guide"},
+                {"text": "🔒 Privacy"},
+                {"text": "📜 Terms"},
+            ])
+        else:
+            rows.append([
+                {"text": "📖 Guide"},
+                {"text": "🔒 Privacy"},
+                {"text": "📜 Terms"},
+            ])
+            rows.append([
+                {"text": "🌐 Language"},
+            ])
+    else:  # both / bilingual
+        rows.append([
+            {"text": "🔍 Scan"},
+            {"text": "📊 Plan & Limit"},
+            {"text": "📊 Daily Report"},
+        ])
         if whitelisted:
-            rows.append([{"text": "➕ Link Group"}, {"text": "⚙️ Settings"}])
+            rows.append([
+                {"text": "➕ Link Group"},
+                {"text": "⚙️ Settings"},
+                {"text": "🌐 Lang"},
+            ])
+            rows.append([
+                {"text": "📖 Guide"},
+                {"text": "🔒 Privacy"},
+                {"text": "📜 Terms"},
+            ])
+        else:
+            rows.append([
+                {"text": "📖 Guide"},
+                {"text": "🔒 Privacy"},
+                {"text": "📜 Terms"},
+            ])
+            rows.append([
+                {"text": "🌐 Lang"},
+            ])
     return {"keyboard": rows, "resize_keyboard": True}
+
+
+def _send_report_to_user(
+    api: TelegramAPI,
+    chat_id: int,
+    user_id: int,
+    period: str = "daily",
+    lang: Optional[str] = None,
+) -> bool:
+    """Helper to generate text and PDF report and deliver directly to Telegram chat."""
+    settings = get_user_daily_report_settings(user_id)
+    report_lang = lang or settings.get("report_lang", "both")
+    period_clean = (period or settings.get("report_frequency", "daily")).lower().strip()
+    if period_clean not in {"daily", "weekly", "monthly"}:
+        period_clean = "daily"
+
+    rep = format_security_dm_report(api, user_id, period=period_clean, lang=report_lang)
+    if not rep:
+        no_grp_msg = {
+            "kh": "⚠️ មិនមានក្រុមដែលកំពុងការពារដើម្បីបង្កើតរបាយការណ៍ទេ (No active monitored groups).",
+            "en": "⚠️ No active monitored groups found to generate report.",
+            "both": "⚠️ មិនមានក្រុមដែលកំពុងការពារ (No active monitored groups to report).",
+        }.get(report_lang, "⚠️ No active monitored groups found to generate report.")
+        api.send_message(chat_id, no_grp_msg)
+        return False
+
+    api.send_message(chat_id, rep, parse_mode="HTML")
+    pdf_data = generate_security_pdf_report(api, user_id, period=period_clean, lang=report_lang)
+    if pdf_data:
+        from bot.reports import local_date
+        period_title = {
+            "weekly": "Weekly",
+            "monthly": "Monthly",
+            "daily": "Daily",
+        }.get(period_clean, "Daily")
+        api.send_document(
+            chat_id,
+            pdf_data,
+            caption=f"📄 <b>Songket Security {period_title} Report (Beta version)</b>",
+            filename=f"Songket_Security_{period_title}_Report_{local_date()}.pdf",
+        )
+    return True
 
 
 def _send_daily_report_settings_message(
@@ -1651,33 +1851,69 @@ def _send_daily_report_settings_message(
     settings = get_user_daily_report_settings(user_id)
     enabled = settings.get("enabled", True)
     time_str = settings.get("time", "07:00")
+    freq = settings.get("report_frequency", "daily")
+    rlang = settings.get("report_lang", "both")
 
     status_icon = "🟢 បើក (Enabled)" if enabled else "🔴 បិទ (Disabled)"
+    freq_display = {
+        "daily": "📅 ប្រចាំថ្ងៃ (Daily)",
+        "weekly": "📅 ប្រចាំសប្តាហ៍ (Weekly)",
+        "monthly": "📅 ប្រចាំខែ (Monthly)",
+    }.get(freq, "📅 ប្រចាំថ្ងៃ (Daily)")
+
+    lang_display = {
+        "both": "🌐 Both (ខ្មែរ + English)",
+        "kh": "🇰🇭 ភាសាខ្មែរ (Khmer)",
+        "en": "🇬🇧 English Only",
+    }.get(rlang, "🌐 Both (ខ្មែរ + English)")
 
     text = (
-        f"📊 <b>ការកំណត់របាយការណ៍ប្រចាំថ្ងៃ | Daily Report Settings</b>\n\n"
-        f"🤖 Bot នឹងផ្ញើសេចក្តីសង្ខេបសន្តិសុខនៃក្រុមទាំងអស់ដែលអ្នកគ្រប់គ្រងចូលក្នុង Telegram DM នេះជារៀងរាល់ថ្ងៃ។\n"
-        f"<i>(The bot delivers a daily security summary of your monitored groups directly to your DM.)</i>\n\n"
+        f"📊 <b>ការកំណត់របាយការណ៍សន្តិសុខ | Security Report Settings</b>\n\n"
+        f"🤖 Bot នឹងផ្ញើសេចក្តីសង្ខេបសន្តិសុខនៃក្រុមគ្រប់គ្រងចូលក្នុង Telegram DM នេះតាមកាលវិភាគកំណត់។\n"
+        f"<i>(The bot delivers periodic security reports of your monitored groups directly to your DM.)</i>\n\n"
         f"🔔 <b>ស្ថានភាព (Status):</b> {status_icon}\n"
+        f"🔄 <b>កាលវិភាគ (Frequency):</b> {freq_display}\n"
+        f"🌐 <b>ភាសារបាយការណ៍ (Language):</b> {lang_display}\n"
         f"⏰ <b>ម៉ោងកំណត់ (Schedule Time):</b> <code>{time_str}</code> (Asia/Phnom_Penh GMT+7)\n\n"
-        f"👇 ជ្រើសរើសម៉ោង ឬបិទ/បើកខាងក្រោម | Choose time or toggle below:\n"
-        f"<i>អ្នកក៏អាចវាយបញ្ជាផ្ទាល់ឧទាហរណ៍៖ <code>/daily 08:30</code></i>"
+        f"👇 <b>ជ្រើសរើសជម្រើសខាងក្រោម | Select options below:</b>\n"
+        f"<i>អ្នកអាចវាយបញ្ជាផ្ទាល់ឧទាហរណ៍៖ <code>/daily 08:30</code> ឬ <code>/weekly</code> ឬ <code>/monthly</code></i>"
     )
 
     times = ["07:00", "08:00", "09:00", "12:00", "18:00", "20:00"]
     time_buttons = []
     for t in times:
         prefix = "✅ " if (enabled and time_str == t) else "⏰ "
-        time_buttons.append({"text": f"{prefix}{t}", "callback_data": f"daily_time:{user_id}:{t}"})
+        time_buttons.append({"text": f"{prefix}{t}", "callback_data": f"rep_time:{user_id}:{t}"})
+
+    freq_buttons = [
+        {"text": f"{'✓ ' if freq == 'daily' else ''}📅 Daily", "callback_data": f"rep_freq:{user_id}:daily"},
+        {"text": f"{'✓ ' if freq == 'weekly' else ''}📅 Weekly", "callback_data": f"rep_freq:{user_id}:weekly"},
+        {"text": f"{'✓ ' if freq == 'monthly' else ''}📅 Monthly", "callback_data": f"rep_freq:{user_id}:monthly"},
+    ]
+
+    lang_buttons = [
+        {"text": f"{'✓ ' if rlang == 'both' else ''}🌐 Both", "callback_data": f"rep_lang:{user_id}:both"},
+        {"text": f"{'✓ ' if rlang == 'kh' else ''}🇰🇭 ខ្មែរ", "callback_data": f"rep_lang:{user_id}:kh"},
+        {"text": f"{'✓ ' if rlang == 'en' else ''}🇬🇧 English", "callback_data": f"rep_lang:{user_id}:en"},
+    ]
+
+    send_period_buttons = [
+        {"text": "📊 Daily PDF", "callback_data": f"rep_send:{user_id}:daily"},
+        {"text": "📊 Weekly PDF", "callback_data": f"rep_send:{user_id}:weekly"},
+        {"text": "📊 Monthly PDF", "callback_data": f"rep_send:{user_id}:monthly"},
+    ]
 
     kb = {
         "inline_keyboard": [
+            freq_buttons,
+            lang_buttons,
             time_buttons[:3],
             time_buttons[3:],
             [
-                {"text": "🔔 បិទ/បើក (Toggle ON/OFF)", "callback_data": f"daily_toggle:{user_id}"},
-                {"text": "📊 ផ្ញើឥឡូវ (Send Now)", "callback_data": f"daily_send_now:{user_id}"},
+                {"text": "🔔 បិទ/បើក (Toggle ON/OFF)", "callback_data": f"rep_toggle:{user_id}"},
+                {"text": f"⚡ ផ្ញើឥឡូវ ({freq.capitalize()})", "callback_data": f"rep_send:{user_id}:{freq}"},
             ],
+            send_period_buttons,
         ]
     }
 
@@ -1773,33 +2009,49 @@ def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
             }
             api.send_message(chat_id, "🌐 <b>ជ្រើសរើសភាសា | Select your chat language:</b>", reply_markup=kb)
             return
-        if command in {"/daily", "/report", "/dailyreport"}:
+        if command in {"/daily", "/report", "/reports", "/dailyreport", "/weekly", "/monthly"}:
             args = text.split()[1:] if len(text.split()) > 1 else []
+
+            # 1. /weekly command
+            if command == "/weekly":
+                req_lang = None
+                if args and args[0].lower() in {"kh", "en", "both"}:
+                    req_lang = args[0].lower()
+                _send_report_to_user(api, chat_id, user_id, period="weekly", lang=req_lang)
+                return
+
+            # 2. /monthly command
+            if command == "/monthly":
+                req_lang = None
+                if args and args[0].lower() in {"kh", "en", "both"}:
+                    req_lang = args[0].lower()
+                _send_report_to_user(api, chat_id, user_id, period="monthly", lang=req_lang)
+                return
+
+            # 3. /daily or /report with arguments
             if args:
                 arg0 = args[0].lower().strip()
                 if arg0 in {"on", "enable", "open"}:
                     set_user_daily_report_settings(user_id, enabled=True)
-                    api.send_message(chat_id, "✅ <b>របាយការណ៍ប្រចាំថ្ងៃត្រូវបានបើក | Daily DM Report Enabled</b>\n⏰ Time: 07:00 AM (default)")
+                    api.send_message(chat_id, "✅ <b>របាយការណ៍ត្រូវបានបើក | Security DM Reports Enabled</b>\n⏰ Time: 07:00 AM (default)")
                     return
                 elif arg0 in {"off", "disable", "stop"}:
                     set_user_daily_report_settings(user_id, enabled=False)
-                    api.send_message(chat_id, "🔴 <b>របាយការណ៍ប្រចាំថ្ងៃត្រូវបានបិទ | Daily DM Report Disabled</b>")
+                    api.send_message(chat_id, "🔴 <b>របាយការណ៍ត្រូវបានបិទ | Security DM Reports Disabled</b>")
                     return
                 elif arg0 in {"now", "send", "preview"}:
-                    rep = format_daily_dm_report(api, user_id)
-                    if rep:
-                        api.send_message(chat_id, rep, parse_mode="HTML")
-                        pdf_data = generate_daily_pdf_report(api, user_id)
-                        if pdf_data:
-                            from bot.reports import local_date
-                            api.send_document(
-                                chat_id,
-                                pdf_data,
-                                caption="📄 <b>Songket Security Daily Report (Beta version)</b>",
-                                filename=f"Songket_Security_Daily_Report_{local_date()}.pdf",
-                            )
-                    else:
-                        api.send_message(chat_id, "⚠️ មិនមានក្រុមដែលកំពុងការពារដើម្បីបង្កើតរបាយការណ៍ទេ (No active monitored groups).")
+                    req_period = args[1].lower() if len(args) > 1 and args[1].lower() in {"daily", "weekly", "monthly"} else "daily"
+                    req_lang = args[2].lower() if len(args) > 2 and args[2].lower() in {"kh", "en", "both"} else None
+                    _send_report_to_user(api, chat_id, user_id, period=req_period, lang=req_lang)
+                    return
+                elif arg0 in {"daily", "weekly", "monthly"}:
+                    req_lang = args[1].lower() if len(args) > 1 and args[1].lower() in {"kh", "en", "both"} else None
+                    _send_report_to_user(api, chat_id, user_id, period=arg0, lang=req_lang)
+                    return
+                elif arg0 in {"kh", "en", "both"}:
+                    set_user_daily_report_settings(user_id, lang=arg0)
+                    lang_name = {"both": "Both (ខ្មែរ + English)", "kh": "ខ្មែរ", "en": "English"}.get(arg0, arg0)
+                    api.send_message(chat_id, f"✅ <b>បានប្តូរភាសារបាយការណ៍ | Report Language Updated!</b>\n🌐 Language: {lang_name}")
                     return
                 else:
                     # Try parsing as HH:MM time
@@ -1807,8 +2059,8 @@ def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
                     if ok:
                         api.send_message(
                             chat_id,
-                            f"✅ <b>បានកំណត់ម៉ោងផ្ញើជោគជ័យ | Daily Report Time Updated!</b>\n"
-                            f"⏰ ម៉ោងផ្ញើប្រចាំថ្ងៃ: <code>{arg0}</code> (Asia/Phnom_Penh GMT+7)",
+                            f"✅ <b>បានកំណត់ម៉ោងផ្ញើជោគជ័យ | Report Schedule Updated!</b>\n"
+                            f"⏰ ម៉ោងផ្ញើ: <code>{arg0}</code> (Asia/Phnom_Penh GMT+7)",
                         )
                         return
                     else:
@@ -1817,6 +2069,7 @@ def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
                             "❌ <b>ទម្រង់ម៉ោងមិនត្រឹមត្រូវ (Invalid time format)!</b>\nសូមប្រើទម្រង់ <code>HH:MM</code> (ឧទាហរណ៍៖ <code>/daily 07:00</code> ឬ <code>/daily 08:30</code>)",
                         )
                         return
+
             _send_daily_report_settings_message(api, chat_id, user_id)
             return
         if command == "/settings":
@@ -1835,7 +2088,7 @@ def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
             api.send_message(
                 chat_id,
                 _info("settings_intro", lang),
-                reply_markup=_build_admin_menu_keyboard(managed_groups),
+                reply_markup=_build_admin_menu_keyboard(managed_groups, lang),
             )
             return
 
@@ -1924,8 +2177,38 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
         _send_plan_status(api, chat_id, user_id, message_id=msg_id)
         return
 
-    # Daily report callbacks
-    if data.startswith("daily_time:"):
+    # Report Frequency toggle callback
+    if data.startswith("rep_freq:"):
+        parts = data.split(":")
+        if len(parts) == 3:
+            target_uid = int(parts[1])
+            new_freq = parts[2]
+            if user_id != target_uid and not is_super_admin(user_id):
+                api.answer_callback_query(query_id, text="❌ Not authorized", show_alert=True)
+                return
+            set_user_daily_report_settings(target_uid, frequency=new_freq)
+            freq_lbl = {"daily": "Daily (ប្រចាំថ្ងៃ)", "weekly": "Weekly (ប្រចាំសប្តាហ៍)", "monthly": "Monthly (ប្រចាំខែ)"}.get(new_freq, new_freq)
+            api.answer_callback_query(query_id, text=f"✅ កាលវិភាគ: {freq_lbl}")
+            _send_daily_report_settings_message(api, chat_id, target_uid, message_id=msg_id)
+            return
+
+    # Report Language toggle callback
+    if data.startswith("rep_lang:"):
+        parts = data.split(":")
+        if len(parts) == 3:
+            target_uid = int(parts[1])
+            new_lang = parts[2]
+            if user_id != target_uid and not is_super_admin(user_id):
+                api.answer_callback_query(query_id, text="❌ Not authorized", show_alert=True)
+                return
+            set_user_daily_report_settings(target_uid, lang=new_lang)
+            lang_lbl = {"both": "Both (ខ្មែរ+EN)", "kh": "ខ្មែរ", "en": "English"}.get(new_lang, new_lang)
+            api.answer_callback_query(query_id, text=f"✅ ភាសា: {lang_lbl}")
+            _send_daily_report_settings_message(api, chat_id, target_uid, message_id=msg_id)
+            return
+
+    # Report schedule time callback
+    if data.startswith("rep_time:") or data.startswith("daily_time:"):
         parts = data.split(":")
         if len(parts) == 3:
             target_uid = int(parts[1])
@@ -1938,7 +2221,8 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
             _send_daily_report_settings_message(api, chat_id, target_uid, message_id=msg_id)
             return
 
-    if data.startswith("daily_toggle:"):
+    # Report toggle ON/OFF callback
+    if data.startswith("rep_toggle:") or data.startswith("daily_toggle:"):
         parts = data.split(":")
         if len(parts) == 2:
             target_uid = int(parts[1])
@@ -1952,29 +2236,18 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
             _send_daily_report_settings_message(api, chat_id, target_uid, message_id=msg_id)
             return
 
-    if data.startswith("daily_send_now:"):
+    # Send report now callback
+    if data.startswith("rep_send:") or data.startswith("daily_send_now:"):
         parts = data.split(":")
-        if len(parts) == 2:
-            target_uid = int(parts[1])
-            if user_id != target_uid and not is_super_admin(user_id):
-                api.answer_callback_query(query_id, text="❌ Not authorized", show_alert=True)
-                return
-            api.answer_callback_query(query_id, text="📊 កំពុងបង្កើតរបាយការណ៍...")
-            rep = format_daily_dm_report(api, target_uid)
-            if rep:
-                api.send_message(chat_id, rep, parse_mode="HTML")
-                pdf_data = generate_daily_pdf_report(api, target_uid)
-                if pdf_data:
-                    from bot.reports import local_date
-                    api.send_document(
-                        chat_id,
-                        pdf_data,
-                        caption="📄 <b>Songket Security Daily Report (Beta version)</b>",
-                        filename=f"Songket_Security_Daily_Report_{local_date()}.pdf",
-                    )
-            else:
-                api.send_message(chat_id, "⚠️ មិនមានក្រុមដែលកំពុងការពារដើម្បីបង្កើតរបាយការណ៍ទេ (No active monitored groups).")
+        target_uid = int(parts[1]) if len(parts) >= 2 else user_id
+        period = parts[2] if len(parts) >= 3 else "daily"
+        if user_id != target_uid and not is_super_admin(user_id):
+            api.answer_callback_query(query_id, text="❌ Not authorized", show_alert=True)
             return
+        period_lbl = {"daily": "Daily", "weekly": "Weekly", "monthly": "Monthly"}.get(period, period)
+        api.answer_callback_query(query_id, text=f"📊 កំពុងបង្កើតរបាយការណ៍ {period_lbl}...")
+        _send_report_to_user(api, chat_id, target_uid, period=period)
+        return
 
     # 0. New-member verification button
     if data.startswith("verify:"):
@@ -2433,15 +2706,91 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
         api.edit_message_text(chat_id, msg_id, text, reply_markup=markup)
         return
 
-    # 10. Admin Private Chat: Back to Group List
+    # 10. Admin Private Chat: Remove Groups Subview
+    if data == "adm_rm_groups":
+        lang = get_user_lang(user_id)
+        text, markup = _build_remove_groups_view(api, user_id, lang)
+        api.edit_message_text(chat_id, msg_id, text, reply_markup=markup)
+        api.answer_callback_query(query_id)
+        return
+
+    # 11. Admin Private Chat: Prompt Confirm Remove Group
+    if data.startswith("rmgrp:"):
+        parts = data.split(":")
+        target_gid = int(parts[1])
+        target_uid = int(parts[2]) if len(parts) > 2 and int(parts[2]) != 0 else user_id
+        if user_id != target_uid and not is_super_admin(user_id):
+            api.answer_callback_query(query_id, text="❌ Unauthorized", show_alert=True)
+            return
+        real_gid, chat_info = _resolve_chat_id_and_info(api, target_gid)
+        g_title = (chat_info or {}).get("title") or f"Group {target_gid}"
+        lang = get_user_lang(user_id)
+        confirm_text = {
+            "kh": f"⚠️ <b>តើអ្នកប្រាកដជាចង់ដកក្រុម {esc(g_title)} ចេញពីការការពារមែនទេ?</b>\n\n<i>(Bot នឹងបញ្ឈប់ការការពារ និងដកក្រុមនេះចេញពីផ្ទាំងគ្រប់គ្រងរបស់អ្នក)</i>",
+            "en": f"⚠️ <b>Are you sure you want to unlink and remove {esc(g_title)}?</b>\n\n<i>(The bot will stop monitoring and unlink this group from your dashboard)</i>",
+            "both": f"⚠️ <b>តើអ្នកប្រាកដជាចង់ដកក្រុម {esc(g_title)} ចេញមែនទេ? | Unlink Group?</b>\n\n<i>(Bot នឹងបញ្ឈប់ការការពារ និងដកចេញពីផ្ទាំងគ្រប់គ្រង / Stop monitoring)</i>",
+        }.get(lang, "Are you sure you want to unlink this group?")
+        confirm_kb = {
+            "inline_keyboard": [
+                [
+                    {"text": "✅ បាទ/ចាស ដកចេញ (Yes, Remove)", "callback_data": f"rmgrp_do:{target_gid}:{user_id}"},
+                ],
+                [
+                    {"text": "❌ បោះបង់ (Cancel)", "callback_data": "adm_list_groups"},
+                ],
+            ]
+        }
+        api.edit_message_text(chat_id, msg_id, confirm_text, reply_markup=confirm_kb)
+        api.answer_callback_query(query_id)
+        return
+
+    # 12. Admin Private Chat: Execute Remove Group
+    if data.startswith("rmgrp_do:"):
+        parts = data.split(":")
+        target_gid = int(parts[1])
+        target_uid = int(parts[2]) if len(parts) > 2 and int(parts[2]) != 0 else user_id
+        if user_id != target_uid and not is_super_admin(user_id):
+            api.answer_callback_query(query_id, text="❌ Unauthorized", show_alert=True)
+            return
+        real_gid, chat_info = _resolve_chat_id_and_info(api, target_gid)
+        g_title = (chat_info or {}).get("title") or f"Group {target_gid}"
+        unlink_group_for_user(user_id, target_gid)
+        lang = get_user_lang(user_id)
+        toast = {
+            "kh": f"✅ ក្រុម {g_title} ត្រូវបានដកចេញជោគជ័យ!",
+            "en": f"✅ Group {g_title} unlinked successfully!",
+            "both": f"✅ ក្រុម {g_title} ត្រូវបានដកចេញជោគជ័យ | Unlinked!",
+        }.get(lang, "✅ Group unlinked successfully!")
+        api.answer_callback_query(query_id, text=toast, show_alert=True)
+
+        managed_groups = get_managed_groups_for_user(api, user_id)
+        if managed_groups:
+            admin_text = (
+                "⚙️ <b>ផ្ទាំងគ្រប់គ្រងរចនាសម្ព័ន្ធសុវត្ថិភាព | Admin Control Panel</b>\n\n"
+                "សូមជ្រើសរើសក្រុមដែលអ្នកគ្រប់គ្រងដើម្បីកំណត់ <b>ភាសា (Language)</b> និង <b>សារសុវត្ថិភាព (Safe Message Timer)</b>៖\n"
+                "<i>(Select a managed group below to configure):</i>"
+            )
+            markup = _build_admin_menu_keyboard(managed_groups, lang)
+            api.edit_message_text(chat_id, msg_id, admin_text, reply_markup=markup)
+        else:
+            no_grp_msg = {
+                "kh": "✅ ក្រុមត្រូវបានដកចេញជោគជ័យ。\n\nមិនទាន់មានក្រុមចាត់តាំងនៅឡើយទេ។ សូមចុចប៊ូតុង [ ➕ ភ្ជាប់ក្រុម ] លើ Menu ខាងក្រោមដើម្បីភ្ជាប់ក្រុមថ្មី。",
+                "en": "✅ Group unlinked successfully.\n\nNo groups assigned. Tap [ ➕ Link Group ] on the menu below to link a new group.",
+                "both": "✅ ក្រុមត្រូវបានដកចេញជោគជ័យ (Group unlinked).\n\nមិនទាន់មានក្រុមចាត់តាំង (No groups assigned). សូមចុចប៊ូតុង [ ➕ Link Group ] ដើម្បីភ្ជាប់ក្រុមថ្មី。"
+            }.get(lang, "No groups assigned.")
+            api.edit_message_text(chat_id, msg_id, no_grp_msg, reply_markup={"inline_keyboard": []})
+        return
+
+    # 13. Admin Private Chat: Back to Group List
     if data == "adm_list_groups":
         managed_groups = get_managed_groups_for_user(api, user_id)
+        lang = get_user_lang(user_id)
         admin_text = (
             "⚙️ <b>ផ្ទាំងគ្រប់គ្រងរចនាសម្ព័ន្ធសុវត្ថិភាព | Admin Control Panel</b>\n\n"
             "សូមជ្រើសរើសក្រុមដែលអ្នកគ្រប់គ្រងដើម្បីកំណត់ <b>ភាសា (Language)</b> និង <b>សារសុវត្ថិភាព (Safe Message Timer)</b>៖\n"
             "<i>(Select a managed group below to configure):</i>"
         )
-        markup = _build_admin_menu_keyboard(managed_groups)
+        markup = _build_admin_menu_keyboard(managed_groups, lang)
         api.edit_message_text(chat_id, msg_id, admin_text, reply_markup=markup)
         api.answer_callback_query(query_id)
         return
@@ -2493,60 +2842,28 @@ def _handle_inline_query(api: TelegramAPI, inline_query: dict) -> None:
                 },
             }
         ]
-        api.answer_inline_query(query_id, results, cache_time=10, is_personal=True)
+        api.answer_inline_query(query_id, results, cache_time=120, is_personal=False)
         return
 
-    domain = extract_domain(target_url) or query_text
-    result = vt_scan_url(target_url)
-    
-    malicious = result.get("malicious", 0)
-    suspicious = result.get("suspicious", 0)
-    is_whitelisted_flag = result.get("whitelisted", False)
-
-    if is_whitelisted_flag or (malicious == 0 and suspicious == 0 and "error" not in result):
-        title = f"✅ SAFE: {domain}"
-        description = "Verified Safe (0 security engines detected threats)"
-        msg_text = (
-            f"🛡️ <b>Songket Security Report</b>\n\n"
-            f"🔗 <b>Target:</b> <code>{esc(domain)}</code>\n"
-            f"✅ <b>Status:</b> <b>CLEAN &amp; SAFE</b> (0 Detections)\n"
-            f"⚡ <i>Verified safe in real-time by Songket Security</i>"
-        )
-    elif malicious >= config.VT_MALICIOUS_THRESHOLD:
-        title = f"🚨 MALICIOUS: {domain}"
-        description = f"CRITICAL THREAT: {malicious} security vendor(s) flagged this link!"
-        msg_text = (
-            f"🚨 <b>Songket Security Alert: MALICIOUS THREAT</b>\n\n"
-            f"🔗 <b>Target:</b> <code>{esc(domain)}</code>\n"
-            f"❌ <b>Status:</b> <b>MALICIOUS / PHISHING</b> ({malicious} flags)\n"
-            f"⛔ <b>DO NOT OPEN THIS LINK!</b> It may steal your accounts or infect your device."
-        )
-    elif suspicious >= config.VT_SUSPICIOUS_THRESHOLD:
-        title = f"⚠️ SUSPICIOUS: {domain}"
-        description = f"Suspicious Activity ({suspicious} vendor flags). Exercise caution."
-        msg_text = (
-            f"⚠️ <b>Songket Security Warning: SUSPICIOUS LINK</b>\n\n"
-            f"🔗 <b>Target:</b> <code>{esc(domain)}</code>\n"
-            f"⚠️ <b>Status:</b> <b>SUSPICIOUS</b> ({suspicious} flags)\n"
-            f"🔍 <i>Proceed with extreme caution. Avoid entering sensitive credentials.</i>"
-        )
-    else:
-        title = f"🔍 Scanned: {domain}"
-        description = f"Scan complete. Status: {result.get('error', 'Pending')}"
-        msg_text = (
-            f"🔍 <b>Songket Security Scan</b>\n\n"
-            f"🔗 <b>Target:</b> <code>{esc(domain)}</code>\n"
-            f"ℹ️ <b>Status:</b> {esc(str(result.get('error', 'No threats detected')))}"
-        )
+    # Scan target URL
+    is_safe, verdict = _check_url(target_url)
+    icon = "✅" if is_safe else "🚨"
+    title_res = f"{icon} {target_url}"
+    desc_res = "Status: SAFE" if is_safe else f"Status: THREAT DETECTED ({verdict})"
 
     results = [
         {
             "type": "article",
-            "id": f"scan_{int(time.time() * 1000)}",
-            "title": title,
-            "description": description,
+            "id": f"res_{hash(target_url)}",
+            "title": title_res,
+            "description": desc_res,
             "input_message_content": {
-                "message_text": msg_text,
+                "message_text": (
+                    f"🛡️ <b>Songket Security Link Scan</b>\n\n"
+                    f"🔗 <b>Target:</b> <code>{esc(target_url)}</code>\n"
+                    f"📊 <b>Verdict:</b> {icon} <b>{'SAFE / សុវត្ថិភាព' if is_safe else 'MALICIOUS / គ្រោះថ្នាក់'}</b>\n"
+                    f"<i>(Verified by Songket Security Bot)</i>"
+                ),
                 "parse_mode": "HTML",
             },
         }
@@ -2561,11 +2878,21 @@ def process_update(api: TelegramAPI, update: dict) -> None:
     if "my_chat_member" in update:
         cm = update["my_chat_member"]
         chat = cm.get("chat", {})
+        gid = chat.get("id", 0)
         new_status = (cm.get("new_chat_member") or {}).get("status", "")
         from_user = cm.get("from") or {}
         inviter_id = from_user.get("id")
-        if chat.get("type") in ("group", "supergroup") and new_status in ("member", "administrator"):
-            record_known_group(chat.get("id", 0), chat.get("title", "") or "", inviter_id=inviter_id)
+        if chat.get("type") in ("group", "supergroup"):
+            if new_status in ("member", "administrator"):
+                record_known_group(gid, chat.get("title", "") or "", inviter_id=inviter_id)
+                # Auto-link if inviter is whitelisted admin or super admin
+                if inviter_id and (inviter_id in whitelist_user_ids() or is_super_admin(inviter_id)):
+                    add_allowed_group(gid)
+                    add_group_handler(inviter_id, gid)
+                    logger.info("Auto-linked group %d (%s) for admin %d", gid, chat.get("title"), inviter_id)
+            elif new_status in ("left", "kicked", "restricted"):
+                logger.info("Bot left or was kicked from group %d (status=%s) - unlinking group", gid, new_status)
+                unlink_group_completely(gid)
         return
 
     # 1. Handle Inline Queries (@songket_beyda_bot <link>)
@@ -2603,13 +2930,19 @@ def process_update(api: TelegramAPI, update: dict) -> None:
         for nm in new_members:
             if nm.get("is_bot"):
                 record_known_group(chat_id, chat.get("title", "") or "", inviter_id=sender_id)
+                if sender_id and (sender_id in whitelist_user_ids() or is_super_admin(sender_id)):
+                    add_allowed_group(chat_id)
+                    add_group_handler(sender_id, chat_id)
+                    logger.info("Auto-linked group %d (%s) for admin %d", chat_id, chat.get("title"), sender_id)
                 break
 
     # 4. Check Group Authorization
     allowed_groups = get_allowed_groups()
-    if allowed_groups and chat_id not in allowed_groups:
-        logger.info("Unauthorized group %d — ignored", chat_id)
-        return
+    if allowed_groups:
+        variants = _chat_id_variants(chat_id)
+        if not any(v in allowed_groups for v in variants):
+            logger.info("Unauthorized group %d — ignored", chat_id)
+            return
 
     # 4.5 New members (verification gate + join tracking)
     new_members = message.get("new_chat_members") or []
