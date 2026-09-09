@@ -28,6 +28,7 @@ from bot.redis_client import (
     add_group_whitelisted_user,
     clear_pending,
     get_daily_scan_usage,
+    get_group_inviter,
     get_group_lang,
     get_group_muted_users,
     get_group_settings,
@@ -51,6 +52,7 @@ from bot.redis_client import (
     kv_set,
     plan_scan_limit_runtime,
     record_first_seen,
+    record_group_inviter,
     record_join_time,
     record_known_group,
     record_known_user,
@@ -1057,7 +1059,24 @@ def _prompt_select_group(api: TelegramAPI, chat_id: int, user_id: int) -> None:
 
     known = get_known_groups()
     allowed = get_allowed_groups()
-    candidates = [(int(gid), title) for gid, title in known.items() if int(gid) not in allowed]
+    candidates = []
+    for gid_str, title in known.items():
+        try:
+            gid = int(gid_str)
+        except (ValueError, TypeError):
+            continue
+        if gid in allowed:
+            continue
+        inviter = get_group_inviter(gid)
+        if inviter is not None:
+            if inviter == user_id:
+                candidates.append((gid, title))
+        else:
+            try:
+                if api.is_group_admin(user_id, gid):
+                    candidates.append((gid, title))
+            except Exception:
+                pass
 
     candidate_buttons = []
     if candidates:
@@ -1154,6 +1173,31 @@ def _handle_group_selected_for_linking(api: TelegramAPI, chat_id: int, user_id: 
         }.get(lang, "Bot is not in this group yet. Please add Bot as Admin first.")
 
         api.send_message(chat_id, not_in_group_msg, reply_markup=menu_kb)
+        return
+
+    # Check if user is an Administrator in the group
+    if not api.is_group_admin(user_id, real_gid):
+        temp_id = kv_get(f"temp_link_msg:{chat_id}")
+        if temp_id:
+            api.delete_message(chat_id, int(temp_id))
+            kv_delete(f"temp_link_msg:{chat_id}")
+
+        not_admin_msg = {
+            "kh": (
+                "⚠️ <b>អ្នកមិនមែនជា Administrator ក្នុងក្រុមនេះទេ!</b>\n\n"
+                "📌 អ្នកអាចភ្ជាប់បានតែក្រុមដែលអ្នកមានសិទ្ធិជា <b>Administrator</b> ប៉ុណ្ណោះ។"
+            ),
+            "en": (
+                "⚠️ <b>You are not an Administrator in this group!</b>\n\n"
+                "📌 You can only link and protect groups where you are an <b>Administrator</b>."
+            ),
+            "both": (
+                "⚠️ <b>អ្នកមិនមែនជា Administrator ក្នុងក្រុមនេះទេ | Not a group admin</b>\n\n"
+                "📌 អ្នកអាចភ្ជាប់បានតែក្រុមដែលអ្នកជា Administrator ប៉ុណ្ណោះ (You can only link groups where you are an Administrator)."
+            )
+        }.get(lang, "⚠️ You are not an Administrator in this group.")
+
+        api.send_message(chat_id, not_admin_msg, reply_markup=menu_kb)
         return
 
     confirm_btn = {
@@ -1986,6 +2030,15 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
             api.answer_callback_query(query_id, text="❌ Unauthorized", show_alert=True)
             return
 
+        real_gid, chat_info = _resolve_chat_id_and_info(api, gid)
+        if not api.is_group_admin(user_id, real_gid):
+            api.answer_callback_query(
+                query_id,
+                text="❌ You must be an Administrator in this group to link it.",
+                show_alert=True
+            )
+            return
+
         # 1. Delete the confirmation message immediately
         api.delete_message(chat_id, msg_id)
 
@@ -2000,10 +2053,9 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
         add_group_handler(user_id, gid)
 
         # 4. Cache group title
-        real_gid, chat_info = _resolve_chat_id_and_info(api, gid)
         title = (chat_info or {}).get("title") or "Selected Group"
         username = (chat_info or {}).get("username")
-        record_known_group(real_gid, title)
+        record_known_group(real_gid, title, inviter_id=user_id)
 
         group_label = f"<b>{esc(title)}</b>"
         if username:
@@ -2340,8 +2392,10 @@ def process_update(api: TelegramAPI, update: dict) -> None:
         cm = update["my_chat_member"]
         chat = cm.get("chat", {})
         new_status = (cm.get("new_chat_member") or {}).get("status", "")
+        from_user = cm.get("from") or {}
+        inviter_id = from_user.get("id")
         if chat.get("type") in ("group", "supergroup") and new_status in ("member", "administrator"):
-            record_known_group(chat.get("id", 0), chat.get("title", "") or "")
+            record_known_group(chat.get("id", 0), chat.get("title", "") or "", inviter_id=inviter_id)
         return
 
     # 1. Handle Inline Queries (@songket_beyda_bot <link>)
@@ -2372,6 +2426,14 @@ def process_update(api: TelegramAPI, update: dict) -> None:
     if chat_type == "private":
         _handle_private_chat(api, chat_id, message)
         return
+
+    # 3.5 Track group invitation if bot itself was added in new_chat_members
+    new_members = message.get("new_chat_members") or []
+    if chat_type in ("group", "supergroup") and new_members:
+        for nm in new_members:
+            if nm.get("is_bot"):
+                record_known_group(chat_id, chat.get("title", "") or "", inviter_id=sender_id)
+                break
 
     # 4. Check Group Authorization
     allowed_groups = get_allowed_groups()

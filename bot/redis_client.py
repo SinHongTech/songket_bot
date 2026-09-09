@@ -398,10 +398,27 @@ def add_group_handler(user_id: int, chat_id: int) -> None:
         kv_json_set("config:group_handlers", data)
 
 
-def record_known_group(chat_id: int, title: str) -> None:
+def record_group_inviter(chat_id: int, inviter_id: int) -> None:
+    if chat_id and inviter_id:
+        kv_set(f"group:inviter:{chat_id}", str(inviter_id))
+
+
+def get_group_inviter(chat_id: int) -> Optional[int]:
+    val = kv_get(f"group:inviter:{chat_id}")
+    if val:
+        try:
+            return int(val)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def record_known_group(chat_id: int, title: str, inviter_id: Optional[int] = None) -> None:
     data = kv_json_get("known_groups") or {}
     data[str(chat_id)] = title or str(chat_id)
     kv_json_set("known_groups", data)
+    if inviter_id:
+        record_group_inviter(chat_id, inviter_id)
 
 
 def get_known_groups() -> dict:
