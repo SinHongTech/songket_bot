@@ -588,6 +588,13 @@ export async function addManagedGroup(groupId: number, title?: string) {
   });
 }
 
+export async function removeManagedGroup(groupId: number) {
+  return postAction({
+    action: "remove_group",
+    group_id: groupId,
+  });
+}
+
 export async function saveUserSettings(settings: {
   daily_report_enabled?: boolean;
   daily_report_time?: string;

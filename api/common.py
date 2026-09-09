@@ -275,6 +275,16 @@ def add_allowed_group(chat_id: int) -> bool:
     return True
 
 
+def remove_allowed_group(chat_id: int) -> bool:
+    raw = kv_get("config:allowed_groups") or ""
+    ids = [x.strip() for x in str(raw).split(",") if x.strip()]
+    sid = str(chat_id)
+    if sid in ids:
+        ids.remove(sid)
+        return kv_set("config:allowed_groups", ",".join(ids))
+    return True
+
+
 def add_group_handler(user_id: int, chat_id: int) -> bool:
     data = kv_json_get("config:group_handlers") or {}
     uid = str(user_id)
@@ -309,6 +319,92 @@ def record_known_group(chat_id: int, title: str, inviter_id: Optional[int] = Non
     if inviter_id:
         record_group_inviter(chat_id, inviter_id)
     return res
+
+
+def remove_known_group(chat_id: int) -> bool:
+    data = kv_json_get("known_groups") or {}
+    sid = str(chat_id)
+    if sid in data:
+        del data[sid]
+        kv_json_set("known_groups", data)
+    cfg_known = kv_json_get("config:known_groups")
+    if isinstance(cfg_known, dict) and sid in cfg_known:
+        del cfg_known[sid]
+        kv_json_set("config:known_groups", cfg_known)
+    kv_delete(f"group:inviter:{chat_id}")
+    kv_delete(f"cache:chat_title:{chat_id}")
+    return True
+
+
+def unlink_group_for_user(user_id: int, chat_id: int) -> bool:
+    """Unlink a group from a specific user. Remove from allowed_groups if no other user is handling it."""
+    uid = str(user_id)
+    target_gid = int(chat_id)
+
+    # 1. Remove from config:group_handlers
+    gh = kv_json_get("config:group_handlers") or {}
+    if uid in gh and isinstance(gh[uid], list):
+        gh[uid] = [int(g) for g in gh[uid] if int(g) != target_gid]
+        kv_json_set("config:group_handlers", gh)
+
+    # 2. Remove from config:explicit_group_map
+    egm = kv_json_get("config:explicit_group_map") or {}
+    if uid in egm and isinstance(egm[uid], list):
+        egm[uid] = [int(g) for g in egm[uid] if int(g) != target_gid]
+        kv_json_set("config:explicit_group_map", egm)
+
+    # 3. Clear inviter if this user was the recorded inviter
+    inviter = get_group_inviter(target_gid)
+    if inviter == user_id:
+        kv_delete(f"group:inviter:{target_gid}")
+
+    # 4. If no other admin is handling this group, remove from allowed_groups
+    still_handled = False
+    for other_uid, grps in gh.items():
+        if str(other_uid) != uid and target_gid in [int(g) for g in grps]:
+            still_handled = True
+            break
+    if not still_handled:
+        for other_uid, grps in egm.items():
+            if str(other_uid) != uid and target_gid in [int(g) for g in grps]:
+                still_handled = True
+                break
+
+    if not still_handled:
+        remove_allowed_group(target_gid)
+
+    return True
+
+
+def unlink_group_completely(chat_id: int) -> bool:
+    """Completely remove all references to a group when bot is kicked/banned/left."""
+    target_gid = int(chat_id)
+    remove_known_group(target_gid)
+    remove_allowed_group(target_gid)
+
+    # Remove from all group_handlers
+    gh = kv_json_get("config:group_handlers") or {}
+    changed_gh = False
+    for uid in list(gh.keys()):
+        if isinstance(gh[uid], list) and any(int(g) == target_gid for g in gh[uid]):
+            gh[uid] = [int(g) for g in gh[uid] if int(g) != target_gid]
+            changed_gh = True
+    if changed_gh:
+        kv_json_set("config:group_handlers", gh)
+
+    # Remove from all explicit_group_map
+    egm = kv_json_get("config:explicit_group_map") or {}
+    changed_egm = False
+    for uid in list(egm.keys()):
+        if isinstance(egm[uid], list) and any(int(g) == target_gid for g in egm[uid]):
+            egm[uid] = [int(g) for g in egm[uid] if int(g) != target_gid]
+            changed_egm = True
+    if changed_egm:
+        kv_json_set("config:explicit_group_map", egm)
+
+    kv_delete(f"group:inviter:{target_gid}")
+    kv_delete(f"cache:chat_title:{target_gid}")
+    return True
 
 
 def get_known_groups() -> dict:
@@ -1074,6 +1170,7 @@ def get_candidate_groups_for_user(user_id: int) -> list[dict]:
     known = get_known_groups()
     user_active = set(groups_for_user(user_id, get_allowed_groups()))
     candidates = []
+    to_purge = []
     for gid_str, title in known.items():
         try:
             gid = int(gid_str)
@@ -1081,9 +1178,21 @@ def get_candidate_groups_for_user(user_id: int) -> list[dict]:
             continue
         if gid in user_active:
             continue
+
+        # Verify chat is still valid/accessible by bot
+        chat_info = get_chat(gid)
+        if not chat_info:
+            to_purge.append(gid)
+            continue
+
+        resolved_title = chat_info.get("title") or title or f"Group {gid}"
         inviter = get_group_inviter(gid)
         if inviter == user_id or (is_super_admin(user_id) and not inviter) or is_group_admin(user_id, gid):
-            candidates.append({"id": gid, "title": title or f"Group {gid}"})
+            candidates.append({"id": gid, "title": resolved_title})
+
+    for gid in to_purge:
+        unlink_group_completely(gid)
+
     return candidates
 
 

@@ -21,6 +21,7 @@ from bot.file_handler import fetch_and_validate
 from bot.redis_client import (
     add_strike,
     add_allowed_group,
+    remove_allowed_group,
     add_domain_whitelist,
     add_group_handler,
     add_group_muted_user,
@@ -55,6 +56,9 @@ from bot.redis_client import (
     record_group_inviter,
     record_join_time,
     record_known_group,
+    remove_known_group,
+    unlink_group_for_user,
+    unlink_group_completely,
     record_known_user,
     record_threat_event,
     remove_group_muted_user,
@@ -964,15 +968,81 @@ def _send_threat_alert(
 
 # ── Admin Private Chat Control Panel ────────────────────────────────────────
 
-def _build_admin_menu_keyboard(managed_groups: list[dict]) -> dict:
+def _chat_id_variants(gid: int) -> set[int]:
+    variants = {gid}
+    s = str(gid)
+    if s.startswith("-100"):
+        try:
+            variants.add(-int(s[4:]))
+            variants.add(int(s[4:]))
+        except ValueError:
+            pass
+    elif gid < 0:
+        try:
+            variants.add(-int(f"100{abs(gid)}"))
+            variants.add(abs(gid))
+        except ValueError:
+            pass
+    elif gid > 0:
+        try:
+            variants.add(-int(f"100{gid}"))
+            variants.add(-gid)
+        except ValueError:
+            pass
+    return variants
+
+
+def _build_admin_menu_keyboard(managed_groups: list[dict], lang: str = "both") -> dict:
     keyboard = []
     for grp in managed_groups:
         keyboard.append([{"text": f"👥 {grp['title']}", "callback_data": f"adm_grp:{grp['id']}"}])
+
+    if managed_groups:
+        rm_label = {
+            "kh": "🗑️ ដកក្រុមចេញ (Remove Group)",
+            "en": "🗑️ Remove Group",
+            "both": "🗑️ ដកក្រុមចេញ | Remove Group",
+        }.get(lang, "🗑️ Remove Group")
+        keyboard.append([{"text": rm_label, "callback_data": "adm_rm_groups"}])
 
     if config.WEB_APP_DASHBOARD_URL:
         keyboard.append([{"text": "🛡️ Open Security Mini App", "web_app": {"url": config.WEB_APP_DASHBOARD_URL}}])
 
     return {"inline_keyboard": keyboard}
+
+
+def _build_remove_groups_view(api: TelegramAPI, user_id: int, lang: str = "both") -> tuple[str, dict]:
+    managed_groups = get_managed_groups_for_user(api, user_id)
+    if not managed_groups:
+        text = {
+            "kh": "ℹ️ គ្មានក្រុមដែលកំពុងភ្ជាប់សម្រាប់ដកចេញឡើយ។",
+            "en": "ℹ️ No linked groups to remove.",
+            "both": "ℹ️ គ្មានក្រុមដែលកំពុងភ្ជាប់ (No linked groups to remove).",
+        }.get(lang, "No linked groups to remove.")
+        return text, {"inline_keyboard": [[{"text": "🔙 ត្រឡប់ក្រោយ (Back)", "callback_data": "adm_list_groups"}]]}
+
+    text = {
+        "kh": (
+            "🗑️ <b>ជ្រើសរើសក្រុមដែលអ្នកចង់ដកចេញពីការការពារ៖</b>\n\n"
+            "<i>ចុចលើប៊ូតុងក្រុមខាងក្រោមដើម្បីផ្ដាច់ការការពារ (Unlink Group)៖</i>"
+        ),
+        "en": (
+            "🗑️ <b>Select a group to remove and unlink:</b>\n\n"
+            "<i>Tap a button below to stop monitoring and unlink that group:</i>"
+        ),
+        "both": (
+            "🗑️ <b>ដកក្រុមចេញ | Remove Group:</b>\n\n"
+            "សូមជ្រើសរើសក្រុមដែលអ្នកចង់ដកចេញពីការការពារ (Tap below to unlink):"
+        ),
+    }.get(lang, "Select a group to remove:")
+
+    keyboard = []
+    for grp in managed_groups:
+        title = grp.get("title") or f"Group {grp['id']}"
+        keyboard.append([{"text": f"🗑️ Remove {title}", "callback_data": f"rmgrp:{grp['id']}:{user_id}"}])
+
+    keyboard.append([{"text": "🔙 ត្រឡប់ក្រោយ (Back)", "callback_data": "adm_list_groups"}])
+    return text, {"inline_keyboard": keyboard}
 
 
 def _resolve_chat_id_and_info(api: TelegramAPI, gid: int) -> tuple[int, dict]:
@@ -1323,7 +1393,8 @@ def _build_group_settings_view(api: TelegramAPI, group_id: int) -> tuple[str, di
             {"text": f"📁 Whitelist Files ({len(wl_files)})", "callback_data": f"adm_files:{group_id}"},
         ],
         [
-            {"text": "🔙 ត្រឡប់ទៅបញ្ជីក្រុម (Back to Groups)", "callback_data": "adm_list_groups"}
+            {"text": "🗑️ ដកក្រុមនេះចេញ (Remove Group)", "callback_data": f"rmgrp:{group_id}:0"},
+            {"text": "🔙 ត្រឡប់ទៅបញ្ជីក្រុម (Back)", "callback_data": "adm_list_groups"},
         ],
     ]
 
@@ -1418,6 +1489,7 @@ def _build_group_files_view(api: TelegramAPI, group_id: int) -> tuple[str, dict]
 ADMIN_COMMANDS = [
     {"command": "app", "description": "Open Mini App"},
     {"command": "settings", "description": "Bot Settings"},
+    {"command": "daily", "description": "Daily security report"},
     {"command": "guide", "description": "How to use"},
     {"command": "lang", "description": "My chat language"},
     {"command": "help", "description": "Safety guide"},
@@ -1590,14 +1662,27 @@ def _info(kind: str, lang: str) -> str:
 
 
 MENU_ALIASES = {
+    # Scan
     "🔍 Scan Link / File": "scan",
     "🔍 ស្កេន Link / ឯកសារ": "scan",
+    "🔍 Scan Link/File": "scan",
+    "🔍 ស្កេន Link/File": "scan",
     "🔍 Scan": "scan",
     "🔍 ស្កេន": "scan",
+    # Plan
     "📊 My Plan & Limit": "plan",
     "📊 គម្រោង & ដែនកំណត់": "plan",
+    "📊 Plan & Limit": "plan",
     "📊 Plan & Quota": "plan",
+    "📊 My Plan": "plan",
     "📊 គម្រោង": "plan",
+    # Daily Report
+    "📊 Daily Report": "daily",
+    "📊 របាយការណ៍ប្រចាំថ្ងៃ": "daily",
+    "📊 របាយការណ៍": "daily",
+    "📊 Daily": "daily",
+    "📊 Report": "daily",
+    # Guide / Privacy / Terms / Lang
     "📖 Guide": "guide",
     "📖 មគ្គុទ្ទេសក៍": "guide",
     "🔒 Privacy": "privacy",
@@ -1607,6 +1692,7 @@ MENU_ALIASES = {
     "🌐 Lang": "lang",
     "🌐 Language": "lang",
     "🌐 ភាសា": "lang",
+    # Settings & Group linking
     "⚙️ Settings": "settings",
     "⚙️ ការកំណត់": "settings",
     "➕ Link Group": "addgroup",
@@ -1622,23 +1708,83 @@ def _menu_keyboard(whitelisted: bool, lang: str = "both") -> dict:
         rows.append([{"text": "🛡️ Mini App", "web_app": {"url": config.WEB_APP_DASHBOARD_URL}}])
 
     if lang == "kh":
-        rows.append([{"text": "🔍 ស្កេន Link / ឯកសារ"}, {"text": "📊 គម្រោង & ដែនកំណត់"}])
-        rows.append([{"text": "📖 មគ្គុទ្ទេសក៍"}, {"text": "🔒 ភាពឯកជន"}])
-        rows.append([{"text": "📜 លក្ខខណ្ឌ"}, {"text": "🌐 ភាសា"}])
+        rows.append([
+            {"text": "🔍 ស្កេន"},
+            {"text": "📊 គម្រោង"},
+            {"text": "📊 របាយការណ៍"},
+        ])
         if whitelisted:
-            rows.append([{"text": "➕ ភ្ជាប់ក្រុម"}, {"text": "⚙️ ការកំណត់"}])
+            rows.append([
+                {"text": "➕ ភ្ជាប់ក្រុម"},
+                {"text": "⚙️ ការកំណត់"},
+                {"text": "🌐 ភាសា"},
+            ])
+            rows.append([
+                {"text": "📖 មគ្គុទ្ទេសក៍"},
+                {"text": "🔒 ភាពឯកជន"},
+                {"text": "📜 លក្ខខណ្ឌ"},
+            ])
+        else:
+            rows.append([
+                {"text": "📖 មគ្គុទ្ទេសក៍"},
+                {"text": "🔒 ភាពឯកជន"},
+                {"text": "📜 លក្ខខណ្ឌ"},
+            ])
+            rows.append([
+                {"text": "🌐 ភាសា"},
+            ])
     elif lang == "en":
-        rows.append([{"text": "🔍 Scan Link / File"}, {"text": "📊 My Plan & Limit"}])
-        rows.append([{"text": "📖 Guide"}, {"text": "🔒 Privacy"}])
-        rows.append([{"text": "📜 Terms"}, {"text": "🌐 Language"}])
+        rows.append([
+            {"text": "🔍 Scan"},
+            {"text": "📊 My Plan"},
+            {"text": "📊 Daily Report"},
+        ])
         if whitelisted:
-            rows.append([{"text": "➕ Link Group"}, {"text": "⚙️ Settings"}])
-    else:
-        rows.append([{"text": "🔍 Scan Link / File"}, {"text": "📊 My Plan & Limit"}])
-        rows.append([{"text": "📖 Guide"}, {"text": "🔒 Privacy"}])
-        rows.append([{"text": "📜 Terms"}, {"text": "🌐 Lang"}])
+            rows.append([
+                {"text": "➕ Link Group"},
+                {"text": "⚙️ Settings"},
+                {"text": "🌐 Language"},
+            ])
+            rows.append([
+                {"text": "📖 Guide"},
+                {"text": "🔒 Privacy"},
+                {"text": "📜 Terms"},
+            ])
+        else:
+            rows.append([
+                {"text": "📖 Guide"},
+                {"text": "🔒 Privacy"},
+                {"text": "📜 Terms"},
+            ])
+            rows.append([
+                {"text": "🌐 Language"},
+            ])
+    else:  # both / bilingual
+        rows.append([
+            {"text": "🔍 Scan"},
+            {"text": "📊 Plan & Limit"},
+            {"text": "📊 Daily Report"},
+        ])
         if whitelisted:
-            rows.append([{"text": "➕ Link Group"}, {"text": "⚙️ Settings"}])
+            rows.append([
+                {"text": "➕ Link Group"},
+                {"text": "⚙️ Settings"},
+                {"text": "🌐 Lang"},
+            ])
+            rows.append([
+                {"text": "📖 Guide"},
+                {"text": "🔒 Privacy"},
+                {"text": "📜 Terms"},
+            ])
+        else:
+            rows.append([
+                {"text": "📖 Guide"},
+                {"text": "🔒 Privacy"},
+                {"text": "📜 Terms"},
+            ])
+            rows.append([
+                {"text": "🌐 Lang"},
+            ])
     return {"keyboard": rows, "resize_keyboard": True}
 
 
@@ -1835,7 +1981,7 @@ def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
             api.send_message(
                 chat_id,
                 _info("settings_intro", lang),
-                reply_markup=_build_admin_menu_keyboard(managed_groups),
+                reply_markup=_build_admin_menu_keyboard(managed_groups, lang),
             )
             return
 
@@ -2433,15 +2579,91 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
         api.edit_message_text(chat_id, msg_id, text, reply_markup=markup)
         return
 
-    # 10. Admin Private Chat: Back to Group List
+    # 10. Admin Private Chat: Remove Groups Subview
+    if data == "adm_rm_groups":
+        lang = get_user_lang(user_id)
+        text, markup = _build_remove_groups_view(api, user_id, lang)
+        api.edit_message_text(chat_id, msg_id, text, reply_markup=markup)
+        api.answer_callback_query(query_id)
+        return
+
+    # 11. Admin Private Chat: Prompt Confirm Remove Group
+    if data.startswith("rmgrp:"):
+        parts = data.split(":")
+        target_gid = int(parts[1])
+        target_uid = int(parts[2]) if len(parts) > 2 and int(parts[2]) != 0 else user_id
+        if user_id != target_uid and not is_super_admin(user_id):
+            api.answer_callback_query(query_id, text="❌ Unauthorized", show_alert=True)
+            return
+        real_gid, chat_info = _resolve_chat_id_and_info(api, target_gid)
+        g_title = (chat_info or {}).get("title") or f"Group {target_gid}"
+        lang = get_user_lang(user_id)
+        confirm_text = {
+            "kh": f"⚠️ <b>តើអ្នកប្រាកដជាចង់ដកក្រុម {esc(g_title)} ចេញពីការការពារមែនទេ?</b>\n\n<i>(Bot នឹងបញ្ឈប់ការការពារ និងដកក្រុមនេះចេញពីផ្ទាំងគ្រប់គ្រងរបស់អ្នក)</i>",
+            "en": f"⚠️ <b>Are you sure you want to unlink and remove {esc(g_title)}?</b>\n\n<i>(The bot will stop monitoring and unlink this group from your dashboard)</i>",
+            "both": f"⚠️ <b>តើអ្នកប្រាកដជាចង់ដកក្រុម {esc(g_title)} ចេញមែនទេ? | Unlink Group?</b>\n\n<i>(Bot នឹងបញ្ឈប់ការការពារ និងដកចេញពីផ្ទាំងគ្រប់គ្រង / Stop monitoring)</i>",
+        }.get(lang, "Are you sure you want to unlink this group?")
+        confirm_kb = {
+            "inline_keyboard": [
+                [
+                    {"text": "✅ បាទ/ចាស ដកចេញ (Yes, Remove)", "callback_data": f"rmgrp_do:{target_gid}:{user_id}"},
+                ],
+                [
+                    {"text": "❌ បោះបង់ (Cancel)", "callback_data": "adm_list_groups"},
+                ],
+            ]
+        }
+        api.edit_message_text(chat_id, msg_id, confirm_text, reply_markup=confirm_kb)
+        api.answer_callback_query(query_id)
+        return
+
+    # 12. Admin Private Chat: Execute Remove Group
+    if data.startswith("rmgrp_do:"):
+        parts = data.split(":")
+        target_gid = int(parts[1])
+        target_uid = int(parts[2]) if len(parts) > 2 and int(parts[2]) != 0 else user_id
+        if user_id != target_uid and not is_super_admin(user_id):
+            api.answer_callback_query(query_id, text="❌ Unauthorized", show_alert=True)
+            return
+        real_gid, chat_info = _resolve_chat_id_and_info(api, target_gid)
+        g_title = (chat_info or {}).get("title") or f"Group {target_gid}"
+        unlink_group_for_user(user_id, target_gid)
+        lang = get_user_lang(user_id)
+        toast = {
+            "kh": f"✅ ក្រុម {g_title} ត្រូវបានដកចេញជោគជ័យ!",
+            "en": f"✅ Group {g_title} unlinked successfully!",
+            "both": f"✅ ក្រុម {g_title} ត្រូវបានដកចេញជោគជ័យ | Unlinked!",
+        }.get(lang, "✅ Group unlinked successfully!")
+        api.answer_callback_query(query_id, text=toast, show_alert=True)
+
+        managed_groups = get_managed_groups_for_user(api, user_id)
+        if managed_groups:
+            admin_text = (
+                "⚙️ <b>ផ្ទាំងគ្រប់គ្រងរចនាសម្ព័ន្ធសុវត្ថិភាព | Admin Control Panel</b>\n\n"
+                "សូមជ្រើសរើសក្រុមដែលអ្នកគ្រប់គ្រងដើម្បីកំណត់ <b>ភាសា (Language)</b> និង <b>សារសុវត្ថិភាព (Safe Message Timer)</b>៖\n"
+                "<i>(Select a managed group below to configure):</i>"
+            )
+            markup = _build_admin_menu_keyboard(managed_groups, lang)
+            api.edit_message_text(chat_id, msg_id, admin_text, reply_markup=markup)
+        else:
+            no_grp_msg = {
+                "kh": "✅ ក្រុមត្រូវបានដកចេញជោគជ័យ。\n\nមិនទាន់មានក្រុមចាត់តាំងនៅឡើយទេ។ សូមចុចប៊ូតុង [ ➕ ភ្ជាប់ក្រុម ] លើ Menu ខាងក្រោមដើម្បីភ្ជាប់ក្រុមថ្មី。",
+                "en": "✅ Group unlinked successfully.\n\nNo groups assigned. Tap [ ➕ Link Group ] on the menu below to link a new group.",
+                "both": "✅ ក្រុមត្រូវបានដកចេញជោគជ័យ (Group unlinked).\n\nមិនទាន់មានក្រុមចាត់តាំង (No groups assigned). សូមចុចប៊ូតុង [ ➕ Link Group ] ដើម្បីភ្ជាប់ក្រុមថ្មី。"
+            }.get(lang, "No groups assigned.")
+            api.edit_message_text(chat_id, msg_id, no_grp_msg, reply_markup={"inline_keyboard": []})
+        return
+
+    # 13. Admin Private Chat: Back to Group List
     if data == "adm_list_groups":
         managed_groups = get_managed_groups_for_user(api, user_id)
+        lang = get_user_lang(user_id)
         admin_text = (
             "⚙️ <b>ផ្ទាំងគ្រប់គ្រងរចនាសម្ព័ន្ធសុវត្ថិភាព | Admin Control Panel</b>\n\n"
             "សូមជ្រើសរើសក្រុមដែលអ្នកគ្រប់គ្រងដើម្បីកំណត់ <b>ភាសា (Language)</b> និង <b>សារសុវត្ថិភាព (Safe Message Timer)</b>៖\n"
             "<i>(Select a managed group below to configure):</i>"
         )
-        markup = _build_admin_menu_keyboard(managed_groups)
+        markup = _build_admin_menu_keyboard(managed_groups, lang)
         api.edit_message_text(chat_id, msg_id, admin_text, reply_markup=markup)
         api.answer_callback_query(query_id)
         return
@@ -2493,60 +2715,28 @@ def _handle_inline_query(api: TelegramAPI, inline_query: dict) -> None:
                 },
             }
         ]
-        api.answer_inline_query(query_id, results, cache_time=10, is_personal=True)
+        api.answer_inline_query(query_id, results, cache_time=120, is_personal=False)
         return
 
-    domain = extract_domain(target_url) or query_text
-    result = vt_scan_url(target_url)
-    
-    malicious = result.get("malicious", 0)
-    suspicious = result.get("suspicious", 0)
-    is_whitelisted_flag = result.get("whitelisted", False)
-
-    if is_whitelisted_flag or (malicious == 0 and suspicious == 0 and "error" not in result):
-        title = f"✅ SAFE: {domain}"
-        description = "Verified Safe (0 security engines detected threats)"
-        msg_text = (
-            f"🛡️ <b>Songket Security Report</b>\n\n"
-            f"🔗 <b>Target:</b> <code>{esc(domain)}</code>\n"
-            f"✅ <b>Status:</b> <b>CLEAN &amp; SAFE</b> (0 Detections)\n"
-            f"⚡ <i>Verified safe in real-time by Songket Security</i>"
-        )
-    elif malicious >= config.VT_MALICIOUS_THRESHOLD:
-        title = f"🚨 MALICIOUS: {domain}"
-        description = f"CRITICAL THREAT: {malicious} security vendor(s) flagged this link!"
-        msg_text = (
-            f"🚨 <b>Songket Security Alert: MALICIOUS THREAT</b>\n\n"
-            f"🔗 <b>Target:</b> <code>{esc(domain)}</code>\n"
-            f"❌ <b>Status:</b> <b>MALICIOUS / PHISHING</b> ({malicious} flags)\n"
-            f"⛔ <b>DO NOT OPEN THIS LINK!</b> It may steal your accounts or infect your device."
-        )
-    elif suspicious >= config.VT_SUSPICIOUS_THRESHOLD:
-        title = f"⚠️ SUSPICIOUS: {domain}"
-        description = f"Suspicious Activity ({suspicious} vendor flags). Exercise caution."
-        msg_text = (
-            f"⚠️ <b>Songket Security Warning: SUSPICIOUS LINK</b>\n\n"
-            f"🔗 <b>Target:</b> <code>{esc(domain)}</code>\n"
-            f"⚠️ <b>Status:</b> <b>SUSPICIOUS</b> ({suspicious} flags)\n"
-            f"🔍 <i>Proceed with extreme caution. Avoid entering sensitive credentials.</i>"
-        )
-    else:
-        title = f"🔍 Scanned: {domain}"
-        description = f"Scan complete. Status: {result.get('error', 'Pending')}"
-        msg_text = (
-            f"🔍 <b>Songket Security Scan</b>\n\n"
-            f"🔗 <b>Target:</b> <code>{esc(domain)}</code>\n"
-            f"ℹ️ <b>Status:</b> {esc(str(result.get('error', 'No threats detected')))}"
-        )
+    # Scan target URL
+    is_safe, verdict = _check_url(target_url)
+    icon = "✅" if is_safe else "🚨"
+    title_res = f"{icon} {target_url}"
+    desc_res = "Status: SAFE" if is_safe else f"Status: THREAT DETECTED ({verdict})"
 
     results = [
         {
             "type": "article",
-            "id": f"scan_{int(time.time() * 1000)}",
-            "title": title,
-            "description": description,
+            "id": f"res_{hash(target_url)}",
+            "title": title_res,
+            "description": desc_res,
             "input_message_content": {
-                "message_text": msg_text,
+                "message_text": (
+                    f"🛡️ <b>Songket Security Link Scan</b>\n\n"
+                    f"🔗 <b>Target:</b> <code>{esc(target_url)}</code>\n"
+                    f"📊 <b>Verdict:</b> {icon} <b>{'SAFE / សុវត្ថិភាព' if is_safe else 'MALICIOUS / គ្រោះថ្នាក់'}</b>\n"
+                    f"<i>(Verified by Songket Security Bot)</i>"
+                ),
                 "parse_mode": "HTML",
             },
         }
@@ -2561,11 +2751,21 @@ def process_update(api: TelegramAPI, update: dict) -> None:
     if "my_chat_member" in update:
         cm = update["my_chat_member"]
         chat = cm.get("chat", {})
+        gid = chat.get("id", 0)
         new_status = (cm.get("new_chat_member") or {}).get("status", "")
         from_user = cm.get("from") or {}
         inviter_id = from_user.get("id")
-        if chat.get("type") in ("group", "supergroup") and new_status in ("member", "administrator"):
-            record_known_group(chat.get("id", 0), chat.get("title", "") or "", inviter_id=inviter_id)
+        if chat.get("type") in ("group", "supergroup"):
+            if new_status in ("member", "administrator"):
+                record_known_group(gid, chat.get("title", "") or "", inviter_id=inviter_id)
+                # Auto-link if inviter is whitelisted admin or super admin
+                if inviter_id and (inviter_id in whitelist_user_ids() or is_super_admin(inviter_id)):
+                    add_allowed_group(gid)
+                    add_group_handler(inviter_id, gid)
+                    logger.info("Auto-linked group %d (%s) for admin %d", gid, chat.get("title"), inviter_id)
+            elif new_status in ("left", "kicked", "restricted"):
+                logger.info("Bot left or was kicked from group %d (status=%s) - unlinking group", gid, new_status)
+                unlink_group_completely(gid)
         return
 
     # 1. Handle Inline Queries (@songket_beyda_bot <link>)
@@ -2603,13 +2803,19 @@ def process_update(api: TelegramAPI, update: dict) -> None:
         for nm in new_members:
             if nm.get("is_bot"):
                 record_known_group(chat_id, chat.get("title", "") or "", inviter_id=sender_id)
+                if sender_id and (sender_id in whitelist_user_ids() or is_super_admin(sender_id)):
+                    add_allowed_group(chat_id)
+                    add_group_handler(sender_id, chat_id)
+                    logger.info("Auto-linked group %d (%s) for admin %d", chat_id, chat.get("title"), sender_id)
                 break
 
     # 4. Check Group Authorization
     allowed_groups = get_allowed_groups()
-    if allowed_groups and chat_id not in allowed_groups:
-        logger.info("Unauthorized group %d — ignored", chat_id)
-        return
+    if allowed_groups:
+        variants = _chat_id_variants(chat_id)
+        if not any(v in allowed_groups for v in variants):
+            logger.info("Unauthorized group %d — ignored", chat_id)
+            return
 
     # 4.5 New members (verification gate + join tracking)
     new_members = message.get("new_chat_members") or []

@@ -59,6 +59,7 @@ def main() -> None:
     api.set_chat_menu_button("commands")
     api.set_my_commands([
         {"command": "app", "description": "Open Mini App"},
+        {"command": "daily", "description": "Daily security report"},
         {"command": "guide", "description": "How to use"},
         {"command": "lang", "description": "My chat language"},
         {"command": "help", "description": "Safety guide"},

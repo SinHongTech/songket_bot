@@ -45,6 +45,7 @@ import {
   addGroupWhitelistFile,
   removeGroupWhitelistFile,
   addManagedGroup,
+  removeManagedGroup,
 } from "../api";
 import { SectionHeader } from "./Badges";
 
@@ -234,6 +235,27 @@ export default function ManageView({
   function triggerGroupToast(msg: string) {
     setGroupToast(msg);
     setTimeout(() => setGroupToast(null), 3000);
+  }
+
+  async function handleUnlinkSelectedGroup() {
+    if (!selectedGid) return;
+    const currentTitle = getGroupTitle(selectedGid);
+    const confirmed = window.confirm(
+      isKm
+        ? `តើអ្នកពិតជាចង់ដកក្រុម "${currentTitle}" ចេញពីការការពារមែនទេ?`
+        : `Are you sure you want to unlink and remove protection for "${currentTitle}"?`
+    );
+    if (!confirmed) return;
+    setSavingGroupSettings(true);
+    try {
+      await removeManagedGroup(selectedGid);
+      triggerGroupToast(isKm ? `✅ បានដកក្រុម "${currentTitle}" ជោគជ័យ!` : `✅ Group "${currentTitle}" unlinked!`);
+      onRefresh();
+    } catch (e: any) {
+      setErrorMsg(e?.message || "Failed to unlink group");
+    } finally {
+      setSavingGroupSettings(false);
+    }
   }
 
   // ── Group Language / Safe Message Quick Updates ───────────────────────────
@@ -1054,7 +1076,7 @@ export default function ManageView({
 
           {/* 1. Group Language & Safe Timer Settings Card */}
           <div style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 14, padding: "18px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, flexWrap: "wrap", gap: 10 }}>
               <div>
                 <div style={{ fontSize: 14, fontWeight: 700, color: G.text }}>
                   <span className={kh(lang)}>{isKm ? "ការកំណត់ភាសា & សារសុវត្ថិភាព" : "Language & Safe Message"}</span>
@@ -1063,7 +1085,33 @@ export default function ManageView({
                   📌 {getGroupTitle(selectedGid)}
                 </div>
               </div>
-              {savingGroupSettings && <Loader2 size={15} color={G.gold} className="spin-animation" />}
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                {savingGroupSettings && <Loader2 size={15} color={G.gold} className="spin-animation" />}
+                {availableGroupIds.length > 0 && (
+                  <button
+                    onClick={handleUnlinkSelectedGroup}
+                    disabled={savingGroupSettings}
+                    style={{
+                      padding: "6px 12px",
+                      borderRadius: 8,
+                      border: "1px solid rgba(224,64,64,0.3)",
+                      background: "rgba(224,64,64,0.1)",
+                      color: G.danger,
+                      fontSize: 11,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 5,
+                      transition: "all 0.15s ease",
+                    }}
+                    title={isKm ? "ដកក្រុមនេះចេញ (Unlink Group)" : "Unlink Group"}
+                  >
+                    <Trash2 size={13} />
+                    <span className={kh(lang)}>{isKm ? "ដកក្រុមចេញ" : "Unlink Group"}</span>
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Language Toggles */}

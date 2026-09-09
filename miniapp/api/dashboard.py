@@ -61,8 +61,12 @@ try:
         get_known_users,
         get_known_groups,
         add_allowed_group,
+        remove_allowed_group,
         add_group_handler,
         record_known_group,
+        remove_known_group,
+        unlink_group_for_user,
+        unlink_group_completely,
         get_candidate_groups_for_user,
         get_user_daily_report_settings,
         set_user_daily_report_settings,
@@ -127,8 +131,12 @@ except ImportError:
         get_known_users,
         get_known_groups,
         add_allowed_group,
+        remove_allowed_group,
         add_group_handler,
         record_known_group,
+        remove_known_group,
+        unlink_group_for_user,
+        unlink_group_completely,
         get_candidate_groups_for_user,
         get_user_daily_report_settings,
         set_user_daily_report_settings,
@@ -477,6 +485,25 @@ class handler(BaseHTTPRequestHandler):
                     "ok": True,
                     "group_id": new_gid,
                     "title": g_title or f"Group {new_gid}",
+                    "config": get_system_config(),
+                })
+
+            # Action: Remove / Unlink group (handles both super & group admin)
+            if body.get("action") in {"remove_group", "unlink_group"}:
+                if not (super_admin or uid in whitelist_ids() or is_admin):
+                    return self._json(403, {"ok": False, "error": "Unauthorized"})
+                try:
+                    raw_gid = body.get("group_id")
+                    target_gid = int(raw_gid)
+                except (TypeError, ValueError):
+                    return self._json(400, {"ok": False, "error": "Invalid group_id"})
+                if not target_gid:
+                    return self._json(400, {"ok": False, "error": "Missing group_id"})
+
+                unlink_group_for_user(uid, target_gid)
+                return self._json(200, {
+                    "ok": True,
+                    "group_id": target_gid,
                     "config": get_system_config(),
                 })
 
