@@ -8,12 +8,18 @@ visible in the dashboard served here.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import hmac
+import io
 import json
 import logging
 import os
+import re
 import secrets
+import shutil
+import subprocess
+import tempfile
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -1704,9 +1710,9 @@ def generate_security_pdf_report(
         th_mal = "មេរោគ"
         th_del = "បានលុប"
         th_stat = "ស្ថានភាព"
-        stat_clean = '<span style="color:#059669; font-weight:700;">សុវត្ថិភាព</span>'
-        stat_blocked = lambda m: f'<span style="color:#dc2626; font-weight:700;">បានទប់ស្កាត់ {m}</span>'
-        stat_susp = lambda s: f'<span style="color:#d97706; font-weight:700;">គួរឱ្យសង្ស័យ {s}</span>'
+        stat_clean = "<font color='#059669'><b>សុវត្ថិភាព</b></font>"
+        stat_blocked = lambda m: f"<font color='#DC2626'><b>បានទប់ស្កាត់ {m}</b></font>"
+        stat_susp = lambda s: f"<font color='#D97706'><b>គួរឱ្យសង្ស័យ {s}</b></font>"
         policy_heading = "គោលការណ៍កាត់បន្ថយការគំរាមកំហែង និងសុវត្ថិភាព"
         policies = """
           <li><b>ប្រព័ន្ធការពារមេរោគ និងតំណភ្ជាប់បោកបញ្ឆោត (Phishing) ក្នុងពេលជាក់ស្តែង៖</b> ស្កេនសារ Telegram, មេឌា, ឯកសារ APK, ឯកសារ និង URLs ទាំងអស់។</li>
@@ -1752,9 +1758,9 @@ def generate_security_pdf_report(
         th_mal = "Threats"
         th_del = "Deleted"
         th_stat = "Status"
-        stat_clean = '<span style="color:#059669; font-weight:700;">CLEAN</span>'
-        stat_blocked = lambda m: f'<span style="color:#dc2626; font-weight:700;">{m} BLOCKED</span>'
-        stat_susp = lambda s: f'<span style="color:#d97706; font-weight:700;">{s} SUSPICIOUS</span>'
+        stat_clean = "<font color='#059669'><b>CLEAN</b></font>"
+        stat_blocked = lambda m: f"<font color='#DC2626'><b>{m} BLOCKED</b></font>"
+        stat_susp = lambda s: f"<font color='#D97706'><b>{s} SUSPICIOUS</b></font>"
         policy_heading = "Threat Mitigation & Security Policies"
         policies = """
           <li><b>Real-Time Antivirus & Phishing Filter:</b> Active inspection on all Telegram messages, media, APKs, documents, and URLs.</li>
@@ -1800,9 +1806,9 @@ def generate_security_pdf_report(
         th_mal = "Threats"
         th_del = "Deleted"
         th_stat = "Status / ស្ថានភាព"
-        stat_clean = '<span style="color:#059669; font-weight:700;">CLEAN (សុវត្ថិភាព)</span>'
-        stat_blocked = lambda m: f'<span style="color:#dc2626; font-weight:700;">{m} BLOCKED</span>'
-        stat_susp = lambda s: f'<span style="color:#d97706; font-weight:700;">{s} SUSPICIOUS</span>'
+        stat_clean = "<font color='#059669'><b>CLEAN (សុវត្ថិភាព)</b></font>"
+        stat_blocked = lambda m: f"<font color='#DC2626'><b>{m} BLOCKED</b></font>"
+        stat_susp = lambda s: f"<font color='#D97706'><b>{s} SUSPICIOUS</b></font>"
         policy_heading = "គោលការណ៍សុវត្ថិភាព | Threat Mitigation & Policies"
         policies = """
           <li><b>Real-Time Antivirus & Phishing Filter:</b> ស្កេនមេរោគ និង Phishing ក្នុងពេលជាក់ស្តែងលើសារ, ឯកសារ APK, មេឌា និង URLs ទាំងអស់។</li>
@@ -2284,7 +2290,12 @@ def generate_security_pdf_report(
         story.append(Spacer(1, 8))
 
         story.append(Paragraph(policy_heading, section_style))
-        policy_table = Table([[Paragraph(policies.replace("<li>", "&bull; ").replace("</li>", "<br/>"), body_style)]], colWidths=[540])
+        rl_policy_text = "<br/>".join(
+            "&bull; " + re.sub(r"</?li>", "", line).strip()
+            for line in policies.strip().splitlines()
+            if line.strip()
+        )
+        policy_table = Table([[Paragraph(rl_policy_text, body_style)]], colWidths=[540])
         policy_table.setStyle(TableStyle([
             ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#EFF6FF')),
             ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#BFDBFE')),
