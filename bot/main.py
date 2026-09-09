@@ -16,6 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 from bot import config
 from bot.handlers import process_update
 from bot.redis_client import kv_get, kv_set
+from bot.scheduler import start_daily_report_scheduler, stop_daily_report_scheduler
 from bot.telegram_api import TelegramAPI
 
 logging.basicConfig(
@@ -32,6 +33,7 @@ def _handle_shutdown(signum, frame) -> None:  # noqa: ANN001
     global _running
     logger.info("Received signal %s, shutting down...", signum)
     _running = False
+    stop_daily_report_scheduler()
 
 
 def _safe_process(api: TelegramAPI, update: dict) -> None:
@@ -49,6 +51,9 @@ def main() -> None:
 
     api = TelegramAPI()
     api.delete_webhook()  # getUpdates is rejected while a webhook is registered
+
+    # Start background daily report scheduler
+    start_daily_report_scheduler(api)
 
     # Menu button opens the command menu (Privacy / Help / Terms by default).
     api.set_chat_menu_button("commands")

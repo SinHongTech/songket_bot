@@ -63,6 +63,9 @@ try:
         add_allowed_group,
         add_group_handler,
         record_known_group,
+        get_candidate_groups_for_user,
+        get_user_daily_report_settings,
+        set_user_daily_report_settings,
     )
     from api.totp import (
         generate_totp_secret,
@@ -126,6 +129,9 @@ except ImportError:
         add_allowed_group,
         add_group_handler,
         record_known_group,
+        get_candidate_groups_for_user,
+        get_user_daily_report_settings,
+        set_user_daily_report_settings,
     )
     from totp import (
         generate_totp_secret,
@@ -576,6 +582,13 @@ class handler(BaseHTTPRequestHandler):
                 ok = remove_group_whitelisted_file(gid, sha)
                 return self._json(200, {"ok": ok, "whitelisted_files": get_group_whitelisted_files(gid)})
 
+            # Action: Save User Preferences & Daily Report Schedule
+            if body.get("action") == "save_user_settings":
+                en = body.get("daily_report_enabled")
+                t_str = body.get("daily_report_time")
+                ok = set_user_daily_report_settings(uid, enabled=en, time_str=t_str)
+                return self._json(200, {"ok": ok, "user_settings": get_user_daily_report_settings(uid)})
+
             user_groups = groups_for_user(uid, get_allowed_groups())
             has_dashboard_access = super_admin or is_admin or uid in whitelist_ids() or bool(user_groups)
 
@@ -639,6 +652,8 @@ class handler(BaseHTTPRequestHandler):
                 "username": user.get("username", ""),
             },
             "dashboard": dash,
+            "candidate_groups": get_candidate_groups_for_user(uid),
+            "user_settings": get_user_daily_report_settings(uid),
             "threat_events": threat_events,
             "domain_whitelist": get_domain_whitelist(),
             "group_details": group_details,

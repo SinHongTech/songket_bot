@@ -66,7 +66,12 @@ from bot.redis_client import (
     set_user_lang,
     whitelist_file,
 )
-from bot.reports import record_report
+from bot.reports import (
+    format_daily_dm_report,
+    get_user_daily_report_settings,
+    record_report,
+    set_user_daily_report_settings,
+)
 from bot.scanner import vt_scan_file, vt_scan_url
 from bot.telegram_api import TelegramAPI
 from bot.utils import (
@@ -1636,6 +1641,51 @@ def _menu_keyboard(whitelisted: bool, lang: str = "both") -> dict:
     return {"keyboard": rows, "resize_keyboard": True}
 
 
+def _send_daily_report_settings_message(
+    api: TelegramAPI,
+    chat_id: int,
+    user_id: int,
+    message_id: Optional[int] = None,
+) -> None:
+    settings = get_user_daily_report_settings(user_id)
+    enabled = settings.get("enabled", True)
+    time_str = settings.get("time", "07:00")
+
+    status_icon = "🟢 បើក (Enabled)" if enabled else "🔴 បិទ (Disabled)"
+
+    text = (
+        f"📊 <b>ការកំណត់របាយការណ៍ប្រចាំថ្ងៃ | Daily Report Settings</b>\n\n"
+        f"🤖 Bot នឹងផ្ញើសេចក្តីសង្ខេបសន្តិសុខនៃក្រុមទាំងអស់ដែលអ្នកគ្រប់គ្រងចូលក្នុង Telegram DM នេះជារៀងរាល់ថ្ងៃ។\n"
+        f"<i>(The bot delivers a daily security summary of your monitored groups directly to your DM.)</i>\n\n"
+        f"🔔 <b>ស្ថានភាព (Status):</b> {status_icon}\n"
+        f"⏰ <b>ម៉ោងកំណត់ (Schedule Time):</b> <code>{time_str}</code> (Asia/Phnom_Penh GMT+7)\n\n"
+        f"👇 ជ្រើសរើសម៉ោង ឬបិទ/បើកខាងក្រោម | Choose time or toggle below:\n"
+        f"<i>អ្នកក៏អាចវាយបញ្ជាផ្ទាល់ឧទាហរណ៍៖ <code>/daily 08:30</code></i>"
+    )
+
+    times = ["07:00", "08:00", "09:00", "12:00", "18:00", "20:00"]
+    time_buttons = []
+    for t in times:
+        prefix = "✅ " if (enabled and time_str == t) else "⏰ "
+        time_buttons.append({"text": f"{prefix}{t}", "callback_data": f"daily_time:{user_id}:{t}"})
+
+    kb = {
+        "inline_keyboard": [
+            time_buttons[:3],
+            time_buttons[3:],
+            [
+                {"text": "🔔 បិទ/បើក (Toggle ON/OFF)", "callback_data": f"daily_toggle:{user_id}"},
+                {"text": "📊 ផ្ញើឥឡូវ (Send Now)", "callback_data": f"daily_send_now:{user_id}"},
+            ],
+        ]
+    }
+
+    if message_id:
+        api.edit_message_text(chat_id, message_id, text, reply_markup=kb)
+    else:
+        api.send_message(chat_id, text, reply_markup=kb)
+
+
 def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
     user_id = (message.get("from") or {}).get("id", 0)
     text = (message.get("text") or "").strip()
@@ -1721,6 +1771,43 @@ def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
                 ]
             }
             api.send_message(chat_id, "🌐 <b>ជ្រើសរើសភាសា | Select your chat language:</b>", reply_markup=kb)
+            return
+        if command in {"/daily", "/report", "/dailyreport"}:
+            args = text.split()[1:] if len(text.split()) > 1 else []
+            if args:
+                arg0 = args[0].lower().strip()
+                if arg0 in {"on", "enable", "open"}:
+                    set_user_daily_report_settings(user_id, enabled=True)
+                    api.send_message(chat_id, "✅ <b>របាយការណ៍ប្រចាំថ្ងៃត្រូវបានបើក | Daily DM Report Enabled</b>\n⏰ Time: 07:00 AM (default)")
+                    return
+                elif arg0 in {"off", "disable", "stop"}:
+                    set_user_daily_report_settings(user_id, enabled=False)
+                    api.send_message(chat_id, "🔴 <b>របាយការណ៍ប្រចាំថ្ងៃត្រូវបានបិទ | Daily DM Report Disabled</b>")
+                    return
+                elif arg0 in {"now", "send", "preview"}:
+                    rep = format_daily_dm_report(api, user_id)
+                    if rep:
+                        api.send_message(chat_id, rep, parse_mode="HTML")
+                    else:
+                        api.send_message(chat_id, "⚠️ មិនមានក្រុមដែលកំពុងការពារដើម្បីបង្កើតរបាយការណ៍ទេ (No active monitored groups).")
+                    return
+                else:
+                    # Try parsing as HH:MM time
+                    ok = set_user_daily_report_settings(user_id, enabled=True, time_str=arg0)
+                    if ok:
+                        api.send_message(
+                            chat_id,
+                            f"✅ <b>បានកំណត់ម៉ោងផ្ញើជោគជ័យ | Daily Report Time Updated!</b>\n"
+                            f"⏰ ម៉ោងផ្ញើប្រចាំថ្ងៃ: <code>{arg0}</code> (Asia/Phnom_Penh GMT+7)",
+                        )
+                        return
+                    else:
+                        api.send_message(
+                            chat_id,
+                            "❌ <b>ទម្រង់ម៉ោងមិនត្រឹមត្រូវ (Invalid time format)!</b>\nសូមប្រើទម្រង់ <code>HH:MM</code> (ឧទាហរណ៍៖ <code>/daily 07:00</code> ឬ <code>/daily 08:30</code>)",
+                        )
+                        return
+            _send_daily_report_settings_message(api, chat_id, user_id)
             return
         if command == "/settings":
             if not whitelisted:
@@ -1826,6 +1913,49 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
         api.answer_callback_query(query_id, text="✅ Quota refreshed")
         _send_plan_status(api, chat_id, user_id, message_id=msg_id)
         return
+
+    # Daily report callbacks
+    if data.startswith("daily_time:"):
+        parts = data.split(":")
+        if len(parts) == 3:
+            target_uid = int(parts[1])
+            new_time = parts[2]
+            if user_id != target_uid and not is_super_admin(user_id):
+                api.answer_callback_query(query_id, text="❌ Not authorized", show_alert=True)
+                return
+            set_user_daily_report_settings(target_uid, enabled=True, time_str=new_time)
+            api.answer_callback_query(query_id, text=f"✅ ម៉ោងកំណត់: {new_time}")
+            _send_daily_report_settings_message(api, chat_id, target_uid, message_id=msg_id)
+            return
+
+    if data.startswith("daily_toggle:"):
+        parts = data.split(":")
+        if len(parts) == 2:
+            target_uid = int(parts[1])
+            if user_id != target_uid and not is_super_admin(user_id):
+                api.answer_callback_query(query_id, text="❌ Not authorized", show_alert=True)
+                return
+            cur = get_user_daily_report_settings(target_uid)
+            new_en = not cur.get("enabled", True)
+            set_user_daily_report_settings(target_uid, enabled=new_en)
+            api.answer_callback_query(query_id, text="🟢 បើកដំណើរការ" if new_en else "🔴 បានបិទ")
+            _send_daily_report_settings_message(api, chat_id, target_uid, message_id=msg_id)
+            return
+
+    if data.startswith("daily_send_now:"):
+        parts = data.split(":")
+        if len(parts) == 2:
+            target_uid = int(parts[1])
+            if user_id != target_uid and not is_super_admin(user_id):
+                api.answer_callback_query(query_id, text="❌ Not authorized", show_alert=True)
+                return
+            api.answer_callback_query(query_id, text="📊 កំពុងបង្កើតរបាយការណ៍...")
+            rep = format_daily_dm_report(api, target_uid)
+            if rep:
+                api.send_message(chat_id, rep, parse_mode="HTML")
+            else:
+                api.send_message(chat_id, "⚠️ មិនមានក្រុមដែលកំពុងការពារដើម្បីបង្កើតរបាយការណ៍ទេ (No active monitored groups).")
+            return
 
     # 0. New-member verification button
     if data.startswith("verify:"):

@@ -1,25 +1,75 @@
 import { useState, useEffect } from "react";
-import { Moon, Sun, LogOut, ShieldCheck, KeyRound } from "lucide-react";
+import { Moon, Sun, LogOut, ShieldCheck, KeyRound, Clock, BellRing, Check } from "lucide-react";
 import { G, type Lang } from "../palette";
 import { t as T, kh } from "../i18n";
-import type { DashboardData, TelegramUser } from "../types";
+import type { DashboardData, TelegramUser, UserSettings } from "../types";
 import { SectionHeader } from "./Badges";
 import TotpModal from "./TotpModal";
-import { getTotpStatus } from "../api";
+import { getTotpStatus, saveUserSettings } from "../api";
 import { safeStorage } from "@/shared/storage";
 
 interface AccountViewProps {
   user?: TelegramUser;
   dashboard?: DashboardData | null;
+  userSettings?: UserSettings | null;
   dark: boolean;
   setDark: (v: boolean) => void;
   lang: Lang;
   setLang: (l: Lang) => void;
   onLogout: () => void;
+  onRefresh?: () => void;
 }
 
-export default function AccountView({ user, dashboard, dark, setDark, lang, setLang, onLogout }: AccountViewProps) {
+export default function AccountView({
+  user,
+  dashboard,
+  userSettings,
+  dark,
+  setDark,
+  lang,
+  setLang,
+  onLogout,
+  onRefresh,
+}: AccountViewProps) {
   const tx = T(lang);
+  const [dailyReportEnabled, setDailyReportEnabled] = useState<boolean>(
+    userSettings?.daily_report_enabled !== undefined ? userSettings.daily_report_enabled : true
+  );
+  const [dailyReportTime, setDailyReportTime] = useState<string>(
+    userSettings?.daily_report_time || "07:00"
+  );
+  const [, setSavingSettings] = useState(false);
+  const [settingsSavedToast, setSettingsSavedToast] = useState(false);
+
+  useEffect(() => {
+    if (userSettings) {
+      if (userSettings.daily_report_enabled !== undefined) {
+        setDailyReportEnabled(userSettings.daily_report_enabled);
+      }
+      if (userSettings.daily_report_time) {
+        setDailyReportTime(userSettings.daily_report_time);
+      }
+    }
+  }, [userSettings]);
+
+  async function handleUpdateDailySettings(newEnabled: boolean, newTime: string) {
+    setDailyReportEnabled(newEnabled);
+    setDailyReportTime(newTime);
+    setSavingSettings(true);
+    try {
+      await saveUserSettings({
+        daily_report_enabled: newEnabled,
+        daily_report_time: newTime,
+      });
+      setSettingsSavedToast(true);
+      setTimeout(() => setSettingsSavedToast(false), 2500);
+      onRefresh?.();
+    } catch (e) {
+      console.error("Failed to save user daily report settings:", e);
+    } finally {
+      setSavingSettings(false);
+    }
+  }
   const [org, setOrg] = useState(() => {
     return safeStorage.getItem("songket.admin.org") || "Group Security Admin";
   });
@@ -323,6 +373,111 @@ export default function AccountView({ user, dashboard, dark, setDark, lang, setL
             </div>
           ))}
         </div>
+      </div>
+
+      {/* ── Daily Security Report DM Scheduler ── */}
+      <div style={{ background: G.surface, border: `1px solid ${dailyReportEnabled ? G.goldBorder : G.border}`, borderRadius: 14, padding: "18px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <BellRing size={20} color={dailyReportEnabled ? G.gold : G.muted} />
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: G.text }}>
+                <span className={kh(lang)}>
+                  {isKm ? "របាយការណ៍សន្តិសុខប្រចាំថ្ងៃ (Daily DM Report)" : "Daily Security Summary (Telegram DM)"}
+                </span>
+              </div>
+              <div style={{ fontSize: 11, color: G.muted, marginTop: 2 }}>
+                <span className={kh(lang)}>
+                  {isKm
+                    ? "Bot នឹងផ្ញើសេចក្តីសង្ខេបស្កេនចូល Telegram DM ដោយស្វ័យប្រវត្តិ"
+                    : "Automated scan summary delivered directly to your Telegram chat"}
+                </span>
+              </div>
+            </div>
+          </div>
+          <Toggle
+            on={dailyReportEnabled}
+            onToggle={() => handleUpdateDailySettings(!dailyReportEnabled, dailyReportTime)}
+          />
+        </div>
+
+        {dailyReportEnabled && (
+          <div style={{ borderTop: `1px solid ${G.border}`, paddingTop: 14, marginTop: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: G.text }}>
+                <Clock size={14} color={G.gold} />
+                <span className={kh(lang)}>
+                  {isKm ? "ម៉ោងផ្ញើប្រចាំថ្ងៃ (Delivery Time - Cambodia GMT+7):" : "Scheduled Time (Asia/Phnom_Penh):"}
+                </span>
+              </div>
+              <span style={{ fontSize: 13, fontWeight: 700, color: G.gold, fontFamily: "monospace" }}>
+                {dailyReportTime}
+              </span>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, marginBottom: 12 }}>
+              {[
+                { time: "07:00", label: "07:00 AM (Default)" },
+                { time: "08:00", label: "08:00 AM" },
+                { time: "09:00", label: "09:00 AM" },
+                { time: "12:00", label: "12:00 PM" },
+                { time: "18:00", label: "06:00 PM" },
+                { time: "20:00", label: "08:00 PM" },
+              ].map(opt => {
+                const active = dailyReportTime === opt.time;
+                return (
+                  <button
+                    key={opt.time}
+                    onClick={() => handleUpdateDailySettings(true, opt.time)}
+                    style={{
+                      padding: "8px 4px",
+                      borderRadius: 8,
+                      border: `1px solid ${active ? G.gold : G.border}`,
+                      background: active ? G.goldSurface : G.surface2,
+                      color: active ? G.gold : G.textSec,
+                      fontSize: 11,
+                      fontWeight: active ? 700 : 500,
+                      cursor: "pointer",
+                      transition: "all 0.15s",
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 11, color: G.muted }}>
+                <span className={kh(lang)}>{isKm ? "ម៉ោងផ្ទាល់ខ្លួន (Custom):" : "Custom HH:MM:"}</span>
+              </span>
+              <input
+                type="time"
+                value={dailyReportTime}
+                onChange={(e) => {
+                  if (e.target.value) {
+                    handleUpdateDailySettings(true, e.target.value);
+                  }
+                }}
+                style={{
+                  background: G.surface2,
+                  border: `1px solid ${G.border}`,
+                  borderRadius: 6,
+                  color: G.text,
+                  padding: "4px 8px",
+                  fontSize: 12,
+                  outline: "none",
+                  fontFamily: "monospace",
+                }}
+              />
+              {settingsSavedToast && (
+                <span style={{ fontSize: 11, color: G.safe, display: "flex", alignItems: "center", gap: 4 }}>
+                  <Check size={12} /> {isKm ? "បានរក្សាទុក" : "Saved"}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       <div style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 14, padding: "18px" }}>
