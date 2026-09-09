@@ -1270,6 +1270,33 @@ def _get_dates_for_period(period: str = "daily", end_date_str: Optional[str] = N
         return [end_str], end_str, end_str
 
 
+def _register_report_fonts() -> tuple[str, str]:
+    """Register NotoSansKhmer fonts if available for Khmer and Latin rendering."""
+    import os
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(base_dir, "assets"),
+        os.path.join(os.path.dirname(base_dir), "bot", "assets"),
+        os.path.join(os.path.dirname(base_dir), "api", "assets"),
+        os.path.join(os.path.dirname(base_dir), "miniapp", "api", "assets"),
+        "/usr/share/fonts/truetype/noto",
+    ]
+    for d in candidates:
+        r_p = os.path.join(d, "NotoSansKhmer-Regular.ttf")
+        b_p = os.path.join(d, "NotoSansKhmer-Bold.ttf")
+        if os.path.exists(r_p) and os.path.exists(b_p):
+            try:
+                pdfmetrics.registerFont(TTFont("SongketKhmer", r_p))
+                pdfmetrics.registerFont(TTFont("SongketKhmer-Bold", b_p))
+                return "SongketKhmer", "SongketKhmer-Bold"
+            except Exception as e:
+                logger.warning("Failed to register SongketKhmer font from %s: %s", d, e)
+    return "Helvetica", "Helvetica-Bold"
+
+
 def format_security_dm_report(
     user_id: int,
     period: str = "daily",
@@ -1288,19 +1315,15 @@ def format_security_dm_report(
         return None
 
     settings = get_user_daily_report_settings(user_id)
-    selected_lang = lang or settings.get("report_lang", "both")
+    selected_lang = (lang or settings.get("report_lang", "both")).lower().strip()
+    if selected_lang not in {"kh", "en", "both"}:
+        selected_lang = "both"
 
-    total_scanned = 0
-    total_files = 0
-    total_urls = 0
-    total_malicious = 0
-    total_suspicious = 0
-    total_deleted = 0
-
-    group_blocks = []
+    # Deduplicate and consolidate metrics by group title
+    group_map: dict[str, dict] = {}
     for gid in user_gids:
         chat_info = get_chat(gid)
-        title = (chat_info or {}).get("title") or f"Group {gid}"
+        title = ((chat_info or {}).get("title") or "Protected Group").strip()
 
         scanned = 0
         files = 0
@@ -1317,6 +1340,46 @@ def format_security_dm_report(
             malicious += int(rep.get("malicious", 0))
             suspicious += int(rep.get("suspicious", 0))
             deleted += int(rep.get("deleted", 0))
+
+        if title not in group_map:
+            group_map[title] = {
+                "title": title,
+                "id": gid,
+                "scanned": scanned,
+                "files": files,
+                "urls": urls,
+                "malicious": malicious,
+                "suspicious": suspicious,
+                "deleted": deleted,
+            }
+        else:
+            group_map[title]["scanned"] += scanned
+            group_map[title]["files"] += files
+            group_map[title]["urls"] += urls
+            group_map[title]["malicious"] += malicious
+            group_map[title]["suspicious"] += suspicious
+            group_map[title]["deleted"] += deleted
+            if str(gid).startswith("-100"):
+                group_map[title]["id"] = gid
+
+    group_rows = list(group_map.values())
+
+    total_scanned = 0
+    total_files = 0
+    total_urls = 0
+    total_malicious = 0
+    total_suspicious = 0
+    total_deleted = 0
+
+    group_blocks = []
+    for row in group_rows:
+        title = row["title"]
+        scanned = row["scanned"]
+        files = row["files"]
+        urls = row["urls"]
+        malicious = row["malicious"]
+        suspicious = row["suspicious"]
+        deleted = row["deleted"]
 
         total_scanned += scanned
         total_files += files
@@ -1396,7 +1459,7 @@ def format_security_dm_report(
             f"• 🚨 មេរោគគ្រោះថ្នាក់: <b>{total_malicious}</b> (លុបស្វ័យប្រវត្តិ: {total_deleted})\n"
             f"• ⚠️ គួរឱ្យសង្ស័យ: <b>{total_suspicious}</b>"
         )
-        groups_title = f"👥 <b>ក្រុមដែលកំពុងការពារ ({len(user_gids)} ក្រុម):</b>"
+        groups_title = f"👥 <b>ក្រុមដែលកំពុងការពារ ({len(group_rows)} ក្រុម):</b>"
         footer = "🛡️ <i>Songket Security Bot ការពារក្រុមរបស់អ្នក 24/7</i>\n⚙️ ផ្លាស់ប្តូរការកំណត់របាយការណ៍៖ /daily ឬ /report"
     elif selected_lang == "en":
         header = title_en
@@ -1407,7 +1470,7 @@ def format_security_dm_report(
             f"• 🚨 Malicious Threats: <b>{total_malicious}</b> (Auto-deleted: {total_deleted})\n"
             f"• ⚠️ Suspicious Items: <b>{total_suspicious}</b>"
         )
-        groups_title = f"👥 <b>Monitored Groups ({len(user_gids)} active):</b>"
+        groups_title = f"👥 <b>Monitored Groups ({len(group_rows)} active):</b>"
         footer = "🛡️ <i>Songket Security Bot is protecting your groups 24/7</i>\n⚙️ Change report schedule: /daily or /report"
     else:  # bilingual
         header = title_both
@@ -1418,7 +1481,7 @@ def format_security_dm_report(
             f"• 🚨 Malicious / មេរោគ: <b>{total_malicious}</b> (Auto-deleted: {total_deleted})\n"
             f"• ⚠️ Suspicious / សង្ស័យ: <b>{total_suspicious}</b>"
         )
-        groups_title = f"👥 <b>ក្រុមដែលកំពុងការពារ | Monitored Groups ({len(user_gids)}):</b>"
+        groups_title = f"👥 <b>ក្រុមដែលកំពុងការពារ | Monitored Groups ({len(group_rows)}):</b>"
         footer = "🛡️ <i>Songket Security Bot is protecting your groups 24/7</i>\n⚙️ កំណត់ម៉ោងផ្ញើ / Schedule: /daily ឬ /report"
 
     return (
@@ -1441,13 +1504,13 @@ def generate_security_pdf_report(
     """Generate a detailed PDF security audit report for daily, weekly, or monthly periods."""
     try:
         import io
+        import os
         from reportlab.lib.pagesizes import letter
         from reportlab.lib import colors
         from reportlab.platypus import (
-            SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+            SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, Image as RLImage
         )
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-        from reportlab.platypus import Image as RLImage
 
         period_clean = (period or "daily").lower().strip()
         if period_clean not in {"daily", "weekly", "monthly"}:
@@ -1459,19 +1522,18 @@ def generate_security_pdf_report(
         if not user_gids:
             return None
 
+        settings = get_user_daily_report_settings(user_id)
+        selected_lang = (lang or settings.get("report_lang", "both")).lower().strip()
+        if selected_lang not in {"kh", "en", "both"}:
+            selected_lang = "both"
+
         today_time = local_time_str()
 
-        total_scanned = 0
-        total_files = 0
-        total_urls = 0
-        total_malicious = 0
-        total_suspicious = 0
-        total_deleted = 0
-
-        group_rows = []
+        # Deduplicate and consolidate metrics by group title
+        group_map: dict[str, dict] = {}
         for gid in user_gids:
             chat_info = get_chat(gid)
-            title = (chat_info or {}).get("title") or f"Group {gid}"
+            title = ((chat_info or {}).get("title") or "Protected Group").strip()
 
             scanned = 0
             files = 0
@@ -1489,23 +1551,43 @@ def generate_security_pdf_report(
                 suspicious += int(rep.get("suspicious", 0))
                 deleted += int(rep.get("deleted", 0))
 
-            total_scanned += scanned
-            total_files += files
-            total_urls += urls
-            total_malicious += malicious
-            total_suspicious += suspicious
-            total_deleted += deleted
+            if title not in group_map:
+                group_map[title] = {
+                    "title": title,
+                    "id": str(gid),
+                    "scanned": scanned,
+                    "files": files,
+                    "urls": urls,
+                    "malicious": malicious,
+                    "suspicious": suspicious,
+                    "deleted": deleted,
+                }
+            else:
+                group_map[title]["scanned"] += scanned
+                group_map[title]["files"] += files
+                group_map[title]["urls"] += urls
+                group_map[title]["malicious"] += malicious
+                group_map[title]["suspicious"] += suspicious
+                group_map[title]["deleted"] += deleted
+                if str(gid).startswith("-100"):
+                    group_map[title]["id"] = str(gid)
 
-            group_rows.append({
-                "title": title,
-                "id": str(gid),
-                "scanned": scanned,
-                "files": files,
-                "urls": urls,
-                "malicious": malicious,
-                "suspicious": suspicious,
-                "deleted": deleted,
-            })
+        group_rows = list(group_map.values())
+
+        total_scanned = 0
+        total_files = 0
+        total_urls = 0
+        total_malicious = 0
+        total_suspicious = 0
+        total_deleted = 0
+
+        for row in group_rows:
+            total_scanned += row["scanned"]
+            total_files += row["files"]
+            total_urls += row["urls"]
+            total_malicious += row["malicious"]
+            total_suspicious += row["suspicious"]
+            total_deleted += row["deleted"]
 
         buffer = io.BytesIO()
         doc = SimpleDocTemplate(
@@ -1517,50 +1599,51 @@ def generate_security_pdf_report(
             bottomMargin=36,
         )
 
+        font_reg, font_bold = _register_report_fonts()
         styles = getSampleStyleSheet()
 
         title_style = ParagraphStyle(
             'DocTitle',
             parent=styles['Normal'],
-            fontName='Helvetica-Bold',
-            fontSize=18,
-            leading=22,
+            fontName=font_bold,
+            fontSize=17,
+            leading=21,
             textColor=colors.HexColor('#0F172A'),
         )
 
         subtitle_style = ParagraphStyle(
             'DocSubTitle',
             parent=styles['Normal'],
-            fontName='Helvetica',
-            fontSize=9,
-            leading=13,
+            fontName=font_reg,
+            fontSize=8.5,
+            leading=12,
             textColor=colors.HexColor('#64748B'),
         )
 
         section_style = ParagraphStyle(
             'SectionHeading',
             parent=styles['Normal'],
-            fontName='Helvetica-Bold',
-            fontSize=12,
-            leading=16,
+            fontName=font_bold,
+            fontSize=11.5,
+            leading=15,
             textColor=colors.HexColor('#1E293B'),
-            spaceBefore=10,
-            spaceAfter=6,
+            spaceBefore=9,
+            spaceAfter=5,
         )
 
         body_style = ParagraphStyle(
             'DocBody',
             parent=styles['Normal'],
-            fontName='Helvetica',
-            fontSize=9,
-            leading=13,
+            fontName=font_reg,
+            fontSize=8.5,
+            leading=12.5,
             textColor=colors.HexColor('#334155'),
         )
 
         bold_body_style = ParagraphStyle(
             'DocBodyBold',
             parent=body_style,
-            fontName='Helvetica-Bold',
+            fontName=font_bold,
         )
 
         story = []
@@ -1568,19 +1651,129 @@ def generate_security_pdf_report(
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         logo_path = os.path.join(base_dir, "bot", "assets", "logo.png")
 
-        if period_clean == "weekly":
-            pdf_title = "SONGKET SECURITY WEEKLY REPORT"
-            pdf_badge = "Weekly Security Audit Report"
-            pdf_period_text = f"Period: <b>{start_str} to {end_str}</b> (7 Days)"
-        elif period_clean == "monthly":
-            pdf_title = "SONGKET SECURITY MONTHLY REPORT"
-            pdf_badge = "Monthly Security Audit Report"
-            pdf_period_text = f"Period: <b>{start_str} to {end_str}</b> (30 Days)"
-        else:
-            pdf_title = "SONGKET SECURITY DAILY REPORT"
-            pdf_badge = "Daily Security Audit Report"
-            pdf_period_text = f"Date: <b>{end_str}</b> ({today_time} Asia/Phnom_Penh)"
+        # Multilingual Headers and Metadata
+        if selected_lang == "kh":
+            if period_clean == "weekly":
+                pdf_title = "របាយការណ៍សន្តិសុខប្រចាំសប្តាហ៍"
+                pdf_badge = "របាយការណ៍សវនកម្មសន្តិសុខ"
+                pdf_period_text = f"រយៈពេល (៧ ថ្ងៃ)៖ <b>{start_str} ដល់ {end_str}</b>"
+            elif period_clean == "monthly":
+                pdf_title = "របាយការណ៍សន្តិសុខប្រចាំខែ"
+                pdf_badge = "របាយការណ៍សវនកម្មសន្តិសុខ"
+                pdf_period_text = f"រយៈពេល (៣០ ថ្ងៃ)៖ <b>{start_str} ដល់ {end_str}</b>"
+            else:
+                pdf_title = "របាយការណ៍សន្តិសុខប្រចាំថ្ងៃ"
+                pdf_badge = "របាយការណ៍សវនកម្មសន្តិសុខ"
+                pdf_period_text = f"កាលបរិច្ឆេទ៖ <b>{end_str}</b> ({today_time} Asia/Phnom_Penh)"
+            pdf_sub = "Songket Security Bot &bull; កំណែ Beta"
+            pdf_conf = "សម្ងាត់ (CONFIDENTIAL)"
+            exec_heading = "សេចក្តីសង្ខេបប្រតិបត្តិ និងស្ថិតិការពារ"
+            health_status = "សុវត្ថិភាព 100%" if total_malicious == 0 and total_suspicious == 0 else f"បានទប់ស្កាត់ {total_malicious}"
+            kpi_scans_lbl = "ចំនួនស្កេនសរុប"
+            kpi_scans_sub = f"ឯកសារ {total_files} &bull; តំណភ្ជាប់ {total_urls}"
+            kpi_mal_lbl = "ការគំរាមកំហែងមេរោគ"
+            kpi_mal_sub = f"បានលុបស្វ័យប្រវត្តិ: {total_deleted}"
+            kpi_susp_lbl = "ធាតុគួរឱ្យសង្ស័យ"
+            kpi_susp_sub = f"ការព្រមាន: {total_suspicious}"
+            kpi_health_lbl = "ស្ថានភាពសុវត្ថិភាព"
+            kpi_health_sub = f"ការពារ {len(group_rows)} ក្រុម"
+            groups_heading = f"ព័ត៌មានលម្អិតសកម្មភាពតាមក្រុម (ក្រុមសកម្មចំនួន {len(group_rows)})"
+            th_grp, th_scan, th_files, th_urls, th_mal, th_del, th_stat = (
+                "ឈ្មោះក្រុម", "ស្កេន", "ឯកសារ", "តំណភ្ជាប់", "មេរោគ", "បានលុប", "ស្ថានភាព"
+            )
+            stat_clean = "<font color='#059669'><b>សុវត្ថិភាព</b></font>"
+            stat_blocked = lambda m: f"<font color='#DC2626'><b>បានទប់ស្កាត់ {m}</b></font>"
+            stat_susp = lambda s: f"<font color='#D97706'><b>គួរឱ្យសង្ស័យ {s}</b></font>"
+            policy_heading = "គោលការណ៍កាត់បន្ថយការគំរាមកំហែង និងសុវត្ថិភាព"
+            policies = (
+                "&bull; <b>ប្រព័ន្ធការពារមេរោគ និងតំណភ្ជាប់បោកបញ្ឆោត (Phishing) ក្នុងពេលជាក់ស្តែង៖</b> ស្កេនសារ Telegram, មេឌា, ឯកសារ APK, ឯកសារ និង URLs ទាំងអស់។<br/>"
+                "&bull; <b>បញ្ញាសិប្បនិម្មិតម៉ាស៊ីនពីរ (Dual-Engine)៖</b> ដំណើរការដោយ VirusTotal Intelligence និង Google Safe Browsing API v5។<br/>"
+                "&bull; <b>ការដាក់ឱ្យនៅដាច់ដោយស្វ័យប្រវត្តិ (Zero-Trust)៖</b> មេរោគ និងតំណភ្ជាប់បោកប្រាស់ដែលត្រូវបានរកឃើញ នឹងត្រូវលុបដោយស្វ័យប្រវត្តិជាមួយការព្រមាន។<br/>"
+                "&bull; <b>ការកំណត់ទិសដៅជូនដំណឹងអ្នកគ្រប់គ្រងដាច់ដោយឡែក៖</b> ការជូនដំណឹងអំពីការគំរាមកំហែង និងរបាយការណ៍សវនកម្មត្រូវបានផ្ញើជូនតែអ្នកគ្រប់គ្រងដែលទទួលបន្ទុកប៉ុណ្ណោះ។"
+            )
+            footer_text = f"Songket Security Bot &bull; កំណែ Beta &bull; {pdf_title} &bull; បានបង្កើតនៅ {end_str} {today_time}"
+        elif selected_lang == "en":
+            if period_clean == "weekly":
+                pdf_title = "SONGKET SECURITY WEEKLY REPORT"
+                pdf_badge = "Weekly Security Audit Report"
+                pdf_period_text = f"Period: <b>{start_str} to {end_str}</b> (7 Days)"
+            elif period_clean == "monthly":
+                pdf_title = "SONGKET SECURITY MONTHLY REPORT"
+                pdf_badge = "Monthly Security Audit Report"
+                pdf_period_text = f"Period: <b>{start_str} to {end_str}</b> (30 Days)"
+            else:
+                pdf_title = "SONGKET SECURITY DAILY REPORT"
+                pdf_badge = "Daily Security Audit Report"
+                pdf_period_text = f"Date: <b>{end_str}</b> ({today_time} Asia/Phnom_Penh)"
+            pdf_sub = "Songket Security Bot &bull; Beta version"
+            pdf_conf = "CONFIDENTIAL"
+            exec_heading = "Executive Summary & Protection Metrics"
+            health_status = "100% SECURE" if total_malicious == 0 and total_suspicious == 0 else f"{total_malicious} MITIGATED"
+            kpi_scans_lbl = "Total Scans"
+            kpi_scans_sub = f"{total_files} Files &bull; {total_urls} Links"
+            kpi_mal_lbl = "Malicious Threats"
+            kpi_mal_sub = f"Auto-deleted: {total_deleted}"
+            kpi_susp_lbl = "Suspicious Items"
+            kpi_susp_sub = f"Flagged warnings: {total_suspicious}"
+            kpi_health_lbl = "Security Health"
+            kpi_health_sub = f"{len(group_rows)} Groups Protected"
+            groups_heading = f"Monitored Groups Activity Breakdown ({len(group_rows)} Active Groups)"
+            th_grp, th_scan, th_files, th_urls, th_mal, th_del, th_stat = (
+                "Group Name", "Scans", "Files", "URLs", "Threats", "Deleted", "Status"
+            )
+            stat_clean = "<font color='#059669'><b>CLEAN</b></font>"
+            stat_blocked = lambda m: f"<font color='#DC2626'><b>{m} BLOCKED</b></font>"
+            stat_susp = lambda s: f"<font color='#D97706'><b>{s} SUSPICIOUS</b></font>"
+            policy_heading = "Threat Mitigation & Security Policies"
+            policies = (
+                "&bull; <b>Real-Time Antivirus & Phishing Filter:</b> Active inspection on all Telegram messages, media, APKs, documents, and URLs.<br/>"
+                "&bull; <b>Dual-Engine Intelligence:</b> Powered by VirusTotal Intelligence and Google Safe Browsing API v5.<br/>"
+                "&bull; <b>Zero-Trust Auto Quarantine:</b> Detected malware and dangerous phishing links are automatically purged with warnings.<br/>"
+                "&bull; <b>Isolated Admin Routing:</b> Threat notifications and security audits are strictly sent to handling administrators."
+            )
+            footer_text = f"Songket Security Bot &bull; Beta version &bull; {pdf_title} &bull; Generated {end_str} {today_time}"
+        else:  # bilingual
+            if period_clean == "weekly":
+                pdf_title = "របាយការណ៍សន្តិសុខប្រចាំសប្តាហ៍ | WEEKLY REPORT"
+                pdf_badge = "Weekly Security Audit Report"
+                pdf_period_text = f"Period/រយៈពេល: <b>{start_str} ដល់ {end_str}</b> (7 Days)"
+            elif period_clean == "monthly":
+                pdf_title = "របាយការណ៍សន្តិសុខប្រចាំខែ | MONTHLY REPORT"
+                pdf_badge = "Monthly Security Audit Report"
+                pdf_period_text = f"Period/រយៈពេល: <b>{start_str} ដល់ {end_str}</b> (30 Days)"
+            else:
+                pdf_title = "របាយការណ៍សន្តិសុខប្រចាំថ្ងៃ | DAILY REPORT"
+                pdf_badge = "Daily Security Audit Report"
+                pdf_period_text = f"Date/កាលបរិច្ឆេទ: <b>{end_str}</b> ({today_time} Asia/Phnom_Penh)"
+            pdf_sub = "Songket Security Bot &bull; Beta version (កំណែសាកល្បង)"
+            pdf_conf = "សម្ងាត់ / CONFIDENTIAL"
+            exec_heading = "សេចក្តីសង្ខេបប្រតិបត្តិ | Executive Summary"
+            health_status = "100% SECURE" if total_malicious == 0 and total_suspicious == 0 else f"{total_malicious} MITIGATED"
+            kpi_scans_lbl = "ស្កេនសរុប (Total Scans)"
+            kpi_scans_sub = f"{total_files} Files &bull; {total_urls} Links"
+            kpi_mal_lbl = "មេរោគ (Malicious)"
+            kpi_mal_sub = f"Auto-deleted: {total_deleted}"
+            kpi_susp_lbl = "សង្ស័យ (Suspicious)"
+            kpi_susp_sub = f"Flagged warnings: {total_suspicious}"
+            kpi_health_lbl = "ស្ថានភាព (Health)"
+            kpi_health_sub = f"{len(group_rows)} Groups Protected"
+            groups_heading = f"ព័ត៌មានលម្អិតតាមក្រុម | Monitored Groups ({len(group_rows)})"
+            th_grp, th_scan, th_files, th_urls, th_mal, th_del, th_stat = (
+                "Group / ឈ្មោះក្រុម", "Scans", "Files", "URLs", "Threats", "Deleted", "Status / ស្ថានភាព"
+            )
+            stat_clean = "<font color='#059669'><b>CLEAN (សុវត្ថិភាព)</b></font>"
+            stat_blocked = lambda m: f"<font color='#DC2626'><b>{m} BLOCKED</b></font>"
+            stat_susp = lambda s: f"<font color='#D97706'><b>{s} SUSPICIOUS</b></font>"
+            policy_heading = "គោលការណ៍សុវត្ថិភាព | Threat Mitigation & Policies"
+            policies = (
+                "&bull; <b>Real-Time Antivirus & Phishing Filter:</b> ស្កេនមេរោគ និង Phishing ក្នុងពេលជាក់ស្តែងលើសារ, ឯកសារ APK, មេឌា និង URLs ទាំងអស់។<br/>"
+                "&bull; <b>Dual-Engine Intelligence:</b> ដំណើរការដោយ VirusTotal Intelligence និង Google Safe Browsing API v5។<br/>"
+                "&bull; <b>Zero-Trust Auto Quarantine:</b> Detected malware and malicious links are automatically purged (លុបមេរោគស្វ័យប្រវត្តិ)។<br/>"
+                "&bull; <b>Isolated Admin Routing:</b> Threat notifications and audits are strictly sent to handling admins (ផ្ញើជូនតែ Admin ទទួលបន្ទុក)។"
+            )
+            footer_text = f"Songket Security Bot &bull; Beta version &bull; {pdf_title} &bull; Generated {end_str} {today_time}"
 
+        # Header Table
         if os.path.exists(logo_path):
             logo_img = RLImage(logo_path, width=40, height=40)
             brand_cell = Table(
@@ -1588,7 +1781,7 @@ def generate_security_pdf_report(
                     logo_img,
                     Paragraph(
                         f"<b>{pdf_title}</b><br/>"
-                        "<font size=8.5 color='#64748B'>Songket Security Bot &bull; Beta version</font>",
+                        f"<font size=8.0 color='#64748B'>{pdf_sub}</font>",
                         title_style
                     )
                 ]],
@@ -1604,7 +1797,7 @@ def generate_security_pdf_report(
         else:
             brand_cell = Paragraph(
                 f"<b>{pdf_title}</b><br/>"
-                "<font size=8.5 color='#64748B'>Songket Security Bot &bull; Beta version</font>",
+                f"<font size=8.0 color='#64748B'>{pdf_sub}</font>",
                 title_style
             )
 
@@ -1612,12 +1805,12 @@ def generate_security_pdf_report(
             [
                 brand_cell,
                 Paragraph(
-                    f"<b>CONFIDENTIAL</b><br/>{pdf_badge}<br/><font size=8 color='#64748B'>{pdf_period_text}</font>",
-                    ParagraphStyle('Conf', parent=subtitle_style, alignment=2, fontName='Helvetica-Bold', textColor=colors.HexColor('#2563EB'))
+                    f"<b>{pdf_conf}</b><br/>{pdf_badge}<br/><font size=7.8 color='#64748B'>{pdf_period_text}</font>",
+                    ParagraphStyle('Conf', parent=subtitle_style, alignment=2, fontName=font_bold, textColor=colors.HexColor('#2563EB'))
                 )
             ]
         ]
-        header_table = Table(header_data, colWidths=[340, 200])
+        header_table = Table(header_data, colWidths=[335, 205])
         header_table.setStyle(TableStyle([
             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
             ('BOTTOMPADDING', (0,0), (-1,-1), 2),
@@ -1627,19 +1820,19 @@ def generate_security_pdf_report(
         ]))
         story.append(header_table)
         story.append(Spacer(1, 6))
-        story.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor('#2563EB'), spaceBefore=2, spaceAfter=10))
+        story.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor('#2563EB'), spaceBefore=2, spaceAfter=8))
 
-        story.append(Paragraph("Executive Summary & Protection Metrics", section_style))
+        # Executive Summary Card
+        story.append(Paragraph(exec_heading, section_style))
 
-        health_status = "100% SECURE" if total_malicious == 0 and total_suspicious == 0 else f"{total_malicious} MITIGATED"
         health_color = "#059669" if total_malicious == 0 else "#DC2626"
 
         kpi_data = [
             [
-                Paragraph(f"<b>Total Scans</b><br/><font size=13 color='#2563EB'><b>{total_scanned}</b></font><br/><font size=7 color='#64748B'>{total_files} Files &bull; {total_urls} Links</font>", body_style),
-                Paragraph(f"<b>Malicious Threats</b><br/><font size=13 color='{health_color}'><b>{total_malicious}</b></font><br/><font size=7 color='#64748B'>Auto-deleted: {total_deleted}</font>", body_style),
-                Paragraph(f"<b>Suspicious Items</b><br/><font size=13 color='#D97706'><b>{total_suspicious}</b></font><br/><font size=7 color='#64748B'>Flagged warnings: {total_suspicious}</font>", body_style),
-                Paragraph(f"<b>Security Health</b><br/><font size=13 color='{health_color}'><b>{health_status}</b></font><br/><font size=7 color='#64748B'>{len(user_gids)} Groups Protected</font>", body_style),
+                Paragraph(f"<b>{kpi_scans_lbl}</b><br/><font size=13 color='#2563EB'><b>{total_scanned}</b></font><br/><font size=7 color='#64748B'>{kpi_scans_sub}</font>", body_style),
+                Paragraph(f"<b>{kpi_mal_lbl}</b><br/><font size=13 color='{health_color}'><b>{total_malicious}</b></font><br/><font size=7 color='#64748B'>{kpi_mal_sub}</font>", body_style),
+                Paragraph(f"<b>{kpi_susp_lbl}</b><br/><font size=13 color='#D97706'><b>{total_suspicious}</b></font><br/><font size=7 color='#64748B'>{kpi_susp_sub}</font>", body_style),
+                Paragraph(f"<b>{kpi_health_lbl}</b><br/><font size=13 color='{health_color}'><b>{health_status}</b></font><br/><font size=7 color='#64748B'>{kpi_health_sub}</font>", body_style),
             ]
         ]
         kpi_table = Table(kpi_data, colWidths=[135, 135, 135, 135])
@@ -1649,24 +1842,25 @@ def generate_security_pdf_report(
             ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor('#E2E8F0')),
             ('ALIGN', (0,0), (-1,-1), 'CENTER'),
             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            ('TOPPADDING', (0,0), (-1,-1), 7),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 7),
-            ('LEFTPADDING', (0,0), (-1,-1), 6),
-            ('RIGHTPADDING', (0,0), (-1,-1), 6),
+            ('TOPPADDING', (0,0), (-1,-1), 6),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+            ('LEFTPADDING', (0,0), (-1,-1), 5),
+            ('RIGHTPADDING', (0,0), (-1,-1), 5),
         ]))
         story.append(kpi_table)
-        story.append(Spacer(1, 10))
+        story.append(Spacer(1, 8))
 
-        story.append(Paragraph(f"Monitored Groups Activity Breakdown ({len(user_gids)} Active Groups)", section_style))
+        # Monitored Groups Breakdown Table (No IDs shown, includes Deleted column)
+        story.append(Paragraph(groups_heading, section_style))
 
         table_header = [
-            Paragraph("<b>Group Name</b>", bold_body_style),
-            Paragraph("<b>Scans</b>", bold_body_style),
-            Paragraph("<b>Files</b>", bold_body_style),
-            Paragraph("<b>URLs</b>", bold_body_style),
-            Paragraph("<b>Threats</b>", bold_body_style),
-            Paragraph("<b>Deleted</b>", bold_body_style),
-            Paragraph("<b>Status</b>", bold_body_style),
+            Paragraph(f"<b>{th_grp}</b>", bold_body_style),
+            Paragraph(f"<b>{th_scan}</b>", bold_body_style),
+            Paragraph(f"<b>{th_files}</b>", bold_body_style),
+            Paragraph(f"<b>{th_urls}</b>", bold_body_style),
+            Paragraph(f"<b>{th_mal}</b>", bold_body_style),
+            Paragraph(f"<b>{th_del}</b>", bold_body_style),
+            Paragraph(f"<b>{th_stat}</b>", bold_body_style),
         ]
 
         groups_data = [table_header]
@@ -1675,11 +1869,11 @@ def generate_security_pdf_report(
             susp = row["suspicious"]
             del_count = row["deleted"]
             if mal == 0 and susp == 0:
-                status_html = "<font color='#059669'><b>CLEAN</b></font>"
+                status_html = stat_clean
             elif mal > 0:
-                status_html = f"<font color='#DC2626'><b>{mal} BLOCKED</b></font>"
+                status_html = stat_blocked(mal)
             else:
-                status_html = f"<font color='#D97706'><b>{susp} SUSPICIOUS</b></font>"
+                status_html = stat_susp(susp)
 
             clean_title = (row["title"][:32] + "...") if len(row["title"]) > 34 else row["title"]
             groups_data.append([
@@ -1696,39 +1890,33 @@ def generate_security_pdf_report(
         group_table.setStyle(TableStyle([
             ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#F1F5F9')),
             ('TEXTCOLOR', (0,0), (-1,0), colors.HexColor('#1E293B')),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 5),
-            ('TOPPADDING', (0,0), (-1,-1), 5),
-            ('LEFTPADDING', (0,0), (-1,-1), 6),
-            ('RIGHTPADDING', (0,0), (-1,-1), 6),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 4.5),
+            ('TOPPADDING', (0,0), (-1,-1), 4.5),
+            ('LEFTPADDING', (0,0), (-1,-1), 5),
+            ('RIGHTPADDING', (0,0), (-1,-1), 5),
             ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
             ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#F8FAFC')]),
         ]))
         story.append(group_table)
-        story.append(Spacer(1, 10))
+        story.append(Spacer(1, 8))
 
-        story.append(Paragraph("Threat Mitigation & Security Policies", section_style))
-        policies = (
-            "&bull; <b>Real-Time Antivirus & Phishing Filter:</b> Active inspection on all Telegram messages, media, APKs, documents, and URLs.<br/>"
-            "&bull; <b>Dual-Engine Intelligence:</b> Powered by VirusTotal Intelligence and Google Safe Browsing API v5.<br/>"
-            "&bull; <b>Zero-Trust Auto Quarantine:</b> Detected malware and dangerous phishing links are automatically purged with warnings.<br/>"
-            "&bull; <b>Isolated Admin Routing:</b> Threat notifications and security audits are strictly sent to handling administrators."
-        )
+        # Security Policies & Threat Intelligence Summary
+        story.append(Paragraph(policy_heading, section_style))
         policy_table = Table([[Paragraph(policies, body_style)]], colWidths=[540])
         policy_table.setStyle(TableStyle([
             ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#EFF6FF')),
             ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#BFDBFE')),
-            ('TOPPADDING', (0,0), (-1,-1), 7),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 7),
-            ('LEFTPADDING', (0,0), (-1,-1), 9),
-            ('RIGHTPADDING', (0,0), (-1,-1), 9),
+            ('TOPPADDING', (0,0), (-1,-1), 6),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+            ('LEFTPADDING', (0,0), (-1,-1), 8),
+            ('RIGHTPADDING', (0,0), (-1,-1), 8),
         ]))
         story.append(policy_table)
 
-        story.append(Spacer(1, 16))
-        story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor('#94A3B8'), spaceBefore=2, spaceAfter=6))
+        story.append(Spacer(1, 14))
+        story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor('#94A3B8'), spaceBefore=2, spaceAfter=5))
 
-        footer_text = f"Songket Security Bot &bull; Beta version &bull; {pdf_title} &bull; Generated {end_str} {today_time}"
         story.append(Paragraph(f"<font color='#94A3B8' size=7.5>{footer_text}</font>", ParagraphStyle('Footer', parent=body_style, alignment=1)))
 
         doc.build(story)
@@ -1736,7 +1924,7 @@ def generate_security_pdf_report(
         buffer.close()
         return pdf_bytes
     except Exception as exc:
-        logger.error("Failed to generate PDF %s report: %s", period, exc)
+        logger.error("Failed to generate PDF %s report for user %d: %s", period_clean, user_id, exc)
         return None
 
 

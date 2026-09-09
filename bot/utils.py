@@ -455,4 +455,15 @@ def get_managed_groups_for_user(api, user_id: int) -> list[dict]:
 
         title = found_title or "ក្រុម (Group)"
         groups.append({"id": gid, "title": title})
-    return groups
+
+    # Deduplicate: if multiple group IDs resolve to the same title, keep only one (prefer supergroup ID starting with -100)
+    seen_titles: dict[str, dict] = {}
+    for g in groups:
+        t = g["title"].strip()
+        if t not in seen_titles:
+            seen_titles[t] = g
+        else:
+            if str(g["id"]).startswith("-100"):
+                seen_titles[t] = g
+    return list(seen_titles.values())
+

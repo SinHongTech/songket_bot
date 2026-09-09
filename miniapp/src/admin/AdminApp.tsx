@@ -1119,11 +1119,27 @@ export default function AdminApp() {
       )}
 
       <main style={{ flex: 1, overflowY: "auto", padding: "16px 16px 24px" }}>
-        {loading ? (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "60%", gap: 14, color: G.muted }}>
-            <Loader2 size={32} color={G.gold} className="spin-animation" />
-            <div style={{ fontSize: 13, fontWeight: 500 }}>
-              <span className={kh(lang)}>{tx.loading}</span>
+        {loading || refreshing ? (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "65%", gap: 16, color: G.muted }}>
+            <div style={{ position: "relative", width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  borderRadius: "50%",
+                  border: `3px solid rgba(212,167,44,0.18)`,
+                  borderTopColor: G.gold,
+                  animation: "spin 0.85s linear infinite",
+                }}
+              />
+              <Loader2 size={20} color={G.gold} className="spin-animation" />
+            </div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: G.textSec }}>
+              <span className={kh(lang)}>
+                {refreshing
+                  ? (lang === "km" ? "កំពុងទាញទិន្នន័យថ្មី..." : "Refreshing data...")
+                  : tx.loading}
+              </span>
             </div>
           </div>
         ) : error ? (
