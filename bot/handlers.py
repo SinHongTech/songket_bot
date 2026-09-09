@@ -367,11 +367,11 @@ def _send_mute_alert_to_admin(
     hours: int,
     strikes: int,
 ) -> None:
-    grp_name = chat_title or str(chat_id)
+    grp_name = chat_title or "Group"
     text = (
         "🔇 <b>User Muted Notice | សេចក្តីជូនដំណឹងអំពីការ Mute សមាជិក</b>\n\n"
-        f"👤 <b>User :</b> <b>{user_display}</b> (ID: <code>{user_id}</code>)\n"
-        f"👥 <b>Group :</b> <b>{esc(grp_name)}</b> (ID: <code>{chat_id}</code>)\n"
+        f"👤 <b>User :</b> <b>{user_display}</b>\n"
+        f"👥 <b>Group :</b> <b>{esc(grp_name)}</b>\n"
         f"⚠️ <b>Reason :</b> {strikes} Threat Violation(s)\n"
         f"⏳ <b>Duration :</b> <code>{hours} Hour(s) ({hours} ម៉ោង)</code>\n\n"
         "👇 <i>Admin Controls: Tap below to Unmute, Kick, or Ban this member:</i>"
@@ -452,10 +452,31 @@ def _send_plan_status(api: TelegramAPI, chat_id: int, user_id: int, message_id: 
         expiry = status.get("expiry")
         exp_str = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(expiry)) if expiry else "Active"
 
+    user_info = get_known_users().get(str(user_id), {})
+    username = user_info.get("username")
+    name = user_info.get("name")
+    if not username and not name:
+        try:
+            chat_info = api.get_chat(user_id)
+            if chat_info:
+                username = chat_info.get("username")
+                name = (chat_info.get("first_name", "") + " " + chat_info.get("last_name", "")).strip()
+                if username or name:
+                    record_known_user(user_id, username or "", name or "")
+        except Exception:
+            pass
+
+    if username:
+        account_label = f"@{username.lstrip('@')}"
+    elif name:
+        account_label = name
+    else:
+        account_label = "Verified User"
+
     if lang == "kh":
         text = (
             "💳 <b>ស្ថានភាពគម្រោង & កូតាស្កេន (My Plan & Limits)</b>\n\n"
-            f"👤 <b>គណនី (ID) :</b> <code>{user_id}</code>\n"
+            f"👤 <b>គណនី (Account) :</b> <b>{esc(account_label)}</b>\n"
             f"🏷️ <b>គម្រោងបច្ចុប្បន្ន :</b> <b>{plan_name}</b>\n"
             f"📅 <b>ការស្កេនថ្ងៃនេះ :</b> {daily_str}\n"
             f"📊 <b>ការស្កេនខែនេះ :</b> {monthly_str}\n"
@@ -467,7 +488,7 @@ def _send_plan_status(api: TelegramAPI, chat_id: int, user_id: int, message_id: 
     elif lang == "en":
         text = (
             "💳 <b>My Plan & Security Quota</b>\n\n"
-            f"👤 <b>Account (ID) :</b> <code>{user_id}</code>\n"
+            f"👤 <b>Account :</b> <b>{esc(account_label)}</b>\n"
             f"🏷️ <b>Current Plan :</b> <b>{plan_name}</b>\n"
             f"📅 <b>Today's Scans :</b> {daily_str}\n"
             f"📊 <b>Monthly Scans :</b> {monthly_str}\n"
@@ -479,7 +500,7 @@ def _send_plan_status(api: TelegramAPI, chat_id: int, user_id: int, message_id: 
     else:
         text = (
             "💳 <b>ស្ថានភាពគម្រោង & កូតាស្កេន | My Plan & Limits</b>\n\n"
-            f"👤 <b>គណនី (Account) :</b> <code>{user_id}</code>\n"
+            f"👤 <b>គណនី (Account) :</b> <b>{esc(account_label)}</b>\n"
             f"🏷️ <b>គម្រោង (Current Tier) :</b> <b>{plan_name}</b>\n"
             f"📅 <b>ការស្កេនថ្ងៃនេះ (Daily) :</b> {daily_str}\n"
             f"📊 <b>ការស្កេនខែនេះ (Monthly) :</b> {monthly_str}\n"
