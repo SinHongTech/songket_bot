@@ -335,18 +335,57 @@ def generate_daily_pdf_report(
 
     story = []
 
+    # Locate or extract project logo
+    import os
+    import re
+    import base64
+    from PIL import Image as PILImage
+    from reportlab.platypus import Image as RLImage
+
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    logo_path = os.path.join(base_dir, "bot", "assets", "logo.png")
+    if not os.path.exists(logo_path):
+        svg_path = os.path.join(base_dir, "miniapp", "src", "shared", "assets", "Logo.svg")
+        if os.path.exists(svg_path):
+            try:
+                with open(svg_path, "r", encoding="utf-8") as f:
+                    svg_content = f.read()
+                matches = re.findall(r'data:image/(?:png|jpeg|jpg);base64,([A-Za-z0-9+/=]+)', svg_content)
+                if matches:
+                    os.makedirs(os.path.dirname(logo_path), exist_ok=True)
+                    img_bytes = base64.b64decode(matches[0])
+                    img = PILImage.open(io.BytesIO(img_bytes))
+                    img.save(logo_path, "PNG")
+            except Exception as e:
+                logger.warning("Could not extract logo from SVG: %s", e)
+
     # Header Table
+    if os.path.exists(logo_path):
+        logo_img = RLImage(logo_path, width=38, height=38)
+        brand_cell = Table(
+            [[
+                logo_img,
+                Paragraph("<b>SONGKET SECURITY BOT</b><br/><font size=8.5 color='#64748B'>Songket Security Daily Report &bull; Beta version</font>", title_style)
+            ]],
+            colWidths=[44, 300]
+        )
+        brand_cell.setStyle(TableStyle([
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('LEFTPADDING', (0,0), (-1,-1), 0),
+            ('RIGHTPADDING', (0,0), (-1,-1), 0),
+            ('TOPPADDING', (0,0), (-1,-1), 0),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+        ]))
+    else:
+        brand_cell = Paragraph("<b>SONGKET SECURITY BOT</b><br/><font size=8.5 color='#64748B'>Songket Security Daily Report &bull; Beta version</font>", title_style)
+
     header_data = [
         [
-            Paragraph("🛡️ <b>SONGKET SECURITY BOT</b>", title_style),
-            Paragraph("<b>CONFIDENTIAL</b><br/>Songket Security Daily Report", ParagraphStyle('Conf', parent=subtitle_style, alignment=2, fontName='Helvetica-Bold', textColor=colors.HexColor('#2563EB')))
-        ],
-        [
-            Paragraph("Songket Security Daily Report &bull; Beta version", subtitle_style),
-            Paragraph(f"Date: <b>{date_str}</b> ({today_time} Asia/Phnom_Penh)", ParagraphStyle('GenTime', parent=subtitle_style, alignment=2))
+            brand_cell,
+            Paragraph(f"<b>CONFIDENTIAL</b><br/>Daily Security Audit Report<br/><font size=8 color='#64748B'>Date: <b>{date_str}</b> ({today_time} Asia/Phnom_Penh)</font>", ParagraphStyle('Conf', parent=subtitle_style, alignment=2, fontName='Helvetica-Bold', textColor=colors.HexColor('#2563EB')))
         ]
     ]
-    header_table = Table(header_data, colWidths=[340, 200])
+    header_table = Table(header_data, colWidths=[344, 196])
     header_table.setStyle(TableStyle([
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
         ('BOTTOMPADDING', (0,0), (-1,-1), 2),
