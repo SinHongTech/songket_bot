@@ -249,7 +249,7 @@ def generate_daily_pdf_report(
     group_rows = []
     for g in managed:
         gid = g["id"]
-        title = g.get("title") or str(gid)
+        title = g.get("title") or "Protected Group"
         rep = get_report(gid, date_str)
 
         scanned = int(rep.get("scanned", 0))
@@ -342,7 +342,7 @@ def generate_daily_pdf_report(
             Paragraph("<b>CONFIDENTIAL</b><br/>Daily Security Audit Report", ParagraphStyle('Conf', parent=subtitle_style, alignment=2, fontName='Helvetica-Bold', textColor=colors.HexColor('#2563EB')))
         ],
         [
-            Paragraph(f"Admin ID: {user_id} &bull; Group Protection & Threat Intelligence", subtitle_style),
+            Paragraph("Group Protection & Real-Time Threat Intelligence", subtitle_style),
             Paragraph(f"Date: <b>{date_str}</b> ({today_time} Asia/Phnom_Penh)", ParagraphStyle('GenTime', parent=subtitle_style, alignment=2))
         ]
     ]
@@ -387,15 +387,14 @@ def generate_daily_pdf_report(
     story.append(kpi_table)
     story.append(Spacer(1, 10))
 
-    # Monitored Groups Breakdown Table
+    # Monitored Groups Breakdown Table (No IDs shown)
     story.append(Paragraph(f"Monitored Groups Activity Breakdown ({len(managed)} Active Groups)", section_style))
 
     table_header = [
         Paragraph("<b>Group Name</b>", bold_body_style),
-        Paragraph("<b>Group ID</b>", bold_body_style),
         Paragraph("<b>Scans</b>", bold_body_style),
-        Paragraph("<b>Files</b>", bold_body_style),
-        Paragraph("<b>URLs</b>", bold_body_style),
+        Paragraph("<b>Files Checked</b>", bold_body_style),
+        Paragraph("<b>URLs Checked</b>", bold_body_style),
         Paragraph("<b>Threats</b>", bold_body_style),
         Paragraph("<b>Status</b>", bold_body_style),
     ]
@@ -411,10 +410,9 @@ def generate_daily_pdf_report(
         else:
             status_html = f"<font color='#D97706'><b>{susp} SUSPICIOUS</b></font>"
 
-        clean_title = (row["title"][:28] + "...") if len(row["title"]) > 30 else row["title"]
+        clean_title = (row["title"][:38] + "...") if len(row["title"]) > 40 else row["title"]
         groups_data.append([
             Paragraph(f"<b>{clean_title}</b>", body_style),
-            Paragraph(f"<font color='#64748B'>{row['id']}</font>", body_style),
             Paragraph(str(row["scanned"]), body_style),
             Paragraph(str(row["files"]), body_style),
             Paragraph(str(row["urls"]), body_style),
@@ -422,14 +420,14 @@ def generate_daily_pdf_report(
             Paragraph(status_html, body_style),
         ])
 
-    group_table = Table(groups_data, colWidths=[160, 110, 50, 45, 45, 55, 75])
+    group_table = Table(groups_data, colWidths=[210, 60, 70, 70, 60, 70])
     group_table.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#F1F5F9')),
         ('TEXTCOLOR', (0,0), (-1,0), colors.HexColor('#1E293B')),
         ('BOTTOMPADDING', (0,0), (-1,-1), 5),
         ('TOPPADDING', (0,0), (-1,-1), 5),
-        ('LEFTPADDING', (0,0), (-1,-1), 5),
-        ('RIGHTPADDING', (0,0), (-1,-1), 5),
+        ('LEFTPADDING', (0,0), (-1,-1), 6),
+        ('RIGHTPADDING', (0,0), (-1,-1), 6),
         ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
         ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#F8FAFC')]),
@@ -459,7 +457,7 @@ def generate_daily_pdf_report(
     story.append(Spacer(1, 16))
     story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor('#94A3B8'), spaceBefore=2, spaceAfter=6))
 
-    footer_text = f"SongKet AI Cyber Security Bot v2.0 &bull; Automated Daily Audit for Admin #{user_id} &bull; Generated {date_str} {today_time}"
+    footer_text = f"SongKet AI Cyber Security Bot v2.0 &bull; Automated Daily Group Security Audit &bull; Generated {date_str} {today_time}"
     story.append(Paragraph(f"<font color='#94A3B8' size=7.5>{footer_text}</font>", ParagraphStyle('Footer', parent=body_style, alignment=1)))
 
     try:
