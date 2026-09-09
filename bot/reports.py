@@ -374,6 +374,90 @@ def format_daily_dm_report(
     )
 
 
+def _get_font_base64(filename: str) -> str:
+    import base64
+    import os
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(base_dir, "assets", "fonts", filename),
+        os.path.join(base_dir, "assets", filename),
+        os.path.join(os.path.dirname(base_dir), "bot", "assets", "fonts", filename),
+        os.path.join(os.path.dirname(base_dir), "bot", "assets", filename),
+        os.path.join(os.path.dirname(base_dir), "api", "assets", filename),
+        os.path.join(os.path.dirname(base_dir), "miniapp", "api", "assets", filename),
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            try:
+                with open(p, "rb") as f:
+                    return base64.b64encode(f.read()).decode("ascii")
+            except Exception:
+                pass
+    return ""
+
+
+def _get_logo_base64() -> str:
+    import base64
+    import os
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(base_dir, "assets", "logo.png"),
+        os.path.join(os.path.dirname(base_dir), "bot", "assets", "logo.png"),
+        os.path.join(os.path.dirname(base_dir), "api", "assets", "logo.png"),
+    ]
+    for p in candidates:
+        if os.path.exists(p):
+            try:
+                with open(p, "rb") as f:
+                    return f"data:image/png;base64,{base64.b64encode(f.read()).decode('ascii')}"
+            except Exception:
+                pass
+    return ""
+
+
+def _html_to_pdf(html_content: str) -> Optional[bytes]:
+    """Render HTML to PDF using Chromium headless with full OpenType Khmer complex script shaping."""
+    import os
+    import shutil
+    import subprocess
+    import tempfile
+
+    chromium_path = shutil.which("chromium") or shutil.which("chromium-browser") or shutil.which("google-chrome")
+    if not chromium_path:
+        return None
+
+    with tempfile.NamedTemporaryFile(suffix=".html", delete=False, mode="w", encoding="utf-8") as hf:
+        hf.write(html_content)
+        html_file = hf.name
+
+    pdf_file = html_file.replace(".html", ".pdf")
+    try:
+        cmd = [
+            chromium_path,
+            "--headless",
+            "--disable-gpu",
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--no-pdf-header-footer",
+            f"--print-to-pdf={pdf_file}",
+            f"file://{html_file}",
+        ]
+        res = subprocess.run(cmd, capture_output=True, timeout=20)
+        if os.path.exists(pdf_file) and os.path.getsize(pdf_file) > 0:
+            with open(pdf_file, "rb") as f:
+                return f.read()
+    except Exception as e:
+        logger.warning("Chromium HTML to PDF failed: %s", e)
+    finally:
+        for p in [html_file, pdf_file]:
+            if os.path.exists(p):
+                try:
+                    os.remove(p)
+                except Exception:
+                    pass
+    return None
+
+
 def _register_report_fonts() -> tuple[str, str]:
     """Register NotoSansKhmer fonts if available for Khmer and Latin rendering."""
     import os
@@ -410,15 +494,6 @@ def generate_security_pdf_report(
     target_date: Optional[str] = None,
 ) -> Optional[bytes]:
     """Generate a detailed PDF security audit report for daily, weekly, or monthly periods."""
-    import io
-    import os
-    from PIL import Image as PILImage, ImageDraw as PILImageDraw
-    from reportlab.lib.pagesizes import letter
-    from reportlab.lib import colors
-    from reportlab.platypus import (
-        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, Image as RLImage
-    )
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from bot.utils import get_managed_groups_for_user
 
     period_clean = (period or "daily").lower().strip()
@@ -497,319 +572,154 @@ def generate_security_pdf_report(
         total_suspicious += row["suspicious"]
         total_deleted += row["deleted"]
 
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buffer,
-        pagesize=letter,
-        leftMargin=36,
-        rightMargin=36,
-        topMargin=36,
-        bottomMargin=36,
-    )
-
-    font_reg, font_bold = _register_report_fonts()
-    styles = getSampleStyleSheet()
-
-    title_style = ParagraphStyle(
-        'DocTitle',
-        parent=styles['Normal'],
-        fontName=font_bold,
-        fontSize=17,
-        leading=21,
-        textColor=colors.HexColor('#0F172A'),
-    )
-
-    subtitle_style = ParagraphStyle(
-        'DocSubTitle',
-        parent=styles['Normal'],
-        fontName=font_reg,
-        fontSize=8.5,
-        leading=12,
-        textColor=colors.HexColor('#64748B'),
-    )
-
-    section_style = ParagraphStyle(
-        'SectionHeading',
-        parent=styles['Normal'],
-        fontName=font_bold,
-        fontSize=11.5,
-        leading=15,
-        textColor=colors.HexColor('#1E293B'),
-        spaceBefore=9,
-        spaceAfter=5,
-    )
-
-    body_style = ParagraphStyle(
-        'DocBody',
-        parent=styles['Normal'],
-        fontName=font_reg,
-        fontSize=8.5,
-        leading=12.5,
-        textColor=colors.HexColor('#334155'),
-    )
-
-    bold_body_style = ParagraphStyle(
-        'DocBodyBold',
-        parent=body_style,
-        fontName=font_bold,
-    )
-
-    story = []
-
-    # Locate or render rounded project logo
-    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    logo_path = os.path.join(base_dir, "bot", "assets", "logo.png")
-    if not os.path.exists(logo_path):
-        svg_path = os.path.join(base_dir, "miniapp", "src", "shared", "assets", "Logo.svg")
-        if os.path.exists(svg_path):
-            try:
-                import subprocess
-                cmd = [
-                    "chromium",
-                    "--headless",
-                    "--disable-gpu",
-                    "--no-sandbox",
-                    f"--screenshot={logo_path}",
-                    "--window-size=500,500",
-                    "--default-background-color=00000000",
-                    f"file://{svg_path}",
-                ]
-                os.makedirs(os.path.dirname(logo_path), exist_ok=True)
-                subprocess.run(cmd, capture_output=True)
-                if os.path.exists(logo_path):
-                    img = PILImage.open(logo_path).convert("RGBA")
-                    bbox = img.getbbox()
-                    if bbox:
-                        img = img.crop(bbox)
-                    w, h = img.size
-                    max_dim = max(w, h)
-                    square_img = PILImage.new("RGBA", (max_dim, max_dim), (0, 0, 0, 0))
-                    square_img.paste(img, ((max_dim - w) // 2, (max_dim - h) // 2))
-                    scale = 4
-                    mask = PILImage.new("L", (max_dim * scale, max_dim * scale), 0)
-                    draw = PILImageDraw.Draw(mask)
-                    radius = int(max_dim * 0.20)
-                    draw.rounded_rectangle((0, 0, max_dim * scale - 1, max_dim * scale - 1), radius=radius * scale, fill=255)
-                    mask = mask.resize((max_dim, max_dim), PILImage.Resampling.LANCZOS)
-                    final_img = PILImage.new("RGBA", (max_dim, max_dim), (0, 0, 0, 0))
-                    final_img.paste(square_img, (0, 0), mask=mask)
-                    final_img.save(logo_path, "PNG")
-            except Exception as e:
-                logger.warning("Could not render rounded logo from SVG: %s", e)
-
-    # Multilingual Headers and Metadata
+    # Multilingual Strings Setup
     if selected_lang == "kh":
         if period_clean == "weekly":
-            pdf_title = "របាយការណ៍សន្តិសុខប្រចាំសប្តាហ៍"
-            pdf_badge = "របាយការណ៍សវនកម្មសន្តិសុខ"
-            pdf_period_text = f"រយៈពេល (៧ ថ្ងៃ)៖ <b>{start_str} ដល់ {end_str}</b>"
+            doc_title = "របាយការណ៍សន្តិសុខប្រចាំសប្តាហ៍"
+            sub_title = "Songket Security Bot • កំណែ Beta"
+            conf = "សម្ងាត់ (CONFIDENTIAL)"
+            badge = "របាយការណ៍សវនកម្មសន្តិសុខ"
+            date_lbl = f"រយៈពេល (៧ ថ្ងៃ)៖ <b>{start_str} ដល់ {end_str}</b>"
         elif period_clean == "monthly":
-            pdf_title = "របាយការណ៍សន្តិសុខប្រចាំខែ"
-            pdf_badge = "របាយការណ៍សវនកម្មសន្តិសុខ"
-            pdf_period_text = f"រយៈពេល (៣០ ថ្ងៃ)៖ <b>{start_str} ដល់ {end_str}</b>"
+            doc_title = "របាយការណ៍សន្តិសុខប្រចាំខែ"
+            sub_title = "Songket Security Bot • កំណែ Beta"
+            conf = "សម្ងាត់ (CONFIDENTIAL)"
+            badge = "របាយការណ៍សវនកម្មសន្តិសុខ"
+            date_lbl = f"រយៈពេល (៣០ ថ្ងៃ)៖ <b>{start_str} ដល់ {end_str}</b>"
         else:
-            pdf_title = "របាយការណ៍សន្តិសុខប្រចាំថ្ងៃ"
-            pdf_badge = "របាយការណ៍សវនកម្មសន្តិសុខ"
-            pdf_period_text = f"កាលបរិច្ឆេទ៖ <b>{end_str}</b> ({today_time} Asia/Phnom_Penh)"
-        pdf_sub = "Songket Security Bot &bull; កំណែ Beta"
-        pdf_conf = "សម្ងាត់ (CONFIDENTIAL)"
+            doc_title = "របាយការណ៍សន្តិសុខប្រចាំថ្ងៃ"
+            sub_title = "Songket Security Bot • កំណែ Beta"
+            conf = "សម្ងាត់ (CONFIDENTIAL)"
+            badge = "របាយការណ៍សវនកម្មសន្តិសុខ"
+            date_lbl = f"កាលបរិច្ឆេទ៖ <b>{end_str}</b> ({today_time} Asia/Phnom_Penh)"
         exec_heading = "សេចក្តីសង្ខេបប្រតិបត្តិ និងស្ថិតិការពារ"
-        health_status = "សុវត្ថិភាព 100%" if total_malicious == 0 and total_suspicious == 0 else f"បានទប់ស្កាត់ {total_malicious}"
-        kpi_scans_lbl = "ចំនួនស្កេនសរុប"
-        kpi_scans_sub = f"ឯកសារ {total_files} &bull; តំណភ្ជាប់ {total_urls}"
-        kpi_mal_lbl = "ការគំរាមកំហែងមេរោគ"
-        kpi_mal_sub = f"បានលុបស្វ័យប្រវត្តិ: {total_deleted}"
-        kpi_susp_lbl = "ធាតុគួរឱ្យសង្ស័យ"
-        kpi_susp_sub = f"ការព្រមាន: {total_suspicious}"
-        kpi_health_lbl = "ស្ថានភាពសុវត្ថិភាព"
-        kpi_health_sub = f"ការពារ {len(group_rows)} ក្រុម"
+        kpi1_lbl = "ចំនួនស្កេនសរុប"
+        kpi1_sub = f"ឯកសារ {total_files} • តំណភ្ជាប់ {total_urls}"
+        kpi2_lbl = "ការគំរាមកំហែងមេរោគ"
+        kpi2_sub = f"បានលុបស្វ័យប្រវត្តិ: {total_deleted}"
+        kpi3_lbl = "ធាតុគួរឱ្យសង្ស័យ"
+        kpi3_sub = f"ការព្រមាន: {total_suspicious}"
+        kpi4_lbl = "ស្ថានភាពសុវត្ថិភាព"
+        kpi4_val = "សុវត្ថិភាព 100%" if total_malicious == 0 and total_suspicious == 0 else f"បានទប់ស្កាត់ {total_malicious}"
+        kpi4_sub = f"ការពារ {len(group_rows)} ក្រុម"
         groups_heading = f"ព័ត៌មានលម្អិតសកម្មភាពតាមក្រុម (ក្រុមសកម្មចំនួន {len(group_rows)})"
-        th_grp, th_scan, th_files, th_urls, th_mal, th_del, th_stat = (
-            "ឈ្មោះក្រុម", "ស្កេន", "ឯកសារ", "តំណភ្ជាប់", "មេរោគ", "បានលុប", "ស្ថានភាព"
-        )
-        stat_clean = "<font color='#059669'><b>សុវត្ថិភាព</b></font>"
-        stat_blocked = lambda m: f"<font color='#DC2626'><b>បានទប់ស្កាត់ {m}</b></font>"
-        stat_susp = lambda s: f"<font color='#D97706'><b>គួរឱ្យសង្ស័យ {s}</b></font>"
+        th_grp = "ឈ្មោះក្រុម"
+        th_scan = "ស្កេន"
+        th_files = "ឯកសារ"
+        th_urls = "តំណភ្ជាប់"
+        th_mal = "មេរោគ"
+        th_del = "បានលុប"
+        th_stat = "ស្ថានភាព"
+        stat_clean = '<span style="color:#059669; font-weight:700;">សុវត្ថិភាព</span>'
+        stat_blocked = lambda m: f'<span style="color:#dc2626; font-weight:700;">បានទប់ស្កាត់ {m}</span>'
+        stat_susp = lambda s: f'<span style="color:#d97706; font-weight:700;">គួរឱ្យសង្ស័យ {s}</span>'
         policy_heading = "គោលការណ៍កាត់បន្ថយការគំរាមកំហែង និងសុវត្ថិភាព"
-        policies = (
-            "&bull; <b>ប្រព័ន្ធការពារមេរោគ និងតំណភ្ជាប់បោកបញ្ឆោត (Phishing) ក្នុងពេលជាក់ស្តែង៖</b> ស្កេនសារ Telegram, មេឌា, ឯកសារ APK, ឯកសារ និង URLs ទាំងអស់។<br/>"
-            "&bull; <b>បញ្ញាសិប្បនិម្មិតម៉ាស៊ីនពីរ (Dual-Engine)៖</b> ដំណើរការដោយ VirusTotal Intelligence និង Google Safe Browsing API v5។<br/>"
-            "&bull; <b>ការដាក់ឱ្យនៅដាច់ដោយស្វ័យប្រវត្តិ (Zero-Trust)៖</b> មេរោគ និងតំណភ្ជាប់បោកប្រាស់ដែលត្រូវបានរកឃើញ នឹងត្រូវលុបដោយស្វ័យប្រវត្តិជាមួយការព្រមាន។<br/>"
-            "&bull; <b>ការកំណត់ទិសដៅជូនដំណឹងអ្នកគ្រប់គ្រងដាច់ដោយឡែក៖</b> ការជូនដំណឹងអំពីការគំរាមកំហែង និងរបាយការណ៍សវនកម្មត្រូវបានផ្ញើជូនតែអ្នកគ្រប់គ្រងដែលទទួលបន្ទុកប៉ុណ្ណោះ។"
-        )
-        footer_text = f"Songket Security Bot &bull; កំណែ Beta &bull; {pdf_title} &bull; បានបង្កើតនៅ {end_str} {today_time}"
+        policies = """
+          <li><b>ប្រព័ន្ធការពារមេរោគ និងតំណភ្ជាប់បោកបញ្ឆោត (Phishing) ក្នុងពេលជាក់ស្តែង៖</b> ស្កេនសារ Telegram, មេឌា, ឯកសារ APK, ឯកសារ និង URLs ទាំងអស់។</li>
+          <li><b>បញ្ញាសិប្បនិម្មិតម៉ាស៊ីនពីរ (Dual-Engine)៖</b> ដំណើរការដោយ VirusTotal Intelligence និង Google Safe Browsing API v5។</li>
+          <li><b>ការដាក់ឱ្យនៅដាច់ដោយស្វ័យប្រវត្តិ (Zero-Trust)៖</b> មេរោគ និងតំណភ្ជាប់បោកប្រាស់ដែលត្រូវបានរកឃើញ នឹងត្រូវលុបដោយស្វ័យប្រវត្តិជាមួយការព្រមាន។</li>
+          <li><b>ការកំណត់ទិសដៅជូនដំណឹងអ្នកគ្រប់គ្រងដាច់ដោយឡែក៖</b> ការជូនដំណឹងអំពីការគំរាមកំហែង និងរបាយការណ៍សវនកម្មត្រូវបានផ្ញើជូនតែអ្នកគ្រប់គ្រងដែលទទួលបន្ទុកប៉ុណ្ណោះ។</li>
+        """
+        footer = f"Songket Security Bot • កំណែ Beta • {doc_title} • បានបង្កើតនៅ {end_str} {today_time}"
     elif selected_lang == "en":
         if period_clean == "weekly":
-            pdf_title = "SONGKET SECURITY WEEKLY REPORT"
-            pdf_badge = "Weekly Security Audit Report"
-            pdf_period_text = f"Period: <b>{start_str} to {end_str}</b> (7 Days)"
+            doc_title = "SONGKET SECURITY WEEKLY REPORT"
+            sub_title = "Songket Security Bot • Beta version"
+            conf = "CONFIDENTIAL"
+            badge = "Weekly Security Audit Report"
+            date_lbl = f"Period: <b>{start_str} to {end_str}</b> (7 Days)"
         elif period_clean == "monthly":
-            pdf_title = "SONGKET SECURITY MONTHLY REPORT"
-            pdf_badge = "Monthly Security Audit Report"
-            pdf_period_text = f"Period: <b>{start_str} to {end_str}</b> (30 Days)"
+            doc_title = "SONGKET SECURITY MONTHLY REPORT"
+            sub_title = "Songket Security Bot • Beta version"
+            conf = "CONFIDENTIAL"
+            badge = "Monthly Security Audit Report"
+            date_lbl = f"Period: <b>{start_str} to {end_str}</b> (30 Days)"
         else:
-            pdf_title = "SONGKET SECURITY DAILY REPORT"
-            pdf_badge = "Daily Security Audit Report"
-            pdf_period_text = f"Date: <b>{end_str}</b> ({today_time} Asia/Phnom_Penh)"
-        pdf_sub = "Songket Security Bot &bull; Beta version"
-        pdf_conf = "CONFIDENTIAL"
+            doc_title = "SONGKET SECURITY DAILY REPORT"
+            sub_title = "Songket Security Bot • Beta version"
+            conf = "CONFIDENTIAL"
+            badge = "Daily Security Audit Report"
+            date_lbl = f"Date: <b>{end_str}</b> ({today_time} Asia/Phnom_Penh)"
         exec_heading = "Executive Summary & Protection Metrics"
-        health_status = "100% SECURE" if total_malicious == 0 and total_suspicious == 0 else f"{total_malicious} MITIGATED"
-        kpi_scans_lbl = "Total Scans"
-        kpi_scans_sub = f"{total_files} Files &bull; {total_urls} Links"
-        kpi_mal_lbl = "Malicious Threats"
-        kpi_mal_sub = f"Auto-deleted: {total_deleted}"
-        kpi_susp_lbl = "Suspicious Items"
-        kpi_susp_sub = f"Flagged warnings: {total_suspicious}"
-        kpi_health_lbl = "Security Health"
-        kpi_health_sub = f"{len(group_rows)} Groups Protected"
+        kpi1_lbl = "Total Scans"
+        kpi1_sub = f"{total_files} Files • {total_urls} Links"
+        kpi2_lbl = "Malicious Threats"
+        kpi2_sub = f"Auto-deleted: {total_deleted}"
+        kpi3_lbl = "Suspicious Items"
+        kpi3_sub = f"Flagged warnings: {total_suspicious}"
+        kpi4_lbl = "Security Health"
+        kpi4_val = "100% SECURE" if total_malicious == 0 and total_suspicious == 0 else f"{total_malicious} MITIGATED"
+        kpi4_sub = f"{len(group_rows)} Groups Protected"
         groups_heading = f"Monitored Groups Activity Breakdown ({len(group_rows)} Active Groups)"
-        th_grp, th_scan, th_files, th_urls, th_mal, th_del, th_stat = (
-            "Group Name", "Scans", "Files", "URLs", "Threats", "Deleted", "Status"
-        )
-        stat_clean = "<font color='#059669'><b>CLEAN</b></font>"
-        stat_blocked = lambda m: f"<font color='#DC2626'><b>{m} BLOCKED</b></font>"
-        stat_susp = lambda s: f"<font color='#D97706'><b>{s} SUSPICIOUS</b></font>"
+        th_grp = "Group Name"
+        th_scan = "Scans"
+        th_files = "Files"
+        th_urls = "URLs"
+        th_mal = "Threats"
+        th_del = "Deleted"
+        th_stat = "Status"
+        stat_clean = '<span style="color:#059669; font-weight:700;">CLEAN</span>'
+        stat_blocked = lambda m: f'<span style="color:#dc2626; font-weight:700;">{m} BLOCKED</span>'
+        stat_susp = lambda s: f'<span style="color:#d97706; font-weight:700;">{s} SUSPICIOUS</span>'
         policy_heading = "Threat Mitigation & Security Policies"
-        policies = (
-            "&bull; <b>Real-Time Antivirus & Phishing Filter:</b> Active inspection on all Telegram messages, media, APKs, documents, and URLs.<br/>"
-            "&bull; <b>Dual-Engine Intelligence:</b> Powered by VirusTotal Intelligence and Google Safe Browsing API v5.<br/>"
-            "&bull; <b>Zero-Trust Auto Quarantine:</b> Detected malware and dangerous phishing links are automatically purged with warnings.<br/>"
-            "&bull; <b>Isolated Admin Routing:</b> Threat notifications and security audits are strictly sent to handling administrators."
-        )
-        footer_text = f"Songket Security Bot &bull; Beta version &bull; {pdf_title} &bull; Generated {end_str} {today_time}"
+        policies = """
+          <li><b>Real-Time Antivirus & Phishing Filter:</b> Active inspection on all Telegram messages, media, APKs, documents, and URLs.</li>
+          <li><b>Dual-Engine Intelligence:</b> Powered by VirusTotal Intelligence and Google Safe Browsing API v5.</li>
+          <li><b>Zero-Trust Auto Quarantine:</b> Detected malware and dangerous phishing links are automatically purged with warnings.</li>
+          <li><b>Isolated Admin Routing:</b> Threat notifications and security audits are strictly sent to handling administrators.</li>
+        """
+        footer = f"Songket Security Bot • Beta version • {doc_title} • Generated {end_str} {today_time}"
     else:  # bilingual
         if period_clean == "weekly":
-            pdf_title = "របាយការណ៍សន្តិសុខប្រចាំសប្តាហ៍ | WEEKLY REPORT"
-            pdf_badge = "Weekly Security Audit Report"
-            pdf_period_text = f"Period/រយៈពេល: <b>{start_str} ដល់ {end_str}</b> (7 Days)"
+            doc_title = "របាយការណ៍សន្តិសុខប្រចាំសប្តាហ៍ | WEEKLY REPORT"
+            sub_title = "Songket Security Bot • Beta version (កំណែសាកល្បង)"
+            conf = "សម្ងាត់ / CONFIDENTIAL"
+            badge = "Weekly Security Audit Report"
+            date_lbl = f"Period/រយៈពេល: <b>{start_str} ដល់ {end_str}</b> (7 Days)"
         elif period_clean == "monthly":
-            pdf_title = "របាយការណ៍សន្តិសុខប្រចាំខែ | MONTHLY REPORT"
-            pdf_badge = "Monthly Security Audit Report"
-            pdf_period_text = f"Period/រយៈពេល: <b>{start_str} ដល់ {end_str}</b> (30 Days)"
+            doc_title = "របាយការណ៍សន្តិសុខប្រចាំខែ | MONTHLY REPORT"
+            sub_title = "Songket Security Bot • Beta version (កំណែសាកល្បង)"
+            conf = "សម្ងាត់ / CONFIDENTIAL"
+            badge = "Monthly Security Audit Report"
+            date_lbl = f"Period/រយៈពេល: <b>{start_str} ដល់ {end_str}</b> (30 Days)"
         else:
-            pdf_title = "របាយការណ៍សន្តិសុខប្រចាំថ្ងៃ | DAILY REPORT"
-            pdf_badge = "Daily Security Audit Report"
-            pdf_period_text = f"Date/កាលបរិច្ឆេទ: <b>{end_str}</b> ({today_time} Asia/Phnom_Penh)"
-        pdf_sub = "Songket Security Bot &bull; Beta version (កំណែសាកល្បង)"
-        pdf_conf = "សម្ងាត់ / CONFIDENTIAL"
+            doc_title = "របាយការណ៍សន្តិសុខប្រចាំថ្ងៃ | DAILY REPORT"
+            sub_title = "Songket Security Bot • Beta version (កំណែសាកល្បង)"
+            conf = "សម្ងាត់ / CONFIDENTIAL"
+            badge = "Daily Security Audit Report"
+            date_lbl = f"Date/កាលបរិច្ឆេទ: <b>{end_str}</b> ({today_time} Asia/Phnom_Penh)"
         exec_heading = "សេចក្តីសង្ខេបប្រតិបត្តិ | Executive Summary"
-        health_status = "100% SECURE" if total_malicious == 0 and total_suspicious == 0 else f"{total_malicious} MITIGATED"
-        kpi_scans_lbl = "ស្កេនសរុប (Total Scans)"
-        kpi_scans_sub = f"{total_files} Files &bull; {total_urls} Links"
-        kpi_mal_lbl = "មេរោគ (Malicious)"
-        kpi_mal_sub = f"Auto-deleted: {total_deleted}"
-        kpi_susp_lbl = "សង្ស័យ (Suspicious)"
-        kpi_susp_sub = f"Flagged warnings: {total_suspicious}"
-        kpi_health_lbl = "ស្ថានភាព (Health)"
-        kpi_health_sub = f"{len(group_rows)} Groups Protected"
+        kpi1_lbl = "ស្កេនសរុប (Total Scans)"
+        kpi1_sub = f"{total_files} Files • {total_urls} Links"
+        kpi2_lbl = "មេរោគ (Malicious)"
+        kpi2_sub = f"Auto-deleted: {total_deleted}"
+        kpi3_lbl = "សង្ស័យ (Suspicious)"
+        kpi3_sub = f"Flagged warnings: {total_suspicious}"
+        kpi4_lbl = "ស្ថានភាព (Health)"
+        kpi4_val = "100% SECURE" if total_malicious == 0 and total_suspicious == 0 else f"{total_malicious} MITIGATED"
+        kpi4_sub = f"{len(group_rows)} Groups Protected"
         groups_heading = f"ព័ត៌មានលម្អិតតាមក្រុម | Monitored Groups ({len(group_rows)})"
-        th_grp, th_scan, th_files, th_urls, th_mal, th_del, th_stat = (
-            "Group / ឈ្មោះក្រុម", "Scans", "Files", "URLs", "Threats", "Deleted", "Status / ស្ថានភាព"
-        )
-        stat_clean = "<font color='#059669'><b>CLEAN (សុវត្ថិភាព)</b></font>"
-        stat_blocked = lambda m: f"<font color='#DC2626'><b>{m} BLOCKED</b></font>"
-        stat_susp = lambda s: f"<font color='#D97706'><b>{s} SUSPICIOUS</b></font>"
+        th_grp = "Group / ឈ្មោះក្រុម"
+        th_scan = "Scans"
+        th_files = "Files"
+        th_urls = "URLs"
+        th_mal = "Threats"
+        th_del = "Deleted"
+        th_stat = "Status / ស្ថានភាព"
+        stat_clean = '<span style="color:#059669; font-weight:700;">CLEAN (សុវត្ថិភាព)</span>'
+        stat_blocked = lambda m: f'<span style="color:#dc2626; font-weight:700;">{m} BLOCKED</span>'
+        stat_susp = lambda s: f'<span style="color:#d97706; font-weight:700;">{s} SUSPICIOUS</span>'
         policy_heading = "គោលការណ៍សុវត្ថិភាព | Threat Mitigation & Policies"
-        policies = (
-            "&bull; <b>Real-Time Antivirus & Phishing Filter:</b> ស្កេនមេរោគ និង Phishing ក្នុងពេលជាក់ស្តែងលើសារ, ឯកសារ APK, មេឌា និង URLs ទាំងអស់។<br/>"
-            "&bull; <b>Dual-Engine Intelligence:</b> ដំណើរការដោយ VirusTotal Intelligence និង Google Safe Browsing API v5។<br/>"
-            "&bull; <b>Zero-Trust Auto Quarantine:</b> Detected malware and malicious links are automatically purged (លុបមេរោគស្វ័យប្រវត្តិ)។<br/>"
-            "&bull; <b>Isolated Admin Routing:</b> Threat notifications and audits are strictly sent to handling admins (ផ្ញើជូនតែ Admin ទទួលបន្ទុក)។"
-        )
-        footer_text = f"Songket Security Bot &bull; Beta version &bull; {pdf_title} &bull; Generated {end_str} {today_time}"
+        policies = """
+          <li><b>Real-Time Antivirus & Phishing Filter:</b> ស្កេនមេរោគ និង Phishing ក្នុងពេលជាក់ស្តែងលើសារ, ឯកសារ APK, មេឌា និង URLs ទាំងអស់។</li>
+          <li><b>Dual-Engine Intelligence:</b> ដំណើរការដោយ VirusTotal Intelligence និង Google Safe Browsing API v5។</li>
+          <li><b>Zero-Trust Auto Quarantine:</b> Detected malware and malicious links are automatically purged (លុបមេរោគស្វ័យប្រវត្តិ)។</li>
+          <li><b>Isolated Admin Routing:</b> Threat notifications and audits are strictly sent to handling admins (ផ្ញើជូនតែ Admin ទទួលបន្ទុក)។</li>
+        """
+        footer = f"Songket Security Bot • Beta version • {doc_title} • Generated {end_str} {today_time}"
 
-    # Header Table
-    if os.path.exists(logo_path):
-        logo_img = RLImage(logo_path, width=40, height=40)
-        brand_cell = Table(
-            [[
-                logo_img,
-                Paragraph(
-                    f"<b>{pdf_title}</b><br/>"
-                    f"<font size=8.0 color='#64748B'>{pdf_sub}</font>",
-                    title_style
-                )
-            ]],
-            colWidths=[48, 290]
-        )
-        brand_cell.setStyle(TableStyle([
-            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            ('LEFTPADDING', (0,0), (-1,-1), 0),
-            ('RIGHTPADDING', (0,0), (-1,-1), 0),
-            ('TOPPADDING', (0,0), (-1,-1), 0),
-            ('BOTTOMPADDING', (0,0), (-1,-1), 0),
-        ]))
-    else:
-        brand_cell = Paragraph(
-            f"<b>{pdf_title}</b><br/>"
-            f"<font size=8.0 color='#64748B'>{pdf_sub}</font>",
-            title_style
-        )
-
-    header_data = [
-        [
-            brand_cell,
-            Paragraph(
-                f"<b>{pdf_conf}</b><br/>{pdf_badge}<br/><font size=7.8 color='#64748B'>{pdf_period_text}</font>",
-                ParagraphStyle('Conf', parent=subtitle_style, alignment=2, fontName=font_bold, textColor=colors.HexColor('#2563EB'))
-            )
-        ]
-    ]
-    header_table = Table(header_data, colWidths=[335, 205])
-    header_table.setStyle(TableStyle([
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 2),
-        ('TOPPADDING', (0,0), (-1,-1), 0),
-        ('LEFTPADDING', (0,0), (-1,-1), 0),
-        ('RIGHTPADDING', (0,0), (-1,-1), 0),
-    ]))
-    story.append(header_table)
-    story.append(Spacer(1, 6))
-    story.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor('#2563EB'), spaceBefore=2, spaceAfter=8))
-
-    # Executive Summary Card
-    story.append(Paragraph(exec_heading, section_style))
-
-    health_color = "#059669" if total_malicious == 0 else "#DC2626"
-
-    kpi_data = [
-        [
-            Paragraph(f"<b>{kpi_scans_lbl}</b><br/><font size=13 color='#2563EB'><b>{total_scanned}</b></font><br/><font size=7 color='#64748B'>{kpi_scans_sub}</font>", body_style),
-            Paragraph(f"<b>{kpi_mal_lbl}</b><br/><font size=13 color='{health_color}'><b>{total_malicious}</b></font><br/><font size=7 color='#64748B'>{kpi_mal_sub}</font>", body_style),
-            Paragraph(f"<b>{kpi_susp_lbl}</b><br/><font size=13 color='#D97706'><b>{total_suspicious}</b></font><br/><font size=7 color='#64748B'>{kpi_susp_sub}</font>", body_style),
-            Paragraph(f"<b>{kpi_health_lbl}</b><br/><font size=13 color='{health_color}'><b>{health_status}</b></font><br/><font size=7 color='#64748B'>{kpi_health_sub}</font>", body_style),
-        ]
-    ]
-    kpi_table = Table(kpi_data, colWidths=[135, 135, 135, 135])
-    kpi_table.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#F8FAFC')),
-        ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#CBD5E1')),
-        ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor('#E2E8F0')),
-        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('TOPPADDING', (0,0), (-1,-1), 6),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
-        ('LEFTPADDING', (0,0), (-1,-1), 5),
-        ('RIGHTPADDING', (0,0), (-1,-1), 5),
-    ]))
-    story.append(kpi_table)
-    story.append(Spacer(1, 8))
-
-    # Monitored Groups Breakdown Table (No IDs shown, includes Deleted column)
-    story.append(Paragraph(groups_heading, section_style))
-
-    table_header = [
-        Paragraph(f"<b>{th_grp}</b>", bold_body_style),
-        Paragraph(f"<b>{th_scan}</b>", bold_body_style),
-        Paragraph(f"<b>{th_files}</b>", bold_body_style),
-        Paragraph(f"<b>{th_urls}</b>", bold_body_style),
-        Paragraph(f"<b>{th_mal}</b>", bold_body_style),
-        Paragraph(f"<b>{th_del}</b>", bold_body_style),
-        Paragraph(f"<b>{th_stat}</b>", bold_body_style),
-    ]
-
-    groups_data = [table_header]
+    # Build Table Rows HTML
+    rows_html = []
     for row in group_rows:
         mal = row["malicious"]
         susp = row["suspicious"]
@@ -822,50 +732,474 @@ def generate_security_pdf_report(
             status_html = stat_susp(susp)
 
         clean_title = (row["title"][:32] + "...") if len(row["title"]) > 34 else row["title"]
-        groups_data.append([
-            Paragraph(f"<b>{clean_title}</b>", body_style),
-            Paragraph(str(row["scanned"]), body_style),
-            Paragraph(str(row["files"]), body_style),
-            Paragraph(str(row["urls"]), body_style),
-            Paragraph(str(mal), body_style),
-            Paragraph(str(del_count), body_style),
-            Paragraph(status_html, body_style),
-        ])
+        rows_html.append(f"""
+        <tr>
+          <td><b>{clean_title}</b></td>
+          <td style="text-align: center; font-weight: 700;">{row['scanned']}</td>
+          <td style="text-align: center;">{row['files']}</td>
+          <td style="text-align: center;">{row['urls']}</td>
+          <td style="text-align: center;">{mal}</td>
+          <td style="text-align: center;">{del_count}</td>
+          <td style="text-align: center;">{status_html}</td>
+        </tr>
+        """)
+    table_rows_str = "\n".join(rows_html)
 
-    group_table = Table(groups_data, colWidths=[190, 55, 55, 55, 55, 55, 75])
-    group_table.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#F1F5F9')),
-        ('TEXTCOLOR', (0,0), (-1,0), colors.HexColor('#1E293B')),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 4.5),
-        ('TOPPADDING', (0,0), (-1,-1), 4.5),
-        ('LEFTPADDING', (0,0), (-1,-1), 5),
-        ('RIGHTPADDING', (0,0), (-1,-1), 5),
-        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#F8FAFC')]),
-    ]))
-    story.append(group_table)
-    story.append(Spacer(1, 8))
+    # Base64 Fonts & Logo
+    battambang_reg_b64 = _get_font_base64("Battambang-Regular.ttf")
+    battambang_bold_b64 = _get_font_base64("Battambang-Bold.ttf")
+    logo_b64 = _get_logo_base64()
 
-    # Security Policies & Threat Intelligence Summary
-    story.append(Paragraph(policy_heading, section_style))
-    policy_table = Table([[Paragraph(policies, body_style)]], colWidths=[540])
-    policy_table.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#EFF6FF')),
-        ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#BFDBFE')),
-        ('TOPPADDING', (0,0), (-1,-1), 6),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
-        ('LEFTPADDING', (0,0), (-1,-1), 8),
-        ('RIGHTPADDING', (0,0), (-1,-1), 8),
-    ]))
-    story.append(policy_table)
+    font_css = ""
+    if battambang_reg_b64 and battambang_bold_b64:
+        font_css = f"""
+        @font-face {{
+          font-family: 'SongketFont';
+          src: url(data:font/ttf;charset=utf-8;base64,{battambang_reg_b64}) format('truetype');
+          font-weight: 400;
+          font-style: normal;
+        }}
+        @font-face {{
+          font-family: 'SongketFont';
+          src: url(data:font/ttf;charset=utf-8;base64,{battambang_bold_b64}) format('truetype');
+          font-weight: 700;
+          font-style: normal;
+        }}
+        body {{ font-family: 'SongketFont', 'Outfit', sans-serif; }}
+        """
+    else:
+        font_css = "body { font-family: 'Battambang', 'Noto Sans Khmer', sans-serif; }"
 
-    story.append(Spacer(1, 14))
-    story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor('#94A3B8'), spaceBefore=2, spaceAfter=5))
+    health_color = "#059669" if total_malicious == 0 else "#DC2626"
 
-    story.append(Paragraph(f"<font color='#94A3B8' size=7.5>{footer_text}</font>", ParagraphStyle('Footer', parent=body_style, alignment=1)))
+    html_content = f"""<!DOCTYPE html>
+<html lang="km">
+<head>
+<meta charset="UTF-8">
+<style>
+  {font_css}
+  @page {{
+    size: letter;
+    margin: 12mm 14mm 10mm;
+  }}
+  * {{ box-sizing: border-box; }}
+  body {{
+    color: #1e293b;
+    margin: 0;
+    padding: 0;
+    font-size: 9.5pt;
+    line-height: 1.65;
+    background: #ffffff;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }}
+  .header {{
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 2.5px solid #2563eb;
+    padding-bottom: 10px;
+    margin-bottom: 12px;
+  }}
+  .brand {{
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }}
+  .logo {{
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    object-fit: cover;
+  }}
+  .brand-text h1 {{
+    margin: 0;
+    font-size: 14pt;
+    font-weight: 700;
+    color: #0f172a;
+    line-height: 1.3;
+  }}
+  .brand-text .sub {{
+    font-size: 8.5pt;
+    color: #64748b;
+    margin-top: 2px;
+  }}
+  .meta {{
+    text-align: right;
+  }}
+  .meta .conf {{
+    color: #2563eb;
+    font-weight: 700;
+    font-size: 8.5pt;
+    letter-spacing: 0.05em;
+  }}
+  .meta .badge {{
+    color: #334155;
+    font-weight: 600;
+    font-size: 8.5pt;
+    margin-top: 2px;
+  }}
+  .meta .date {{
+    color: #64748b;
+    font-size: 7.8pt;
+    margin-top: 2px;
+  }}
+  .section-title {{
+    font-size: 10.5pt;
+    font-weight: 700;
+    color: #1e293b;
+    margin: 12px 0 6px;
+  }}
+  .kpi-grid {{
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-bottom: 12px;
+  }}
+  .kpi-card {{
+    background: #f8fafc;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    padding: 8px 10px;
+    text-align: center;
+  }}
+  .kpi-card .lbl {{
+    font-size: 8.2pt;
+    color: #475569;
+    font-weight: 600;
+    margin-bottom: 2px;
+    line-height: 1.3;
+  }}
+  .kpi-card .val {{
+    font-size: 14.5pt;
+    font-weight: 700;
+    line-height: 1.25;
+  }}
+  .kpi-card .sub {{
+    font-size: 7.5pt;
+    color: #64748b;
+    margin-top: 2px;
+    line-height: 1.3;
+  }}
+  table.data-table {{
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 8.8pt;
+    margin-bottom: 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    overflow: hidden;
+  }}
+  table.data-table th {{
+    background: #f1f5f9;
+    color: #1e293b;
+    font-weight: 700;
+    padding: 7px 8px;
+    text-align: left;
+    border: 1px solid #cbd5e1;
+  }}
+  table.data-table td {{
+    padding: 6px 8px;
+    border: 1px solid #cbd5e1;
+    color: #334155;
+  }}
+  table.data-table tr:nth-child(even) {{ background: #f8fafc; }}
+  table.data-table tr:nth-child(odd) {{ background: #ffffff; }}
+  .policy-box {{
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 8px;
+    padding: 9px 12px;
+    font-size: 8.4pt;
+    color: #1e3a8a;
+  }}
+  .policy-box ul {{
+    margin: 0;
+    padding-left: 14px;
+  }}
+  .policy-box li {{
+    margin-bottom: 5px;
+    line-height: 1.55;
+  }}
+  .policy-box li:last-child {{ margin-bottom: 0; }}
+  .footer {{
+    margin-top: 14px;
+    padding-top: 6px;
+    border-top: 0.5px solid #94a3b8;
+    text-align: center;
+    font-size: 7.5pt;
+    color: #94a3b8;
+  }}
+</style>
+</head>
+<body>
+  <div class="header">
+    <div class="brand">
+      {'<img src="' + logo_b64 + '" class="logo" />' if logo_b64 else ''}
+      <div class="brand-text">
+        <h1>{doc_title}</h1>
+        <div class="sub">{sub_title}</div>
+      </div>
+    </div>
+    <div class="meta">
+      <div class="conf">{conf}</div>
+      <div class="badge">{badge}</div>
+      <div class="date">{date_lbl}</div>
+    </div>
+  </div>
 
+  <div class="section-title">{exec_heading}</div>
+  <div class="kpi-grid">
+    <div class="kpi-card">
+      <div class="lbl">{kpi1_lbl}</div>
+      <div class="val" style="color:#2563eb;">{total_scanned}</div>
+      <div class="sub">{kpi1_sub}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="lbl">{kpi2_lbl}</div>
+      <div class="val" style="color:{health_color};">{total_malicious}</div>
+      <div class="sub">{kpi2_sub}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="lbl">{kpi3_lbl}</div>
+      <div class="val" style="color:#d97706;">{total_suspicious}</div>
+      <div class="sub">{kpi3_sub}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="lbl">{kpi4_lbl}</div>
+      <div class="val" style="color:{health_color};">{kpi4_val}</div>
+      <div class="sub">{kpi4_sub}</div>
+    </div>
+  </div>
+
+  <div class="section-title">{groups_heading}</div>
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th style="width: 32%;">{th_grp}</th>
+        <th style="width: 11%; text-align: center;">{th_scan}</th>
+        <th style="width: 11%; text-align: center;">{th_files}</th>
+        <th style="width: 11%; text-align: center;">{th_urls}</th>
+        <th style="width: 11%; text-align: center;">{th_mal}</th>
+        <th style="width: 11%; text-align: center;">{th_del}</th>
+        <th style="width: 13%; text-align: center;">{th_stat}</th>
+      </tr>
+    </thead>
+    <tbody>
+      {table_rows_str}
+    </tbody>
+  </table>
+
+  <div class="section-title">{policy_heading}</div>
+  <div class="policy-box">
+    <ul>
+      {policies}
+    </ul>
+  </div>
+
+  <div class="footer">
+    {footer}
+  </div>
+</body>
+</html>"""
+
+    # 1. Try High-Definition Chromium engine (with native OpenType HarfBuzz shaping)
+    pdf_bytes = _html_to_pdf(html_content)
+    if pdf_bytes:
+        return pdf_bytes
+
+    # 2. Graceful Fallback to ReportLab if Chromium is unavailable
     try:
+        import io
+        from reportlab.lib.pagesizes import letter
+        from reportlab.lib import colors
+        from reportlab.platypus import (
+            SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable, Image as RLImage
+        )
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=letter,
+            leftMargin=36,
+            rightMargin=36,
+            topMargin=36,
+            bottomMargin=36,
+        )
+
+        font_reg, font_bold = _register_report_fonts()
+        styles = getSampleStyleSheet()
+
+        title_style = ParagraphStyle(
+            'DocTitle',
+            parent=styles['Normal'],
+            fontName=font_bold,
+            fontSize=17,
+            leading=21,
+            textColor=colors.HexColor('#0F172A'),
+        )
+
+        subtitle_style = ParagraphStyle(
+            'DocSubTitle',
+            parent=styles['Normal'],
+            fontName=font_reg,
+            fontSize=8.5,
+            leading=12,
+            textColor=colors.HexColor('#64748B'),
+        )
+
+        section_style = ParagraphStyle(
+            'SectionHeading',
+            parent=styles['Normal'],
+            fontName=font_bold,
+            fontSize=11.5,
+            leading=15,
+            textColor=colors.HexColor('#1E293B'),
+            spaceBefore=9,
+            spaceAfter=5,
+        )
+
+        body_style = ParagraphStyle(
+            'DocBody',
+            parent=styles['Normal'],
+            fontName=font_reg,
+            fontSize=8.5,
+            leading=12.5,
+            textColor=colors.HexColor('#334155'),
+        )
+
+        bold_body_style = ParagraphStyle(
+            'DocBodyBold',
+            parent=body_style,
+            fontName=font_bold,
+        )
+
+        story = []
+        logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "logo.png")
+
+        if os.path.exists(logo_path):
+            logo_img = RLImage(logo_path, width=40, height=40)
+            brand_cell = Table(
+                [[
+                    logo_img,
+                    Paragraph(f"<b>{doc_title}</b><br/><font size=8.0 color='#64748B'>{sub_title}</font>", title_style)
+                ]],
+                colWidths=[48, 290]
+            )
+            brand_cell.setStyle(TableStyle([
+                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+                ('LEFTPADDING', (0,0), (-1,-1), 0),
+                ('RIGHTPADDING', (0,0), (-1,-1), 0),
+                ('TOPPADDING', (0,0), (-1,-1), 0),
+                ('BOTTOMPADDING', (0,0), (-1,-1), 0),
+            ]))
+        else:
+            brand_cell = Paragraph(f"<b>{doc_title}</b><br/><font size=8.0 color='#64748B'>{sub_title}</font>", title_style)
+
+        header_data = [
+            [
+                brand_cell,
+                Paragraph(f"<b>{conf}</b><br/>{badge}<br/><font size=7.8 color='#64748B'>{date_lbl}</font>", ParagraphStyle('Conf', parent=subtitle_style, alignment=2, fontName=font_bold, textColor=colors.HexColor('#2563EB')))
+            ]
+        ]
+        header_table = Table(header_data, colWidths=[335, 205])
+        header_table.setStyle(TableStyle([
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 2),
+            ('TOPPADDING', (0,0), (-1,-1), 0),
+            ('LEFTPADDING', (0,0), (-1,-1), 0),
+            ('RIGHTPADDING', (0,0), (-1,-1), 0),
+        ]))
+        story.append(header_table)
+        story.append(Spacer(1, 6))
+        story.append(HRFlowable(width="100%", thickness=2, color=colors.HexColor('#2563EB'), spaceBefore=2, spaceAfter=8))
+
+        story.append(Paragraph(exec_heading, section_style))
+        kpi_data = [
+            [
+                Paragraph(f"<b>{kpi1_lbl}</b><br/><font size=13 color='#2563EB'><b>{total_scanned}</b></font><br/><font size=7 color='#64748B'>{kpi1_sub}</font>", body_style),
+                Paragraph(f"<b>{kpi2_lbl}</b><br/><font size=13 color='{health_color}'><b>{total_malicious}</b></font><br/><font size=7 color='#64748B'>{kpi2_sub}</font>", body_style),
+                Paragraph(f"<b>{kpi3_lbl}</b><br/><font size=13 color='#D97706'><b>{total_suspicious}</b></font><br/><font size=7 color='#64748B'>{kpi3_sub}</font>", body_style),
+                Paragraph(f"<b>{kpi4_lbl}</b><br/><font size=13 color='{health_color}'><b>{kpi4_val}</b></font><br/><font size=7 color='#64748B'>{kpi4_sub}</font>", body_style),
+            ]
+        ]
+        kpi_table = Table(kpi_data, colWidths=[135, 135, 135, 135])
+        kpi_table.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#F8FAFC')),
+            ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#CBD5E1')),
+            ('INNERGRID', (0,0), (-1,-1), 0.5, colors.HexColor('#E2E8F0')),
+            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('TOPPADDING', (0,0), (-1,-1), 6),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+            ('LEFTPADDING', (0,0), (-1,-1), 5),
+            ('RIGHTPADDING', (0,0), (-1,-1), 5),
+        ]))
+        story.append(kpi_table)
+        story.append(Spacer(1, 8))
+
+        story.append(Paragraph(groups_heading, section_style))
+        table_header = [
+            Paragraph(f"<b>{th_grp}</b>", bold_body_style),
+            Paragraph(f"<b>{th_scan}</b>", bold_body_style),
+            Paragraph(f"<b>{th_files}</b>", bold_body_style),
+            Paragraph(f"<b>{th_urls}</b>", bold_body_style),
+            Paragraph(f"<b>{th_mal}</b>", bold_body_style),
+            Paragraph(f"<b>{th_del}</b>", bold_body_style),
+            Paragraph(f"<b>{th_stat}</b>", bold_body_style),
+        ]
+        groups_data = [table_header]
+        for row in group_rows:
+            mal = row["malicious"]
+            susp = row["suspicious"]
+            del_count = row["deleted"]
+            if mal == 0 and susp == 0:
+                status_html = stat_clean
+            elif mal > 0:
+                status_html = stat_blocked(mal)
+            else:
+                status_html = stat_susp(susp)
+            clean_title = (row["title"][:32] + "...") if len(row["title"]) > 34 else row["title"]
+            groups_data.append([
+                Paragraph(f"<b>{clean_title}</b>", body_style),
+                Paragraph(str(row["scanned"]), body_style),
+                Paragraph(str(row["files"]), body_style),
+                Paragraph(str(row["urls"]), body_style),
+                Paragraph(str(mal), body_style),
+                Paragraph(str(del_count), body_style),
+                Paragraph(status_html, body_style),
+            ])
+        group_table = Table(groups_data, colWidths=[190, 55, 55, 55, 55, 55, 75])
+        group_table.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#F1F5F9')),
+            ('TEXTCOLOR', (0,0), (-1,0), colors.HexColor('#1E293B')),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 4.5),
+            ('TOPPADDING', (0,0), (-1,-1), 4.5),
+            ('LEFTPADDING', (0,0), (-1,-1), 5),
+            ('RIGHTPADDING', (0,0), (-1,-1), 5),
+            ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#CBD5E1')),
+            ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor('#F8FAFC')]),
+        ]))
+        story.append(group_table)
+        story.append(Spacer(1, 8))
+
+        story.append(Paragraph(policy_heading, section_style))
+        policy_table = Table([[Paragraph(policies.replace("<li>", "&bull; ").replace("</li>", "<br/>"), body_style)]], colWidths=[540])
+        policy_table.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,-1), colors.HexColor('#EFF6FF')),
+            ('BOX', (0,0), (-1,-1), 1, colors.HexColor('#BFDBFE')),
+            ('TOPPADDING', (0,0), (-1,-1), 6),
+            ('BOTTOMPADDING', (0,0), (-1,-1), 6),
+            ('LEFTPADDING', (0,0), (-1,-1), 8),
+            ('RIGHTPADDING', (0,0), (-1,-1), 8),
+        ]))
+        story.append(policy_table)
+        story.append(Spacer(1, 14))
+        story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor('#94A3B8'), spaceBefore=2, spaceAfter=5))
+        story.append(Paragraph(f"<font color='#94A3B8' size=7.5>{footer}</font>", ParagraphStyle('Footer', parent=body_style, alignment=1)))
+
         doc.build(story)
         pdf_bytes = buffer.getvalue()
         buffer.close()
