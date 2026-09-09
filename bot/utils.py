@@ -15,7 +15,7 @@ from urllib.parse import urljoin, urlparse
 import requests
 
 from bot import config
-from bot.redis_client import get_known_groups, kv_get, kv_json_get, kv_set
+from bot.redis_client import get_group_inviter, get_known_groups, kv_get, kv_json_get, kv_set
 
 logger = logging.getLogger("BeydaBot.utils")
 
@@ -399,11 +399,11 @@ def get_managed_groups_for_user(api, user_id: int) -> list[dict]:
     explicit = explicit_group_map().get(user_id)
     if explicit is not None:
         group_ids = [g for g in explicit if not allowed or g in allowed]
-    elif is_super_admin(user_id):
-        group_ids = sorted(list(allowed))
-    else:
+
+    # 2. Also include groups invited by this user that are in allowed_groups
+    if len(group_ids) < config.MAX_DASHBOARD_GROUPS:
         for gid in sorted(allowed):
-            if api.is_group_admin(user_id, gid):
+            if gid not in group_ids and get_group_inviter(gid) == user_id:
                 group_ids.append(gid)
                 if len(group_ids) >= config.MAX_DASHBOARD_GROUPS:
                     break
