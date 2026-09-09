@@ -335,11 +335,11 @@ def generate_daily_pdf_report(
 
     story = []
 
-    # Locate or extract project logo
+    # Locate or extract rounded project logo
     import os
     import re
     import base64
-    from PIL import Image as PILImage
+    from PIL import Image as PILImage, ImageDraw as PILImageDraw
     from reportlab.platypus import Image as RLImage
 
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -354,20 +354,33 @@ def generate_daily_pdf_report(
                 if matches:
                     os.makedirs(os.path.dirname(logo_path), exist_ok=True)
                     img_bytes = base64.b64decode(matches[0])
-                    img = PILImage.open(io.BytesIO(img_bytes))
-                    img.save(logo_path, "PNG")
+                    img = PILImage.open(io.BytesIO(img_bytes)).convert("RGBA")
+                    w, h = img.size
+                    radius = int(min(w, h) * 0.22)
+                    scale = 4
+                    mask = PILImage.new("L", (w * scale, h * scale), 0)
+                    draw = PILImageDraw.Draw(mask)
+                    draw.rounded_rectangle((0, 0, w * scale - 1, h * scale - 1), radius=radius * scale, fill=255)
+                    mask = mask.resize((w, h), PILImage.Resampling.LANCZOS)
+                    rounded_img = PILImage.new("RGBA", (w, h), (0, 0, 0, 0))
+                    rounded_img.paste(img, (0, 0), mask=mask)
+                    rounded_img.save(logo_path, "PNG")
             except Exception as e:
-                logger.warning("Could not extract logo from SVG: %s", e)
+                logger.warning("Could not extract rounded logo from SVG: %s", e)
 
     # Header Table
     if os.path.exists(logo_path):
-        logo_img = RLImage(logo_path, width=38, height=38)
+        logo_img = RLImage(logo_path, width=40, height=40)
         brand_cell = Table(
             [[
                 logo_img,
-                Paragraph("<b>SONGKET SECURITY BOT</b><br/><font size=8.5 color='#64748B'>Songket Security Daily Report &bull; Beta version</font>", title_style)
+                Paragraph(
+                    "<b>SONGKET SECURITY DAILY REPORT</b><br/>"
+                    "<font size=8.5 color='#64748B'>Songket Security Bot &bull; Beta version</font>",
+                    title_style
+                )
             ]],
-            colWidths=[44, 300]
+            colWidths=[48, 290]
         )
         brand_cell.setStyle(TableStyle([
             ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
@@ -377,7 +390,11 @@ def generate_daily_pdf_report(
             ('BOTTOMPADDING', (0,0), (-1,-1), 0),
         ]))
     else:
-        brand_cell = Paragraph("<b>SONGKET SECURITY BOT</b><br/><font size=8.5 color='#64748B'>Songket Security Daily Report &bull; Beta version</font>", title_style)
+        brand_cell = Paragraph(
+            "<b>SONGKET SECURITY DAILY REPORT</b><br/>"
+            "<font size=8.5 color='#64748B'>Songket Security Bot &bull; Beta version</font>",
+            title_style
+        )
 
     header_data = [
         [
@@ -385,7 +402,7 @@ def generate_daily_pdf_report(
             Paragraph(f"<b>CONFIDENTIAL</b><br/>Daily Security Audit Report<br/><font size=8 color='#64748B'>Date: <b>{date_str}</b> ({today_time} Asia/Phnom_Penh)</font>", ParagraphStyle('Conf', parent=subtitle_style, alignment=2, fontName='Helvetica-Bold', textColor=colors.HexColor('#2563EB')))
         ]
     ]
-    header_table = Table(header_data, colWidths=[344, 196])
+    header_table = Table(header_data, colWidths=[340, 200])
     header_table.setStyle(TableStyle([
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
         ('BOTTOMPADDING', (0,0), (-1,-1), 2),
