@@ -348,25 +348,39 @@ def generate_daily_pdf_report(
         svg_path = os.path.join(base_dir, "miniapp", "src", "shared", "assets", "Logo.svg")
         if os.path.exists(svg_path):
             try:
-                with open(svg_path, "r", encoding="utf-8") as f:
-                    svg_content = f.read()
-                matches = re.findall(r'data:image/(?:png|jpeg|jpg);base64,([A-Za-z0-9+/=]+)', svg_content)
-                if matches:
-                    os.makedirs(os.path.dirname(logo_path), exist_ok=True)
-                    img_bytes = base64.b64decode(matches[0])
-                    img = PILImage.open(io.BytesIO(img_bytes)).convert("RGBA")
+                import subprocess
+                cmd = [
+                    "chromium",
+                    "--headless",
+                    "--disable-gpu",
+                    "--no-sandbox",
+                    f"--screenshot={logo_path}",
+                    "--window-size=500,500",
+                    "--default-background-color=00000000",
+                    f"file://{svg_path}",
+                ]
+                os.makedirs(os.path.dirname(logo_path), exist_ok=True)
+                subprocess.run(cmd, capture_output=True)
+                if os.path.exists(logo_path):
+                    img = PILImage.open(logo_path).convert("RGBA")
+                    bbox = img.getbbox()
+                    if bbox:
+                        img = img.crop(bbox)
                     w, h = img.size
-                    radius = int(min(w, h) * 0.22)
+                    max_dim = max(w, h)
+                    square_img = PILImage.new("RGBA", (max_dim, max_dim), (0, 0, 0, 0))
+                    square_img.paste(img, ((max_dim - w) // 2, (max_dim - h) // 2))
                     scale = 4
-                    mask = PILImage.new("L", (w * scale, h * scale), 0)
+                    mask = PILImage.new("L", (max_dim * scale, max_dim * scale), 0)
                     draw = PILImageDraw.Draw(mask)
-                    draw.rounded_rectangle((0, 0, w * scale - 1, h * scale - 1), radius=radius * scale, fill=255)
-                    mask = mask.resize((w, h), PILImage.Resampling.LANCZOS)
-                    rounded_img = PILImage.new("RGBA", (w, h), (0, 0, 0, 0))
-                    rounded_img.paste(img, (0, 0), mask=mask)
-                    rounded_img.save(logo_path, "PNG")
+                    radius = int(max_dim * 0.20)
+                    draw.rounded_rectangle((0, 0, max_dim * scale - 1, max_dim * scale - 1), radius=radius * scale, fill=255)
+                    mask = mask.resize((max_dim, max_dim), PILImage.Resampling.LANCZOS)
+                    final_img = PILImage.new("RGBA", (max_dim, max_dim), (0, 0, 0, 0))
+                    final_img.paste(square_img, (0, 0), mask=mask)
+                    final_img.save(logo_path, "PNG")
             except Exception as e:
-                logger.warning("Could not extract rounded logo from SVG: %s", e)
+                logger.warning("Could not render rounded logo from SVG: %s", e)
 
     # Header Table
     if os.path.exists(logo_path):
