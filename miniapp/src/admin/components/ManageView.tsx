@@ -100,7 +100,6 @@ export default function ManageView({
 
   const [newUserId, setNewUserId] = useState("");
   const [newSuperAdminId, setNewSuperAdminId] = useState("");
-  const [newGroupId, setNewGroupId] = useState("");
   const [handlerAdminId, setHandlerAdminId] = useState("");
   const [handlerGroupId, setHandlerGroupId] = useState("");
 
@@ -566,26 +565,6 @@ export default function ManageView({
     setWhitelist((prev) => prev.filter((x) => x !== id));
   }
 
-  function handleAddGroup() {
-    const trimmed = newGroupId.trim();
-    if (!trimmed) return;
-    const num = parseInt(trimmed, 10);
-    if (isNaN(num)) return;
-    if (!allowedGroups.includes(num)) {
-      setAllowedGroups((prev) => [...prev, num]);
-    }
-    setNewGroupId("");
-  }
-
-  function handleRemoveGroup(id: number) {
-    setAllowedGroups((prev) => prev.filter((x) => x !== id));
-    const updated = { ...groupHandlers };
-    Object.keys(updated).forEach((k) => {
-      updated[k] = (updated[k] || []).filter((g) => g !== id);
-    });
-    setGroupHandlers(updated);
-  }
-
   function handleAddHandlerMapping() {
     const uid = handlerAdminId.trim();
     const gid = parseInt(handlerGroupId.trim(), 10);
@@ -1014,7 +993,7 @@ export default function ManageView({
                   }}
                 >
                   <Plus size={12} />
-                  <span className={kh(lang)}>{isKm ? "ភ្ជាប់ក្រុមថ្មី" : "+ Add Group"}</span>
+                  <span className={kh(lang)}>{isKm ? "ភ្ជាប់ក្រុមថ្មី" : "Add Group"}</span>
                 </button>
               </div>
             </div>
@@ -1141,7 +1120,7 @@ export default function ManageView({
                   }}
                 >
                   <Plus size={14} />
-                  <span className={kh(lang)}>{isKm ? "➕ បន្ថែម Bot ទៅកាន់ Telegram Group (Open Telegram)" : "➕ Add Bot to Telegram Group"}</span>
+                  <span className={kh(lang)}>{isKm ? "បន្ថែម Bot ទៅកាន់ Telegram Group (Open Telegram)" : "Add Bot to Telegram Group"}</span>
                 </button>
 
                 <div style={{ display: "flex", justifyContent: "flex-end" }}>
@@ -1192,11 +1171,6 @@ export default function ManageView({
                       }}
                     >
                       <span>{gTitle}</span>
-                      {isSuperAdmin && (
-                        <span style={{ fontSize: 10, fontFamily: "JetBrains Mono, monospace", opacity: 0.7 }}>
-                          ({gid})
-                        </span>
-                      )}
                     </button>
                   );
                 })}
@@ -1813,93 +1787,7 @@ export default function ManageView({
             </div>
           </div>
 
-          {/* Monitored Groups */}
-          <div style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 14, padding: "18px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-              <MessageSquare size={16} color={G.gold} />
-              <div style={{ fontSize: 14, fontWeight: 700, color: G.text }}>
-                <span className={kh(lang)}>{tx.groupManagement}</span>
-              </div>
-            </div>
-            <div style={{ fontSize: 11, color: G.muted, marginBottom: 14 }}>
-              <span className={kh(lang)}>{tx.groupDesc}</span>
-            </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
-              {allowedGroups.length === 0 ? (
-                <div style={{ fontSize: 12, color: G.muted, fontStyle: "italic", padding: "8px 0" }}>
-                  <span className={kh(lang)}>{tx.noGroupsYet}</span>
-                </div>
-              ) : (
-                allowedGroups.map((gid) => {
-                  const gDisp = getGroupDisplay(gid, true);
-                  return (
-                    <div
-                      key={gid}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        background: G.surface2,
-                        border: `1px solid ${G.border}`,
-                        borderRadius: 8,
-                        padding: "8px 12px",
-                      }}
-                    >
-                      <div>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: G.text }}>{gDisp.title}</div>
-                        {gDisp.subtitle && (
-                          <div style={{ fontSize: 10, color: G.muted, fontFamily: "JetBrains Mono, monospace" }}>
-                            {gDisp.subtitle}
-                          </div>
-                        )}
-                      </div>
-                      <button
-                        onClick={() => handleRemoveGroup(gid)}
-                        style={{ background: "transparent", border: "none", color: G.danger, cursor: "pointer", padding: "4px", display: "flex", alignItems: "center" }}
-                        title={tx.remove}
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-            <div style={{ display: "flex", gap: 8, width: "100%", alignItems: "center" }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <input
-                  value={newGroupId}
-                  onChange={(e) => setNewGroupId(e.target.value.replace(/[^\d-]/g, ""))}
-                  placeholder={tx.addGroupPlaceholder}
-                  inputMode="numeric"
-                  style={inputStyle}
-                />
-              </div>
-              <button
-                onClick={handleAddGroup}
-                style={{
-                  background: G.gold,
-                  color: "#1a1200",
-                  border: "none",
-                  borderRadius: 8,
-                  padding: "0 14px",
-                  height: 38,
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  fontSize: 12,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 4,
-                  flexShrink: 0,
-                }}
-              >
-                <Plus size={14} />
-                <span className={kh(lang)}>{tx.add}</span>
-              </button>
-            </div>
-          </div>
 
           {/* Group Handlers */}
           <div style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 14, padding: "18px" }}>
@@ -2281,12 +2169,20 @@ export default function ManageView({
               <select
                 value={assignPlanKey}
                 onChange={(e) => setAssignPlanKey(e.target.value)}
-                style={{ ...inputStyle, width: "100%", background: G.surface2 }}
+                style={{
+                  ...inputStyle,
+                  width: "100%",
+                  background: G.surface2,
+                  color: assignPlanKey ? G.text : G.muted,
+                  cursor: "pointer",
+                }}
               >
-                <option value="">{tx.planSelect}</option>
+                <option value="" style={{ background: G.surface, color: G.muted }}>
+                  {tx.planSelect}
+                </option>
                 {Object.entries(planCatalog).map(([key, plan]) => (
-                  <option key={key} value={key}>
-                    {plan.name}
+                  <option key={key} value={key} style={{ background: G.surface, color: G.text }}>
+                    {plan.name} (${plan.price})
                   </option>
                 ))}
               </select>

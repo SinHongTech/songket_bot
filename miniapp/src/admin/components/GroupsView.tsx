@@ -182,11 +182,6 @@ export default function GroupsView({
                         <div style={{ fontSize: 13, fontWeight: 600, color: G.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           👥 {cg.title}
                         </div>
-                        {isSuperAdmin && (
-                          <div style={{ fontSize: 10, color: G.muted, fontFamily: "monospace", marginTop: 2 }}>
-                            ID: {cg.id}
-                          </div>
-                        )}
                       </div>
                       <button
                         onClick={() => handleLinkGroup(cg)}
@@ -266,7 +261,7 @@ export default function GroupsView({
               >
                 <ExternalLink size={15} />
                 <span className={kh(lang)}>
-                  {isKm ? "➕ បន្ថែម Bot ទៅកាន់ Group ថ្មី (Open Telegram)" : "➕ Add Bot to Telegram Group"}
+                  {isKm ? "បន្ថែម Bot ទៅកាន់ Group ថ្មី (Open Telegram)" : "Add Bot to Telegram Group"}
                 </span>
               </button>
             </div>

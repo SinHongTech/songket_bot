@@ -2442,13 +2442,13 @@ def get_candidate_groups_for_user(user_id: int) -> list[dict]:
 
         # Verify chat is still valid/accessible by bot
         chat_info = get_chat(gid)
-        if not chat_info:
+        if not chat_info or not chat_info.get("title"):
             to_purge.append(gid)
             continue
 
         resolved_title = chat_info.get("title") or title or f"Group {gid}"
         inviter = get_group_inviter(gid)
-        if inviter == user_id or (is_super_admin(user_id) and not inviter) or is_group_admin(user_id, gid):
+        if inviter == user_id or is_group_admin(user_id, gid):
             candidates.append({"id": gid, "title": resolved_title})
 
     for gid in to_purge:
