@@ -507,15 +507,27 @@ export default function AdminApp() {
   const [apiData, setApiData] = useState<DashboardApiResponse | null>(null);
   const [manageUnlocked, setManageUnlocked] = useState(false);
 
-  // Independent date states for each tab (1-day view default)
-  const [homeDateFrom, setHomeDateFrom] = useState<string>(() => getToday());
-  const [homeDateTo, setHomeDateTo] = useState<string>(() => getToday());
+  // Independent date states for each tab (persisted in safe storage)
+  const [homeDateFrom, setHomeDateFrom] = useState<string>(() => {
+    return safeStorage.getItem("songket.admin.homeDateFrom") || getToday();
+  });
+  const [homeDateTo, setHomeDateTo] = useState<string>(() => {
+    return safeStorage.getItem("songket.admin.homeDateTo") || getToday();
+  });
 
-  const [threatsDateFrom, setThreatsDateFrom] = useState<string>(() => getToday());
-  const [threatsDateTo, setThreatsDateTo] = useState<string>(() => getToday());
+  const [threatsDateFrom, setThreatsDateFrom] = useState<string>(() => {
+    return safeStorage.getItem("songket.admin.threatsDateFrom") || getToday();
+  });
+  const [threatsDateTo, setThreatsDateTo] = useState<string>(() => {
+    return safeStorage.getItem("songket.admin.threatsDateTo") || getToday();
+  });
 
-  const [historyDateFrom, setHistoryDateFrom] = useState<string>(() => getToday());
-  const [historyDateTo, setHistoryDateTo] = useState<string>(() => getToday());
+  const [historyDateFrom, setHistoryDateFrom] = useState<string>(() => {
+    return safeStorage.getItem("songket.admin.historyDateFrom") || getToday();
+  });
+  const [historyDateTo, setHistoryDateTo] = useState<string>(() => {
+    return safeStorage.getItem("songket.admin.historyDateTo") || getToday();
+  });
 
   const [showNotifications, setShowNotifications] = useState(false);
   const [readNotifications, setReadNotifications] = useState<Set<string>>(() => {
@@ -599,7 +611,8 @@ export default function AdminApp() {
       try { tg.expand(); } catch {}
     }
 
-    loadData(false, 31);
+    const initDays = calcDaysNeeded();
+    loadData(false, initDays);
 
     // Listen for late Telegram Desktop webview handshake
     const handleMsg = (e: MessageEvent) => {
@@ -609,7 +622,7 @@ export default function AdminApp() {
           try { d = JSON.parse(d); } catch {}
         }
         if (d && d.eventType === "web_app_setup_data" && mounted) {
-          loadData(true, 31);
+          loadData(true, calcDaysNeeded());
         }
       } catch {}
     };
@@ -617,15 +630,15 @@ export default function AdminApp() {
 
     // Auto-retry at 400ms, 1200ms, and 2500ms for Telegram Desktop webview readiness
     const t1 = setTimeout(() => {
-      if (mounted) loadData(false, 31);
+      if (mounted) loadData(false, calcDaysNeeded());
     }, 400);
 
     const t2 = setTimeout(() => {
-      if (mounted) loadData(false, 31);
+      if (mounted) loadData(false, calcDaysNeeded());
     }, 1200);
 
     const t3 = setTimeout(() => {
-      if (mounted) loadData(false, 31);
+      if (mounted) loadData(false, calcDaysNeeded());
     }, 2500);
 
     return () => {
@@ -635,7 +648,7 @@ export default function AdminApp() {
       clearTimeout(t2);
       clearTimeout(t3);
     };
-  }, [loadData]);
+  }, [loadData, calcDaysNeeded]);
 
   // Expand history data if any date filter requires more days than currently loaded
   useEffect(() => {
@@ -684,12 +697,20 @@ export default function AdminApp() {
 
   const unreadThreats = allThreats.filter(t => {
     if (readNotifications.has(t.id)) return false;
-    if (lastReadThreatTs > 0 && (t as any).timestamp && (t as any).timestamp <= lastReadThreatTs) return false;
+    if (lastReadThreatTs > 0) {
+      if ((t as any).timestamp && (t as any).timestamp <= lastReadThreatTs) return false;
+      if (t.date && !((t as any).timestamp)) {
+        try {
+          const evTs = Math.floor(new Date(t.date).getTime() / 1000);
+          if (evTs <= lastReadThreatTs) return false;
+        } catch {}
+      }
+    }
     return true;
   });
   const threatCount = unreadThreats.length;
 
-  const markAllNotificationsRead = () => {
+  const markAllNotificationsRead = useCallback(() => {
     const next = new Set(readNotifications);
     allThreats.forEach(t => next.add(t.id));
     setReadNotifications(next);
@@ -697,7 +718,7 @@ export default function AdminApp() {
     setLastReadThreatTs(nowTs);
     safeStorage.setItem("songket.admin.readNotifications", JSON.stringify([...next]));
     safeStorage.setItem("songket.admin.last_read_threat_ts", String(nowTs));
-  };
+  }, [allThreats, readNotifications]);
 
   const views: Record<Nav, React.ReactElement> = {
     dashboard: (
@@ -712,8 +733,15 @@ export default function AdminApp() {
         onDateChange={(from, to) => {
           setHomeDateFrom(from);
           setHomeDateTo(to);
+          safeStorage.setItem("songket.admin.homeDateFrom", from);
+          safeStorage.setItem("songket.admin.homeDateTo", to);
         }}
-        onNavigate={tab => setNav(tab)}
+        onNavigate={tab => {
+          if (tab === "threats" && threatCount > 0) {
+            markAllNotificationsRead();
+          }
+          setNav(tab);
+        }}
       />
     ),
     groups: (
@@ -723,7 +751,7 @@ export default function AdminApp() {
         threatEvents={apiData?.threat_events}
         isSuperAdmin={isSuperAdmin}
         lang={lang}
-        onRefresh={() => loadData(false)}
+        onRefresh={() => loadData(false, calcDaysNeeded())}
       />
     ),
     threats: (
@@ -737,6 +765,8 @@ export default function AdminApp() {
         onDateChange={(from, to) => {
           setThreatsDateFrom(from);
           setThreatsDateTo(to);
+          safeStorage.setItem("songket.admin.threatsDateFrom", from);
+          safeStorage.setItem("songket.admin.threatsDateTo", to);
         }}
       />
     ),
@@ -750,6 +780,8 @@ export default function AdminApp() {
         onDateChange={(from, to) => {
           setHistoryDateFrom(from);
           setHistoryDateTo(to);
+          safeStorage.setItem("songket.admin.historyDateFrom", from);
+          safeStorage.setItem("songket.admin.historyDateTo", to);
         }}
       />
     ),
@@ -796,7 +828,7 @@ export default function AdminApp() {
         lang={lang}
         onSuccess={() => {
           setManageUnlocked(true);
-          loadData(true, 31);
+          loadData(true, calcDaysNeeded());
         }}
       />
     ) : (
@@ -809,9 +841,10 @@ export default function AdminApp() {
         knownUsers={apiData?.known_users}
         knownGroups={apiData?.known_groups}
         dashboardGroups={apiData?.dashboard?.groups}
+        candidateGroups={apiData?.candidate_groups}
         lang={lang}
         isSuperAdmin={isSuperAdmin}
-        onRefresh={() => loadData(true, 31)}
+        onRefresh={() => loadData(true, calcDaysNeeded())}
       />
     ),
     account: (
@@ -824,7 +857,7 @@ export default function AdminApp() {
         lang={lang}
         setLang={setLang}
         onLogout={handleLogout}
-        onRefresh={() => loadData(false)}
+        onRefresh={() => loadData(false, calcDaysNeeded())}
       />
     ),
   };
@@ -871,7 +904,15 @@ export default function AdminApp() {
           </button>
 
           <button
-            onClick={() => setShowNotifications(s => !s)}
+            onClick={() => {
+              setShowNotifications(s => {
+                const next = !s;
+                if (next && threatCount > 0) {
+                  markAllNotificationsRead();
+                }
+                return next;
+              });
+            }}
             style={{
               background: showNotifications ? "rgba(212,167,44,0.12)" : "transparent",
               border: `1px solid ${showNotifications ? G.goldBorder : G.border}`,
@@ -1114,7 +1155,12 @@ export default function AdminApp() {
           return (
             <button
               key={item.id}
-              onClick={() => setNav(item.id)}
+              onClick={() => {
+                if (item.id === "threats" && threatCount > 0) {
+                  markAllNotificationsRead();
+                }
+                setNav(item.id);
+              }}
               style={{
                 flex: 1,
                 display: "flex",

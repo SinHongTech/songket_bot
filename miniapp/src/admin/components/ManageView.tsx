@@ -29,6 +29,7 @@ import type {
   DashboardGroup,
   GroupUserEntry,
   GroupFileEntry,
+  CandidateGroup,
 } from "../types";
 import {
   saveSystemConfig,
@@ -56,6 +57,7 @@ interface ManageViewProps {
   knownUsers?: Record<string, KnownUser> | null;
   knownGroups?: Record<string, string> | null;
   dashboardGroups?: DashboardGroup[] | null;
+  candidateGroups?: CandidateGroup[] | null;
   lang: Lang;
   isSuperAdmin: boolean;
   onRefresh: () => void;
@@ -70,6 +72,7 @@ export default function ManageView({
   knownUsers,
   knownGroups,
   dashboardGroups,
+  candidateGroups,
   lang,
   isSuperAdmin,
   onRefresh,
@@ -156,8 +159,6 @@ export default function ManageView({
   const [newFileName, setNewFileName] = useState("");
 
   const [showAddGroupModal, setShowAddGroupModal] = useState(false);
-  const [addGidInput, setAddGidInput] = useState("");
-  const [addGidTitleInput, setAddGidTitleInput] = useState("");
   const [addingGroup, setAddingGroup] = useState(false);
 
   const [savingGroupSettings, setSavingGroupSettings] = useState(false);
@@ -233,37 +234,6 @@ export default function ManageView({
   function triggerGroupToast(msg: string) {
     setGroupToast(msg);
     setTimeout(() => setGroupToast(null), 3000);
-  }
-
-  async function handleQuickAddGroup() {
-    const raw = addGidInput.trim();
-    if (!raw) return;
-    let num = parseInt(raw, 10);
-    if (isNaN(num)) {
-      setErrorMsg(isKm ? "សូមបញ្ចូល Group ID ត្រឹមត្រូវ (ឧ. -1003917025719)" : "Enter a valid numeric Group ID (e.g. -1003917025719)");
-      return;
-    }
-    // If user entered a positive ID without minus, negate it
-    if (num > 0) {
-      num = -num;
-    }
-
-    setAddingGroup(true);
-    setErrorMsg(null);
-    try {
-      const title = addGidTitleInput.trim() || undefined;
-      await addManagedGroup(num, title);
-      setSelectedGid(num);
-      setShowAddGroupModal(false);
-      setAddGidInput("");
-      setAddGidTitleInput("");
-      triggerGroupToast(isKm ? "បានភ្ជាប់ក្រុមថ្មីជោគជ័យ!" : "Group linked and protected successfully!");
-      onRefresh();
-    } catch (e: any) {
-      setErrorMsg(e?.message || "Failed to add group");
-    } finally {
-      setAddingGroup(false);
-    }
   }
 
   // ── Group Language / Safe Message Quick Updates ───────────────────────────
@@ -903,73 +873,139 @@ export default function ManageView({
                 style={{
                   background: G.surface2,
                   border: `1px solid ${G.goldBorder}`,
-                  borderRadius: 10,
-                  padding: "12px 14px",
-                  marginBottom: 12,
+                  borderRadius: 12,
+                  padding: "14px 16px",
+                  marginBottom: 14,
                   display: "flex",
                   flexDirection: "column",
-                  gap: 8,
+                  gap: 12,
                 }}
               >
-                <div style={{ fontSize: 12, fontWeight: 700, color: G.gold, display: "flex", alignItems: "center", gap: 5 }}>
-                  <Plus size={13} />
-                  <span className={kh(lang)}>{isKm ? "ភ្ជាប់ក្រុមការពារថ្មី (Connect Group)" : "Add / Link Managed Group"}</span>
+                <div style={{ fontSize: 13, fontWeight: 700, color: G.gold, display: "flex", alignItems: "center", gap: 6 }}>
+                  <Plus size={15} />
+                  <span className={kh(lang)}>{isKm ? "ភ្ជាប់ក្រុមការពារថ្មី (Link Group)" : "Link Telegram Group"}</span>
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                  <input
-                    type="text"
-                    value={addGidInput}
-                    onChange={(e) => setAddGidInput(e.target.value)}
-                    placeholder={isKm ? "Group ID (ឧ. -1003917025719)" : "Group ID (e.g. -1003917025719)"}
-                    style={{ ...inputStyle, fontSize: 12, padding: "7px 10px" }}
-                  />
-                  <input
-                    type="text"
-                    value={addGidTitleInput}
-                    onChange={(e) => setAddGidTitleInput(e.target.value)}
-                    placeholder={isKm ? "ឈ្មោះក្រុម (ជាជម្រើស)" : "Group Title (optional)"}
-                    style={{ ...inputStyle, fontSize: 12, padding: "7px 10px" }}
-                  />
-                </div>
-                <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 2 }}>
+
+                {/* Candidate Groups Detected */}
+                {candidateGroups && candidateGroups.length > 0 ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: G.textSec }}>
+                      <span className={kh(lang)}>
+                        {isKm ? `🔍 ក្រុមដែលបានរកឃើញ (${candidateGroups.length} ក្រុម)៖` : `🔍 Candidate Groups (${candidateGroups.length} detected):`}
+                      </span>
+                    </span>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 180, overflowY: "auto" }}>
+                      {candidateGroups.map(cg => (
+                        <div
+                          key={cg.id}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            background: G.surface,
+                            padding: "8px 12px",
+                            borderRadius: 8,
+                            border: `1px solid ${G.border}`,
+                          }}
+                        >
+                          <span style={{ fontSize: 12, fontWeight: 600, color: G.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            👥 {cg.title}
+                          </span>
+                          <button
+                            onClick={async () => {
+                              setAddingGroup(true);
+                              try {
+                                await addManagedGroup(cg.id, cg.title);
+                                triggerGroupToast(isKm ? `✅ បានភ្ជាប់ "${cg.title}" ជោគជ័យ!` : `✅ Linked "${cg.title}" successfully!`);
+                                setShowAddGroupModal(false);
+                                onRefresh();
+                              } catch (e: any) {
+                                setErrorMsg(e?.message || "Failed to link group");
+                              } finally {
+                                setAddingGroup(false);
+                              }
+                            }}
+                            disabled={addingGroup}
+                            style={{
+                              background: G.gold,
+                              color: "#1a1200",
+                              border: "none",
+                              borderRadius: 6,
+                              padding: "5px 12px",
+                              fontSize: 11,
+                              fontWeight: 700,
+                              cursor: "pointer",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 4,
+                              flexShrink: 0,
+                            }}
+                          >
+                            {addingGroup ? <Loader2 size={12} className="spin-animation" /> : <Plus size={12} />}
+                            <span className={kh(lang)}>{isKm ? "ភ្ជាប់ភ្លាមៗ" : "Link"}</span>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 11, color: G.muted, lineHeight: 1.4 }}>
+                    <span className={kh(lang)}>
+                      {isKm
+                        ? "មិនទាន់មានក្រុមដែល Bot បានចូលរួមនៅឡើយទេ។ សូម Add Bot ទៅកាន់ Telegram Group របស់អ្នកជា Admin រួចត្រឡប់មកទីនេះ។"
+                        : "No unlinked groups detected. Please add @SongketSecurityBot as Admin to your Telegram group first."}
+                    </span>
+                  </div>
+                )}
+
+                {/* Direct 1-Click Telegram Group Invite */}
+                <button
+                  onClick={() => {
+                    const botUrl = "https://t.me/songket_beyda_bot?startgroup=link";
+                    if (typeof window !== "undefined") {
+                      const tg = (window as any).Telegram?.WebApp;
+                      if (tg && typeof tg.openTelegramLink === "function") {
+                        try {
+                          tg.openTelegramLink(botUrl);
+                          return;
+                        } catch {}
+                      }
+                      window.open(botUrl, "_blank");
+                    }
+                  }}
+                  style={{
+                    background: G.surface,
+                    border: `1px solid ${G.goldBorder}`,
+                    color: G.gold,
+                    borderRadius: 8,
+                    padding: "9px 14px",
+                    fontWeight: 700,
+                    fontSize: 12,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 6,
+                  }}
+                >
+                  <Plus size={14} />
+                  <span className={kh(lang)}>{isKm ? "➕ បន្ថែម Bot ទៅកាន់ Telegram Group (Open Telegram)" : "➕ Add Bot to Telegram Group"}</span>
+                </button>
+
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
                   <button
-                    onClick={() => {
-                      setShowAddGroupModal(false);
-                      setAddGidInput("");
-                      setAddGidTitleInput("");
-                    }}
+                    onClick={() => setShowAddGroupModal(false)}
                     style={{
-                      padding: "6px 12px",
+                      padding: "4px 10px",
                       borderRadius: 6,
                       border: "none",
                       background: "transparent",
                       color: G.muted,
-                      fontSize: 12,
+                      fontSize: 11,
                       cursor: "pointer",
                     }}
                   >
-                    <span className={kh(lang)}>{isKm ? "បោះបង់" : "Cancel"}</span>
-                  </button>
-                  <button
-                    onClick={handleQuickAddGroup}
-                    disabled={addingGroup || !addGidInput.trim()}
-                    style={{
-                      padding: "6px 14px",
-                      borderRadius: 6,
-                      border: "none",
-                      background: G.gold,
-                      color: "#1a1200",
-                      fontSize: 12,
-                      fontWeight: 700,
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 5,
-                      opacity: addingGroup || !addGidInput.trim() ? 0.6 : 1,
-                    }}
-                  >
-                    {addingGroup ? <Loader2 size={12} className="spin-animation" /> : <Check size={12} />}
-                    <span className={kh(lang)}>{isKm ? "ភ្ជាប់ក្រុម" : "Connect Group"}</span>
+                    <span className={kh(lang)}>{isKm ? "បិទ" : "Close"}</span>
                   </button>
                 </div>
               </div>

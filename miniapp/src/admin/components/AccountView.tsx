@@ -32,34 +32,53 @@ export default function AccountView({
   onRefresh,
 }: AccountViewProps) {
   const tx = T(lang);
-  const [dailyReportEnabled, setDailyReportEnabled] = useState<boolean>(
-    userSettings?.daily_report_enabled !== undefined ? userSettings.daily_report_enabled : true
-  );
-  const [dailyReportTime, setDailyReportTime] = useState<string>(
-    userSettings?.daily_report_time || "07:00"
-  );
+  const [dailyReportEnabled, setDailyReportEnabled] = useState<boolean>(() => {
+    if (userSettings?.daily_report_enabled !== undefined) return userSettings.daily_report_enabled;
+    if (userSettings?.enabled !== undefined) return userSettings.enabled;
+    const cached = safeStorage.getItem("songket.daily_report_enabled");
+    return cached === null ? true : cached === "1";
+  });
+  const [dailyReportTime, setDailyReportTime] = useState<string>(() => {
+    return userSettings?.daily_report_time || userSettings?.time || safeStorage.getItem("songket.daily_report_time") || "07:00";
+  });
+  const [customTimeInput, setCustomTimeInput] = useState<string>(() => {
+    return userSettings?.daily_report_time || userSettings?.time || safeStorage.getItem("songket.daily_report_time") || "07:00";
+  });
   const [, setSavingSettings] = useState(false);
   const [settingsSavedToast, setSettingsSavedToast] = useState(false);
 
   useEffect(() => {
     if (userSettings) {
-      if (userSettings.daily_report_enabled !== undefined) {
-        setDailyReportEnabled(userSettings.daily_report_enabled);
+      const en = userSettings.daily_report_enabled !== undefined ? userSettings.daily_report_enabled : userSettings.enabled;
+      if (en !== undefined) {
+        setDailyReportEnabled(en);
+        safeStorage.setItem("songket.daily_report_enabled", en ? "1" : "0");
       }
-      if (userSettings.daily_report_time) {
-        setDailyReportTime(userSettings.daily_report_time);
+      const tm = userSettings.daily_report_time || userSettings.time;
+      if (tm) {
+        setDailyReportTime(tm);
+        setCustomTimeInput(tm);
+        safeStorage.setItem("songket.daily_report_time", tm);
       }
     }
   }, [userSettings]);
 
   async function handleUpdateDailySettings(newEnabled: boolean, newTime: string) {
+    let cleanTime = (newTime || "07:00").trim();
+    if (/^([0-9]|0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$/.test(cleanTime)) {
+      const [h, m] = cleanTime.split(":");
+      cleanTime = `${h.padStart(2, "0")}:${m.padStart(2, "0")}`;
+    }
     setDailyReportEnabled(newEnabled);
-    setDailyReportTime(newTime);
+    setDailyReportTime(cleanTime);
+    setCustomTimeInput(cleanTime);
+    safeStorage.setItem("songket.daily_report_enabled", newEnabled ? "1" : "0");
+    safeStorage.setItem("songket.daily_report_time", cleanTime);
     setSavingSettings(true);
     try {
       await saveUserSettings({
         daily_report_enabled: newEnabled,
-        daily_report_time: newTime,
+        daily_report_time: cleanTime,
       });
       setSettingsSavedToast(true);
       setTimeout(() => setSettingsSavedToast(false), 2500);
@@ -447,21 +466,22 @@ export default function AccountView({
               })}
             </div>
 
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               <span style={{ fontSize: 11, color: G.muted }}>
                 <span className={kh(lang)}>{isKm ? "ម៉ោងផ្ទាល់ខ្លួន (Custom):" : "Custom HH:MM:"}</span>
               </span>
               <input
                 type="time"
-                value={dailyReportTime}
+                value={customTimeInput}
                 onChange={(e) => {
+                  setCustomTimeInput(e.target.value);
                   if (e.target.value) {
                     handleUpdateDailySettings(true, e.target.value);
                   }
                 }}
                 style={{
                   background: G.surface2,
-                  border: `1px solid ${G.border}`,
+                  border: `1px solid ${G.goldBorder}`,
                   borderRadius: 6,
                   color: G.text,
                   padding: "4px 8px",
@@ -470,6 +490,21 @@ export default function AccountView({
                   fontFamily: "monospace",
                 }}
               />
+              <button
+                onClick={() => handleUpdateDailySettings(true, customTimeInput)}
+                style={{
+                  background: G.gold,
+                  color: "#1a1200",
+                  border: "none",
+                  borderRadius: 6,
+                  padding: "5px 10px",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                }}
+              >
+                <span className={kh(lang)}>{isKm ? "រក្សាទុកម៉ោង" : "Save Time"}</span>
+              </button>
               {settingsSavedToast && (
                 <span style={{ fontSize: 11, color: G.safe, display: "flex", alignItems: "center", gap: 4 }}>
                   <Check size={12} /> {isKm ? "បានរក្សាទុក" : "Saved"}
