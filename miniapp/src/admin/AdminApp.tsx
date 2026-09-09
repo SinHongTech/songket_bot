@@ -569,6 +569,28 @@ export default function AdminApp() {
     safeStorage.setItem("songket.lang", lang);
   }, [lang]);
 
+  useEffect(() => {
+    // Attempt to load cloud stored date preferences if available in Telegram WebApp
+    safeStorage.loadCloudItems(
+      [
+        "songket.admin.homeDateFrom",
+        "songket.admin.homeDateTo",
+        "songket.admin.threatsDateFrom",
+        "songket.admin.threatsDateTo",
+        "songket.admin.historyDateFrom",
+        "songket.admin.historyDateTo",
+      ],
+      (items) => {
+        if (items["songket.admin.homeDateFrom"]) setHomeDateFrom(items["songket.admin.homeDateFrom"]);
+        if (items["songket.admin.homeDateTo"]) setHomeDateTo(items["songket.admin.homeDateTo"]);
+        if (items["songket.admin.threatsDateFrom"]) setThreatsDateFrom(items["songket.admin.threatsDateFrom"]);
+        if (items["songket.admin.threatsDateTo"]) setThreatsDateTo(items["songket.admin.threatsDateTo"]);
+        if (items["songket.admin.historyDateFrom"]) setHistoryDateFrom(items["songket.admin.historyDateFrom"]);
+        if (items["songket.admin.historyDateTo"]) setHistoryDateTo(items["songket.admin.historyDateTo"]);
+      }
+    );
+  }, []);
+
   const calcDaysNeeded = useCallback(() => {
     const checkRange = (from: string, to: string) => {
       try {
@@ -1121,19 +1143,7 @@ export default function AdminApp() {
       <main style={{ flex: 1, overflowY: "auto", padding: "16px 16px 24px" }}>
         {loading || refreshing ? (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "65%", gap: 16, color: G.muted }}>
-            <div style={{ position: "relative", width: 44, height: 44, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <div
-                style={{
-                  position: "absolute",
-                  inset: 0,
-                  borderRadius: "50%",
-                  border: `3px solid rgba(212,167,44,0.18)`,
-                  borderTopColor: G.gold,
-                  animation: "spin 0.85s linear infinite",
-                }}
-              />
-              <Loader2 size={20} color={G.gold} className="spin-animation" />
-            </div>
+            <Loader2 size={36} color={G.gold} className="spin-animation" />
             <div style={{ fontSize: 13, fontWeight: 600, color: G.textSec }}>
               <span className={kh(lang)}>
                 {refreshing
