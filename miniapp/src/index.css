@@ -58,8 +58,13 @@ html, body, #root {
 
 .mono { font-family: 'JetBrains Mono', monospace; }
 
-::-webkit-scrollbar { width: 2px; }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+::-webkit-scrollbar { width: 2px; height: 2px; }
+::-webkit-scrollbar-track { background: transparent; border-radius: 999px; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: var(--gold-dim); }
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
 @keyframes glow-pulse {
   0%, 100% { box-shadow: 0 0 12px rgba(245,184,0,0.5); }

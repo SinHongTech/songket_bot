@@ -1240,6 +1240,7 @@ def get_user_daily_report_settings(user_id: int) -> dict:
         "threats_date_to": str(data.get("threats_date_to") or ""),
         "history_date_from": str(data.get("history_date_from") or ""),
         "history_date_to": str(data.get("history_date_to") or ""),
+        "last_read_threat_ts": int(data.get("last_read_threat_ts") or 0),
     }
 
 
@@ -1285,6 +1286,7 @@ def set_user_date_preferences(
     threats_date_to: Optional[str] = None,
     history_date_from: Optional[str] = None,
     history_date_to: Optional[str] = None,
+    last_read_threat_ts: Optional[int] = None,
 ) -> bool:
     """Update user dashboard date filter preferences in persistent KV store."""
     data = kv_json_get(f"settings:user:{user_id}") or {}
@@ -1302,6 +1304,11 @@ def set_user_date_preferences(
         data["history_date_from"] = str(history_date_from).strip()
     if history_date_to is not None:
         data["history_date_to"] = str(history_date_to).strip()
+    if last_read_threat_ts is not None:
+        try:
+            data["last_read_threat_ts"] = int(last_read_threat_ts)
+        except Exception:
+            pass
     return kv_json_set(f"settings:user:{user_id}", data)
 
 

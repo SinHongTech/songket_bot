@@ -264,7 +264,12 @@ class handler(BaseHTTPRequestHandler):
                     reset_pin_fail(matched_uid)
                     token = create_session(matched_uid)
                     logger.info("[PIN] login_pin SUCCESS for uid=%d", matched_uid)
-                    return self._json(200, {"ok": True, "session": token, "user_id": matched_uid})
+                    matched_user = {"id": matched_uid}
+                    full_data = self._full_payload(matched_uid, matched_user, is_super_admin(matched_uid), body, session=token)
+                    full_data["ok"] = True
+                    full_data["session"] = token
+                    full_data["user_id"] = matched_uid
+                    return self._json(200, full_data)
 
                 rec_uid = candidate_uids[0] if candidate_uids else (next(iter(primary_admin_ids())) if primary_admin_ids() else 0)
                 fails = record_pin_fail(rec_uid)
@@ -294,7 +299,12 @@ class handler(BaseHTTPRequestHandler):
                     reset_pin_fail(matched_uid)
                     token = create_session(matched_uid)
                     logger.info("[TOTP] login_totp SUCCESS for uid=%d", matched_uid)
-                    return self._json(200, {"ok": True, "session": token, "user_id": matched_uid})
+                    matched_user = {"id": matched_uid}
+                    full_data = self._full_payload(matched_uid, matched_user, is_super_admin(matched_uid), body, session=token)
+                    full_data["ok"] = True
+                    full_data["session"] = token
+                    full_data["user_id"] = matched_uid
+                    return self._json(200, full_data)
 
                 logger.warning("[TOTP] login_totp failed: invalid code")
                 return self._json(400, {"ok": False, "error": "Invalid 2FA code or backup code"})
@@ -423,7 +433,10 @@ class handler(BaseHTTPRequestHandler):
                 reset_pin_fail(uid)
                 token = create_session(uid)
                 logger.info("[PIN] setup_pin SUCCESS for uid=%d", uid)
-                return self._json(200, {"ok": True, "session": token})
+                full_data = self._full_payload(uid, user or {"id": uid}, is_super_admin(uid), body, session=token)
+                full_data["ok"] = True
+                full_data["session"] = token
+                return self._json(200, full_data)
 
             if action == "login_pin":
                 lock = pin_lock_seconds(uid)
@@ -434,7 +447,10 @@ class handler(BaseHTTPRequestHandler):
                     reset_pin_fail(uid)
                     token = create_session(uid)
                     logger.info("[PIN] login_pin SUCCESS for uid=%d", uid)
-                    return self._json(200, {"ok": True, "session": token})
+                    full_data = self._full_payload(uid, user or {"id": uid}, is_super_admin(uid), body, session=token)
+                    full_data["ok"] = True
+                    full_data["session"] = token
+                    return self._json(200, full_data)
                 fails = record_pin_fail(uid)
                 logger.warning("[PIN] login_pin INCORRECT for uid=%d (attempt=%s)", uid, fails.get("count", 0))
                 return self._json(
@@ -704,6 +720,7 @@ class handler(BaseHTTPRequestHandler):
                     threats_date_to=body.get("threats_date_to"),
                     history_date_from=body.get("history_date_from"),
                     history_date_to=body.get("history_date_to"),
+                    last_read_threat_ts=body.get("last_read_threat_ts"),
                 )
                 return self._json(200, {"ok": ok, "user_settings": get_user_daily_report_settings(uid)})
 

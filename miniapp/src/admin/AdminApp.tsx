@@ -217,7 +217,7 @@ function PinGate({
   mode: "setup" | "login";
   locked: number;
   lang: Lang;
-  onSuccess: () => void;
+  onSuccess: (data?: any) => void;
 }) {
   const tx = T(lang);
   const [pin, setPin] = useState("");
@@ -279,7 +279,7 @@ function PinGate({
       } else {
         setShowTotpReset(true);
       }
-    } catch {
+    } catch (e: any) {
       setShowTotpReset(true);
     } finally {
       setBusy(false);
@@ -287,26 +287,23 @@ function PinGate({
   }
 
   async function handleTotpResetSubmit() {
-    if (!totpCode.trim()) {
-      setErr(isKm ? "សូមបញ្ចូលកូដ Authenticator ឬ Backup Code" : "Enter Authenticator or Backup Code");
-      return;
-    }
+    if (!totpCode.trim()) return;
     setErr(null);
     setBusy(true);
     try {
-      const res = await resetPinWithTotp(totpCode);
+      const res = await resetPinWithTotp(totpCode.trim());
       if (res.ok) {
         setShowTotpReset(false);
         setTotpCode("");
         setPin("");
         setConfirm("");
         setCurrentMode("setup");
-        setInfo(isKm ? "ផ្ទៀងផ្ទាត់ 2FA ជោគជ័យ! សូមបង្កើតកូដសម្ងាត់ PIN ៦ ខ្ទង់ថ្មី។" : "2FA Verified! Please create your new 6-digit PIN.");
+        setInfo(isKm ? "ផ្ទៀងផ្ទាត់ 2FA ជោគជ័យ! សូមបង្កើតកូដសម្ងាត់ ៦ ខ្ទង់ថ្មី។" : "2FA verified! Please create your new 6-digit PIN.");
       } else {
-        setErr(res.error || (isKm ? "កូដមិនត្រឹមត្រូវ" : "Invalid code"));
+        setErr(res.error || (isKm ? "លេខកូដ 2FA មិនត្រឹមត្រូវ" : "Invalid 2FA code"));
       }
     } catch (e: any) {
-      setErr(e?.message || "Verification failed");
+      setErr(e?.message || (isKm ? "លេខកូដ 2FA មិនត្រឹមត្រូវ" : "Invalid 2FA code"));
     } finally {
       setBusy(false);
     }
@@ -326,9 +323,9 @@ function PinGate({
     setBusy(true);
     try {
       const res = currentMode === "setup" ? await setupPin(pin, confirm) : await loginPin(pin);
-      if (res && res.session) {
-        setSessionToken(res.session);
-        onSuccess();
+      if (res && (res.session || res.authorized || res.ok)) {
+        if (res.session) setSessionToken(res.session);
+        onSuccess(res);
         return;
       }
       if (res && res.locked) setRemaining(res.locked);
@@ -547,10 +544,16 @@ export default function AdminApp() {
   const [lastReadThreatTs, setLastReadThreatTs] = useState<number>(() => {
     try {
       const saved = safeStorage.getItem("songket.admin.last_read_threat_ts");
-      return saved ? parseInt(saved, 10) : 0;
+      if (saved) {
+        const parsed = parseInt(saved, 10);
+        if (!isNaN(parsed) && parsed > 0) return parsed;
+      }
     } catch {
       return 0;
     }
+    const now = Math.floor(Date.now() / 1000);
+    safeStorage.setItem("songket.admin.last_read_threat_ts", String(now));
+    return now;
   });
 
   const tx = T(lang);
@@ -579,6 +582,7 @@ export default function AdminApp() {
         "songket.admin.threatsDateTo",
         "songket.admin.historyDateFrom",
         "songket.admin.historyDateTo",
+        "songket.admin.last_read_threat_ts",
       ],
       (items) => {
         if (items["songket.admin.homeDateFrom"]) setHomeDateFrom(items["songket.admin.homeDateFrom"]);
@@ -587,6 +591,10 @@ export default function AdminApp() {
         if (items["songket.admin.threatsDateTo"]) setThreatsDateTo(items["songket.admin.threatsDateTo"]);
         if (items["songket.admin.historyDateFrom"]) setHistoryDateFrom(items["songket.admin.historyDateFrom"]);
         if (items["songket.admin.historyDateTo"]) setHistoryDateTo(items["songket.admin.historyDateTo"]);
+        if (items["songket.admin.last_read_threat_ts"]) {
+          const cloudTs = parseInt(items["songket.admin.last_read_threat_ts"], 10);
+          if (!isNaN(cloudTs) && cloudTs > 0) setLastReadThreatTs(cloudTs);
+        }
       }
     );
   }, []);
@@ -620,6 +628,10 @@ export default function AdminApp() {
       if (us.history_date_to) {
         setHistoryDateTo(us.history_date_to);
         safeStorage.setItem("songket.admin.historyDateTo", us.history_date_to);
+      }
+      if (us.last_read_threat_ts && Number(us.last_read_threat_ts) > 0) {
+        setLastReadThreatTs(Number(us.last_read_threat_ts));
+        safeStorage.setItem("songket.admin.last_read_threat_ts", String(us.last_read_threat_ts));
       }
     }
   }, [apiData]);
@@ -756,6 +768,7 @@ export default function AdminApp() {
     setLastReadThreatTs(nowTs);
     safeStorage.setItem("songket.admin.readNotifications", JSON.stringify([...next]));
     safeStorage.setItem("songket.admin.last_read_threat_ts", String(nowTs));
+    saveUserDatePreferences({ last_read_threat_ts: nowTs }).catch(() => {});
   }, [allThreats, readNotifications]);
 
   const views: Record<Nav, React.ReactElement> = {
@@ -867,9 +880,13 @@ export default function AdminApp() {
         mode={apiData?.pin_exists ? "login" : "setup"}
         locked={apiData?.locked || 0}
         lang={lang}
-        onSuccess={() => {
+        onSuccess={(res) => {
           setManageUnlocked(true);
-          loadData(true, 90);
+          if (res && (res.config || res.dashboard || res.authorized)) {
+            setApiData(res);
+          } else {
+            loadData(false, 90, true);
+          }
         }}
       />
     ) : (
@@ -946,13 +963,7 @@ export default function AdminApp() {
 
           <button
             onClick={() => {
-              setShowNotifications(s => {
-                const next = !s;
-                if (next && threatCount > 0) {
-                  markAllNotificationsRead();
-                }
-                return next;
-              });
+              setShowNotifications(s => !s);
             }}
             style={{
               background: showNotifications ? "rgba(212,167,44,0.12)" : "transparent",
