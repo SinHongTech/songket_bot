@@ -268,7 +268,13 @@ class TelegramAPI:
                 },
             },
         )
-        return data.get("ok", False)
+        if data.get("ok"):
+            return True
+        desc = (data.get("description") or "").lower()
+        if "chat owner" in desc or "administrator" in desc or "not enough rights" in desc:
+            logger.info("unrestrict_chat_member: user %s is owner/admin in chat %s (already unrestricted)", user_id, chat_id)
+            return True
+        return False
 
     def ban_chat_member(self, chat_id: int, user_id: int) -> bool:
         return self._post("banChatMember", {"chat_id": chat_id, "user_id": user_id}).get("ok", False)

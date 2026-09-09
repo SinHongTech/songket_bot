@@ -88,6 +88,20 @@ logger = logging.getLogger("BeydaBot.handlers")
 
 
 def _get_admin_chat_ids(chat_id: int = 0) -> set[int]:
+    """Return the set of Telegram admin user IDs who explicitly handle this group."""
+    if chat_id:
+        try:
+            h_map = explicit_group_map()
+            handling_admins = set()
+            for uid, grps in h_map.items():
+                if chat_id in grps:
+                    handling_admins.add(uid)
+            if handling_admins:
+                return handling_admins
+        except Exception:
+            pass
+
+    # Fallback to super admins only if no explicit admin handles this group
     admins = set(super_admin_ids())
     if config.ADMIN_CHAT_ID:
         for item in str(config.ADMIN_CHAT_ID).split(","):
@@ -97,14 +111,6 @@ def _get_admin_chat_ids(chat_id: int = 0) -> set[int]:
                     admins.add(int(item))
                 except ValueError:
                     pass
-    if chat_id:
-        try:
-            h_map = explicit_group_map()
-            for uid, grps in h_map.items():
-                if chat_id in grps:
-                    admins.add(uid)
-        except Exception:
-            pass
     return admins
 
 
@@ -908,16 +914,20 @@ def _send_threat_alert(
     admin_targets = _get_admin_chat_ids(chat_id)
     chat_info = api.get_chat(chat_id) if hasattr(api, "get_chat") else None
     group_name = (chat_info or {}).get("title") or "Group"
+
+    consensus_extra = f"\n{extra.strip()}\n" if extra.strip() else ""
+    admin_alert_text = (
+        f"🚨 <b>Security Threat Alert | Group Alert</b>\n\n"
+        f"👥 <b>Group :</b> <b>{esc(group_name)}</b>\n"
+        f"👤 <b>Sender :</b> {user_display}\n"
+        f"🎯 <b>Target :</b> <code>{esc(flag)}</code>\n"
+        f"⚡ <b>Action :</b> {action_en} ({action_kh})\n"
+        f"{consensus_extra}\n"
+        f"👇 <i>Admin Controls (False Positive Whitelist / Moderation):</i>"
+    )
+
     for admin_id in admin_targets:
         try:
-            admin_alert_text = (
-                f"🚨 <b>Security Threat Alert | Group Alert</b>\n"
-                f"👥 <b>Group :</b> <b>{esc(group_name)}</b>\n"
-                f"👤 <b>Sender :</b> {user_display}\n"
-                f"🎯 <b>Target :</b> <code>{esc(flag)}</code>\n\n"
-                f"{text}\n\n"
-                f"👇 <i>Admin Controls (False Positive Whitelist / Moderation):</i>"
-            )
             api.send_message(admin_id, admin_alert_text, reply_markup=admin_reply_markup)
         except Exception as exc:
             logger.error("Admin threat alert failed for admin %s: %s", admin_id, exc)
@@ -1830,12 +1840,15 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
         if len(parts) == 3:
             gid = int(parts[1])
             target_uid = int(parts[2])
-            if not (is_super_admin(user_id) or api.is_group_admin(user_id, gid)):
+            if not (is_super_admin(user_id) or user_id in _get_admin_chat_ids(gid) or api.is_group_admin(user_id, gid)):
                 api.answer_callback_query(query_id, text="❌ Admin only / សម្រាប់តែ Admin ក្រុមប៉ុណ្ណោះ", show_alert=True)
+                return
+            remove_group_muted_user(gid, target_uid)
+            if is_super_admin(target_uid) or api.is_group_admin(target_uid, gid):
+                api.answer_callback_query(query_id, text="🔊 User is chat owner/admin (already has full permissions) / ម្ចាស់ក្រុម/Admin មានសិទ្ធិពេញលេញស្រាប់!", show_alert=True)
                 return
             unmuted = api.unrestrict_chat_member(gid, target_uid)
             if unmuted:
-                remove_group_muted_user(gid, target_uid)
                 api.answer_callback_query(query_id, text="🔊 User unmuted / បានបើកសិទ្ធិផ្ញើសារឡើងវិញ!", show_alert=True)
                 api.send_message(gid, "🔊 <b>Admin Action:</b> Member has been unmuted by admin.")
                 if chat_id > 0:
@@ -1849,7 +1862,7 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
         if len(parts) == 3:
             gid = int(parts[1])
             target_uid = int(parts[2])
-            if not (is_super_admin(user_id) or api.is_group_admin(user_id, gid)):
+            if not (is_super_admin(user_id) or user_id in _get_admin_chat_ids(gid) or api.is_group_admin(user_id, gid)):
                 api.answer_callback_query(query_id, text="❌ Admin only / សម្រាប់តែ Admin ក្រុមប៉ុណ្ណោះ", show_alert=True)
                 return
             if is_super_admin(target_uid) or api.is_group_admin(target_uid, gid):
@@ -1871,7 +1884,7 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
         if len(parts) == 3:
             gid = int(parts[1])
             target_uid = int(parts[2])
-            if not (is_super_admin(user_id) or api.is_group_admin(user_id, gid)):
+            if not (is_super_admin(user_id) or user_id in _get_admin_chat_ids(gid) or api.is_group_admin(user_id, gid)):
                 api.answer_callback_query(query_id, text="❌ Admin only / សម្រាប់តែ Admin ក្រុមប៉ុណ្ណោះ", show_alert=True)
                 return
             if is_super_admin(target_uid) or api.is_group_admin(target_uid, gid):
@@ -1892,7 +1905,7 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
         if len(parts) == 3:
             gid = int(parts[1])
             target_uid = int(parts[2])
-            if not (is_super_admin(user_id) or api.is_group_admin(user_id, gid)):
+            if not (is_super_admin(user_id) or user_id in _get_admin_chat_ids(gid) or api.is_group_admin(user_id, gid)):
                 api.answer_callback_query(query_id, text="❌ Admin only / សម្រាប់តែ Admin ក្រុមប៉ុណ្ណោះ", show_alert=True)
                 return
             if is_super_admin(target_uid) or api.is_group_admin(target_uid, gid):
@@ -1914,7 +1927,7 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
         if len(parts) == 3:
             gid = int(parts[1])
             domain_to_add = parts[2].strip()
-            if not (is_super_admin(user_id) or api.is_group_admin(user_id, gid)):
+            if not (is_super_admin(user_id) or user_id in _get_admin_chat_ids(gid) or api.is_group_admin(user_id, gid)):
                 api.answer_callback_query(query_id, text="❌ Admin only / សម្រាប់តែ Admin ក្រុមប៉ុណ្ណោះ", show_alert=True)
                 return
             add_domain_whitelist(domain_to_add)
