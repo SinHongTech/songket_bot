@@ -1354,8 +1354,7 @@ def _html_to_pdf(html_content: str) -> Optional[bytes]:
 
 
 def _register_report_fonts() -> tuple[str, str]:
-    """Register NotoSansKhmer fonts if available for Khmer and Latin rendering."""
-    import os
+    """Register Battambang or NotoSansKhmer fonts if available for Khmer and Latin rendering."""
     from reportlab.pdfbase import pdfmetrics
     from reportlab.pdfbase.ttfonts import TTFont
 
@@ -1367,16 +1366,21 @@ def _register_report_fonts() -> tuple[str, str]:
         os.path.join(os.path.dirname(base_dir), "miniapp", "api", "assets"),
         "/usr/share/fonts/truetype/noto",
     ]
-    for d in candidates:
-        r_p = os.path.join(d, "NotoSansKhmer-Regular.ttf")
-        b_p = os.path.join(d, "NotoSansKhmer-Bold.ttf")
-        if os.path.exists(r_p) and os.path.exists(b_p):
-            try:
-                pdfmetrics.registerFont(TTFont("SongketKhmer", r_p))
-                pdfmetrics.registerFont(TTFont("SongketKhmer-Bold", b_p))
-                return "SongketKhmer", "SongketKhmer-Bold"
-            except Exception as e:
-                logger.warning("Failed to register SongketKhmer font from %s: %s", d, e)
+    font_pairs = [
+        ("Battambang-Regular.ttf", "Battambang-Bold.ttf", "SongketBattambang", "SongketBattambang-Bold"),
+        ("NotoSansKhmer-Regular.ttf", "NotoSansKhmer-Bold.ttf", "SongketKhmer", "SongketKhmer-Bold"),
+    ]
+    for r_file, b_file, r_name, b_name in font_pairs:
+        for d in candidates:
+            r_p = os.path.join(d, r_file)
+            b_p = os.path.join(d, b_file)
+            if os.path.exists(r_p) and os.path.exists(b_p):
+                try:
+                    pdfmetrics.registerFont(TTFont(r_name, r_p))
+                    pdfmetrics.registerFont(TTFont(b_name, b_p))
+                    return r_name, b_name
+                except Exception as e:
+                    logger.warning("Failed to register %s font from %s: %s", r_name, d, e)
     return "Helvetica", "Helvetica-Bold"
 
 
