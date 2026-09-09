@@ -75,19 +75,65 @@ class TelegramAPI:
         self._post("deleteWebhook", {"drop_pending_updates": False})
 
     # ── messaging ────────────────────────────────────────────────────────
-    def send_message(self, chat_id: int, text: str, reply_markup: Optional[dict] = None) -> Optional[int]:
+    def send_message(
+        self,
+        chat_id: int,
+        text: str,
+        reply_markup: Optional[dict] = None,
+        parse_mode: str = "HTML",
+        disable_web_page_preview: bool = True,
+        **kwargs,
+    ) -> Optional[int]:
         payload: dict = {
             "chat_id": chat_id,
             "text": text,
-            "parse_mode": "HTML",
-            "disable_web_page_preview": True,
+            "parse_mode": parse_mode,
+            "disable_web_page_preview": disable_web_page_preview,
         }
         if reply_markup:
             payload["reply_markup"] = reply_markup
+        payload.update(kwargs)
         data = self._post("sendMessage", payload)
         if data.get("ok"):
             return data["result"]["message_id"]
         return None
+
+    def send_document(
+        self,
+        chat_id: int,
+        document: bytes | tuple[str, bytes] | tuple[str, bytes, str],
+        caption: Optional[str] = None,
+        reply_markup: Optional[dict] = None,
+        parse_mode: str = "HTML",
+        filename: str = "security_report.pdf",
+    ) -> Optional[int]:
+        try:
+            data: dict = {
+                "chat_id": str(chat_id),
+                "parse_mode": parse_mode,
+            }
+            if caption:
+                data["caption"] = caption
+            if reply_markup:
+                data["reply_markup"] = json.dumps(reply_markup)
+
+            if isinstance(document, bytes):
+                files = {"document": (filename, document, "application/pdf")}
+            elif isinstance(document, tuple):
+                files = {"document": document}
+            else:
+                files = {"document": (filename, document, "application/octet-stream")}
+
+            r = self.session.post(f"{self.api_base}/sendDocument", data=data, files=files, timeout=30)
+            res = r.json()
+            if res.get("ok"):
+                return res["result"]["message_id"]
+            else:
+                logger.warning("sendDocument failed: %s", res)
+                return None
+        except Exception as exc:
+            logger.error("sendDocument error: %s", exc)
+            return None
 
     def edit_message_text(
         self,

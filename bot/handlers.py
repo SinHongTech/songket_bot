@@ -68,6 +68,7 @@ from bot.redis_client import (
 )
 from bot.reports import (
     format_daily_dm_report,
+    generate_daily_pdf_report,
     get_user_daily_report_settings,
     record_report,
     set_user_daily_report_settings,
@@ -1788,6 +1789,15 @@ def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
                     rep = format_daily_dm_report(api, user_id)
                     if rep:
                         api.send_message(chat_id, rep, parse_mode="HTML")
+                        pdf_data = generate_daily_pdf_report(api, user_id)
+                        if pdf_data:
+                            from bot.reports import local_date
+                            api.send_document(
+                                chat_id,
+                                pdf_data,
+                                caption="📄 <b>Songket Security Daily Report (Beta version)</b>",
+                                filename=f"Songket_Security_Daily_Report_{local_date()}.pdf",
+                            )
                     else:
                         api.send_message(chat_id, "⚠️ មិនមានក្រុមដែលកំពុងការពារដើម្បីបង្កើតរបាយការណ៍ទេ (No active monitored groups).")
                     return
@@ -1953,6 +1963,15 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
             rep = format_daily_dm_report(api, target_uid)
             if rep:
                 api.send_message(chat_id, rep, parse_mode="HTML")
+                pdf_data = generate_daily_pdf_report(api, target_uid)
+                if pdf_data:
+                    from bot.reports import local_date
+                    api.send_document(
+                        chat_id,
+                        pdf_data,
+                        caption="📄 <b>Songket Security Daily Report (Beta version)</b>",
+                        filename=f"Songket_Security_Daily_Report_{local_date()}.pdf",
+                    )
             else:
                 api.send_message(chat_id, "⚠️ មិនមានក្រុមដែលកំពុងការពារដើម្បីបង្កើតរបាយការណ៍ទេ (No active monitored groups).")
             return

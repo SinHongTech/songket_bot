@@ -30,6 +30,7 @@ export default function ThreatsView({
   onDateChange,
 }: ThreatsViewProps) {
   const tx = T(lang);
+  const isKm = lang === "km";
   const [riskFilter, setRiskFilter] = useState<RiskFilter>("all");
 
   const riskLabel = (f: RiskFilter): string => {
@@ -140,7 +141,58 @@ export default function ThreatsView({
         )}
       </div>
 
-      {/* Date filter (1-day default) */}
+      {/* Quick Date Presets */}
+      <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 2 }}>
+        {[
+          {
+            label: isKm ? "24 ម៉ោង (Today)" : "Today / 24h",
+            from: new Date().toISOString().split("T")[0],
+            to: new Date().toISOString().split("T")[0],
+          },
+          {
+            label: isKm ? "7 ថ្ងៃ (7D)" : "Last 7 Days",
+            from: (() => {
+              const d = new Date();
+              d.setDate(d.getDate() - 7);
+              return d.toISOString().split("T")[0];
+            })(),
+            to: new Date().toISOString().split("T")[0],
+          },
+          {
+            label: isKm ? "30 ថ្ងៃ (30D)" : "Last 30 Days",
+            from: (() => {
+              const d = new Date();
+              d.setDate(d.getDate() - 30);
+              return d.toISOString().split("T")[0];
+            })(),
+            to: new Date().toISOString().split("T")[0],
+          },
+        ].map(btn => {
+          const active = dateFrom === btn.from && dateTo === btn.to;
+          return (
+            <button
+              key={btn.label}
+              onClick={() => onDateChange(btn.from, btn.to)}
+              style={{
+                padding: "5px 12px",
+                borderRadius: 8,
+                border: `1px solid ${active ? G.goldBorder : G.border}`,
+                background: active ? G.goldSurface : G.surface,
+                color: active ? G.gold : G.textSec,
+                fontSize: 11,
+                fontWeight: active ? 700 : 500,
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+                transition: "all 0.15s",
+              }}
+            >
+              <span className={kh(lang)}>{btn.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Date filter */}
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1 }}>
           <span style={{ fontSize: 10, fontWeight: 600, color: G.muted }}>
