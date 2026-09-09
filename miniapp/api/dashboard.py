@@ -204,9 +204,11 @@ def build_dashboard(user_id: int, days: int = 31) -> dict:
             daily.append(row)
             for k in totals:
                 totals[k] += row[k]
-        if not title:
+        if not title or title == str(gid) or title == "Group":
             chat = get_chat(gid)
-            title = (chat or {}).get("title") or str(gid)
+            title = (chat or {}).get("title") or (get_known_groups().get(str(gid))) or str(gid)
+        if title and title != str(gid) and title != "Group":
+            record_known_group(gid, title)
         groups.append({"id": gid, "title": title, "daily": daily})
 
     return {"authorized": True, "user_id": user_id, "groups": groups, "totals": totals, "days": history_days}
