@@ -6,6 +6,7 @@ import {
   Trash2,
   Check,
   ShieldCheck,
+  ShieldAlert,
   Loader2,
   Save,
   ArrowRight,
@@ -17,6 +18,7 @@ import {
   CheckCircle2,
   AlertOctagon,
   Shield,
+  X,
 } from "lucide-react";
 import { G, type Lang } from "../palette";
 import { t as T, kh } from "../i18n";
@@ -46,6 +48,8 @@ import {
   removeGroupWhitelistFile,
   addManagedGroup,
   removeManagedGroup,
+  addSuperAdmin,
+  removeSuperAdmin,
 } from "../api";
 import { SectionHeader } from "./Badges";
 
@@ -86,13 +90,25 @@ export default function ManageView({
 
   // ── Super Admin System State ──────────────────────────────────────────────
   const [whitelist, setWhitelist] = useState<number[]>([]);
+  const [superAdminIds, setSuperAdminIds] = useState<number[]>([]);
   const [allowedGroups, setAllowedGroups] = useState<number[]>([]);
   const [groupHandlers, setGroupHandlers] = useState<Record<string, number[]>>({});
 
+  const primaryAdminIds = useMemo<number[]>(() => {
+    return config?.primary_admin_ids || [];
+  }, [config?.primary_admin_ids]);
+
   const [newUserId, setNewUserId] = useState("");
+  const [newSuperAdminId, setNewSuperAdminId] = useState("");
   const [newGroupId, setNewGroupId] = useState("");
   const [handlerAdminId, setHandlerAdminId] = useState("");
   const [handlerGroupId, setHandlerGroupId] = useState("");
+
+  // ── Super Admin TOTP Verification State ──────────────────────────────────
+  const [totpActionModal, setTotpActionModal] = useState<{ type: "add" | "remove"; targetId: number } | null>(null);
+  const [totpActionCode, setTotpActionCode] = useState("");
+  const [totpActionBusy, setTotpActionBusy] = useState(false);
+  const [totpActionErr, setTotpActionErr] = useState<string | null>(null);
 
   const [saving, setSaving] = useState(false);
   const [savedToast, setSavedToast] = useState(false);
@@ -180,6 +196,7 @@ export default function ManageView({
   useEffect(() => {
     if (config) {
       setWhitelist(config.whitelist_user_ids || []);
+      setSuperAdminIds(config.super_admin_ids || []);
       setAllowedGroups(config.allowed_groups || []);
       setGroupHandlers(config.group_handlers || {});
     }
@@ -421,7 +438,90 @@ export default function ManageView({
     }
   }
 
-  // ── Super Admin System Operations ─────────────────────────────────────────
+  // ── Super Admin System Operations (TOTP Protected) ──────────────────────
+  function handleAddSuperAdminClick() {
+    const trimmed = newSuperAdminId.trim();
+    if (!trimmed) return;
+    const num = parseInt(trimmed, 10);
+    if (isNaN(num) || num <= 0) {
+      setErrorMsg(isKm ? "សូមបញ្ចូលលេខសម្គាល់ Telegram ID ត្រឹមត្រូវ" : "Enter a valid Telegram User ID");
+      return;
+    }
+    if (superAdminIds.includes(num)) {
+      setErrorMsg(isKm ? "គណនីនេះជា Super Admin រួចហើយ" : "User is already a Super Admin");
+      return;
+    }
+    setErrorMsg(null);
+    setTotpActionCode("");
+    setTotpActionErr(null);
+    setTotpActionModal({ type: "add", targetId: num });
+  }
+
+  function handleRemoveSuperAdminClick(id: number) {
+    if (primaryAdminIds.includes(id)) {
+      alert(isKm ? "មិនអាចលុបគណនីម្ចាស់ Super Admin ចម្បង (ADMIN_CHAT_ID) បានទេ" : "Primary Super Admin (ADMIN_CHAT_ID) cannot be removed.");
+      return;
+    }
+    setErrorMsg(null);
+    setTotpActionCode("");
+    setTotpActionErr(null);
+    setTotpActionModal({ type: "remove", targetId: id });
+  }
+
+  async function handleConfirmTotpAction() {
+    if (!totpActionModal) return;
+    const cleanCode = totpActionCode.trim().replace(/\D/g, "");
+    if (cleanCode.length < 6) {
+      setTotpActionErr(isKm ? "សូមបញ្ចូលកូដ Authenticator ៦ ខ្ទង់" : "Enter a 6-digit Authenticator code");
+      return;
+    }
+    setTotpActionBusy(true);
+    setTotpActionErr(null);
+    try {
+      if (totpActionModal.type === "add") {
+        const res = await addSuperAdmin(totpActionModal.targetId, cleanCode);
+        if (res.ok) {
+          if (res.config?.super_admin_ids) {
+            setSuperAdminIds(res.config.super_admin_ids);
+          } else {
+            setSuperAdminIds((prev) => [...prev.filter((x) => x !== totpActionModal.targetId), totpActionModal.targetId]);
+          }
+          if (res.config?.whitelist_user_ids) {
+            setWhitelist(res.config.whitelist_user_ids);
+          } else {
+            setWhitelist((prev) => (prev.includes(totpActionModal.targetId) ? prev : [...prev, totpActionModal.targetId]));
+          }
+          setNewSuperAdminId("");
+          setTotpActionModal(null);
+          setSavedToast(true);
+          setTimeout(() => setSavedToast(false), 3000);
+          onRefresh();
+        } else {
+          setTotpActionErr(res.error || (isKm ? "កូដ Authenticator មិនត្រឹមត្រូវ" : "Invalid 2FA code"));
+        }
+      } else {
+        const res = await removeSuperAdmin(totpActionModal.targetId, cleanCode);
+        if (res.ok) {
+          if (res.config?.super_admin_ids) {
+            setSuperAdminIds(res.config.super_admin_ids);
+          } else {
+            setSuperAdminIds((prev) => prev.filter((x) => x !== totpActionModal.targetId));
+          }
+          setTotpActionModal(null);
+          setSavedToast(true);
+          setTimeout(() => setSavedToast(false), 3000);
+          onRefresh();
+        } else {
+          setTotpActionErr(res.error || (isKm ? "កូដ Authenticator មិនត្រឹមត្រូវ" : "Invalid 2FA code"));
+        }
+      }
+    } catch (e: any) {
+      setTotpActionErr(e?.message || "Operation failed");
+    } finally {
+      setTotpActionBusy(false);
+    }
+  }
+
   function handleAddWhitelist() {
     const trimmed = newUserId.trim();
     if (!trimmed) return;
@@ -520,6 +620,7 @@ export default function ManageView({
           whitelist,
           allowed_groups: allowedGroups,
           group_handlers: groupHandlers,
+          super_admin_ids: superAdminIds,
         });
       } else {
         await saveGroups(allowedGroups);
@@ -1488,6 +1589,113 @@ export default function ManageView({
           ══════════════════════════════════════════════════════════════════════ */}
       {isSuperAdmin && manageTab === "super" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {/* Super Admin Management */}
+          <div style={{ background: G.surface, border: `1px solid ${G.goldBorder}`, borderRadius: 14, padding: "18px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <ShieldCheck size={16} color={G.gold} />
+              <div style={{ fontSize: 14, fontWeight: 700, color: G.gold }}>
+                <span className={kh(lang)}>{isKm ? "អ្នកគ្រប់គ្រងកំពូល (Super Admins)" : "Super Admin Management"}</span>
+              </div>
+            </div>
+            <div style={{ fontSize: 11, color: G.muted, marginBottom: 14 }}>
+              <span className={kh(lang)}>
+                {isKm
+                  ? "គណនី Telegram ទាំងនេះមានសិទ្ធិគ្រប់គ្រងប្រព័ន្ធពេញលេញ រួមទាំងការបន្ថែម Admin និងការកំណត់គម្រោង។"
+                  : "These Telegram accounts have full system control, including admin whitelisting and plan management."}
+              </span>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
+              {superAdminIds.length === 0 ? (
+                <div style={{ fontSize: 12, color: G.muted, fontStyle: "italic", padding: "8px 0" }}>
+                  <span className={kh(lang)}>{tx.noAdminsYet}</span>
+                </div>
+              ) : (
+                superAdminIds.map((id) => {
+                  const formatted = formatUser(id);
+                  const isPrimary = primaryAdminIds.includes(id);
+                  return (
+                    <div
+                      key={id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        background: G.surface2,
+                        border: `1px solid ${isPrimary ? G.goldBorder : G.border}`,
+                        borderRadius: 8,
+                        padding: "8px 12px",
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontSize: 13, color: G.text, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
+                          {formatted.title}
+                          {isPrimary && (
+                            <span style={{ fontSize: 9, background: "rgba(212,167,44,0.15)", color: G.gold, border: `1px solid ${G.goldBorder}`, padding: "1px 6px", borderRadius: 4, fontWeight: 700 }}>
+                              OWNER
+                            </span>
+                          )}
+                        </div>
+                        {formatted.subtitle && (
+                          <div style={{ fontSize: 10, color: G.muted, fontFamily: "JetBrains Mono, monospace" }}>
+                            {formatted.subtitle}
+                          </div>
+                        )}
+                      </div>
+                      {!isPrimary && (
+                        <button
+                          onClick={() => handleRemoveSuperAdminClick(id)}
+                          style={{ background: "transparent", border: "none", color: G.danger, cursor: "pointer", padding: "4px", display: "flex", alignItems: "center" }}
+                          title={tx.remove}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div style={{ display: "flex", gap: 8, width: "100%", alignItems: "center" }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <input
+                  value={newSuperAdminId}
+                  onChange={(e) => setNewSuperAdminId(e.target.value.replace(/\D/g, ""))}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && newSuperAdminId.trim()) {
+                      handleAddSuperAdminClick();
+                    }
+                  }}
+                  placeholder={isKm ? "លេខសម្គាល់ Telegram (Telegram User ID)" : "Super Admin Telegram ID"}
+                  inputMode="numeric"
+                  style={inputStyle}
+                />
+              </div>
+              <button
+                onClick={handleAddSuperAdminClick}
+                style={{
+                  background: G.gold,
+                  color: "#1a1200",
+                  border: "none",
+                  borderRadius: 8,
+                  padding: "0 14px",
+                  height: 38,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  fontSize: 12,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  flexShrink: 0,
+                }}
+              >
+                <Plus size={14} />
+                <span className={kh(lang)}>{tx.add}</span>
+              </button>
+            </div>
+          </div>
+
           {/* Whitelist Admins */}
           <div style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 14, padding: "18px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
@@ -1691,7 +1899,7 @@ export default function ManageView({
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
                         {gids.length === 0 ? (
                           <span style={{ fontSize: 11, color: G.muted, fontStyle: "italic" }}>
-                            {uid === "1221693150" ? "All Groups (Super Admin)" : "No specific groups assigned"}
+                            {superAdminIds.includes(Number(uid)) ? "All Groups (Super Admin)" : "No specific groups assigned"}
                           </span>
                         ) : (
                           gids.map((gid) => (
@@ -1927,8 +2135,11 @@ export default function ManageView({
                 <span className={kh(lang)}>{tx.plansManagement}</span>
               </div>
             </div>
-            <div style={{ fontSize: 11, color: G.muted, marginBottom: 14 }}>
+            <div style={{ fontSize: 11, color: G.muted, marginBottom: 8 }}>
               <span className={kh(lang)}>{tx.plansDesc}</span>
+            </div>
+            <div style={{ fontSize: 11, color: G.gold, marginBottom: 14, fontWeight: 600 }}>
+              ⏱️ <span className={kh(lang)}>{isKm ? "គ្រប់គម្រោងទាំងអស់មានសុពលភាព 30 ថ្ងៃ (All plans expire in 30 days)" : "All subscription plans expire in 30 days."}</span>
             </div>
 
             {Object.entries(planCatalog).map(([key, plan]) => (
@@ -2085,6 +2296,15 @@ export default function ManageView({
               ) : (
                 subs.map((s) => {
                   const formatted = formatUser(s.user_id);
+                  const expiryText = (() => {
+                    if (!s.expiry || s.expiry === 0) return isKm ? "សុពលភាព 30 ថ្ងៃ" : "30-Day Validity";
+                    const d = new Date(s.expiry * 1000);
+                    const dateStr = d.toISOString().split("T")[0];
+                    const daysLeft = Math.max(0, Math.ceil((s.expiry * 1000 - Date.now()) / (86400 * 1000)));
+                    return isKm
+                      ? `ផុតកំណត់៖ ${dateStr} (នៅសល់ ${daysLeft} ថ្ងៃ)`
+                      : `Expires: ${dateStr} (${daysLeft}d left)`;
+                  })();
                   return (
                     <div
                       key={s.user_id}
@@ -2100,9 +2320,10 @@ export default function ManageView({
                     >
                       <div>
                         <div style={{ fontSize: 12, fontWeight: 700, color: G.text }}>{formatted.title}</div>
-                        <div style={{ fontSize: 11, color: G.gold }}>{planCatalog[s.plan]?.name || s.plan}</div>
+                        <div style={{ fontSize: 11, color: G.gold, fontWeight: 600 }}>{planCatalog[s.plan]?.name || s.plan}</div>
+                        <div style={{ fontSize: 10, color: G.muted, marginTop: 2 }}>{expiryText}</div>
                         {formatted.subtitle && (
-                          <div style={{ fontSize: 10, color: G.muted, fontFamily: "JetBrains Mono, monospace" }}>
+                          <div style={{ fontSize: 10, color: G.muted, fontFamily: "JetBrains Mono, monospace", marginTop: 2 }}>
                             {formatted.subtitle}
                           </div>
                         )}
@@ -2127,6 +2348,174 @@ export default function ManageView({
                   );
                 })
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Super Admin 2FA / TOTP Verification Modal ── */}
+      {totpActionModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0, 0, 0, 0.75)",
+            backdropFilter: "blur(4px)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !totpActionBusy) {
+              setTotpActionModal(null);
+            }
+          }}
+        >
+          <div
+            style={{
+              background: G.surface,
+              border: `1px solid ${totpActionModal.type === "remove" ? "rgba(239, 68, 68, 0.4)" : G.goldBorder}`,
+              borderRadius: 16,
+              maxWidth: 380,
+              width: "100%",
+              padding: 20,
+              boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.5)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                {totpActionModal.type === "remove" ? (
+                  <ShieldAlert size={20} color={G.danger} />
+                ) : (
+                  <ShieldCheck size={20} color={G.gold} />
+                )}
+                <span style={{ fontSize: 15, fontWeight: 800, color: G.text }}>
+                  <span className={kh(lang)}>
+                    {totpActionModal.type === "add"
+                      ? isKm ? "ផ្ទៀងផ្ទាត់ 2FA ដើម្បីបន្ថែម Admin" : "2FA Verification to Add Admin"
+                      : isKm ? "ផ្ទៀងផ្ទាត់ 2FA ដើម្បីលុប Admin" : "2FA Verification to Remove Admin"}
+                  </span>
+                </span>
+              </div>
+              <button
+                onClick={() => !totpActionBusy && setTotpActionModal(null)}
+                style={{ background: "transparent", border: "none", color: G.muted, cursor: "pointer", padding: 4 }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ background: G.surface2, borderRadius: 10, padding: "10px 12px", border: `1px solid ${G.border}`, marginBottom: 14 }}>
+              <div style={{ fontSize: 11, color: G.muted }}>
+                <span className={kh(lang)}>{isKm ? "គណនីគោលដៅ (Target Account):" : "Target Account:"}</span>
+              </div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: G.text, marginTop: 2, display: "flex", alignItems: "center", gap: 6 }}>
+                <span>{formatUser(totpActionModal.targetId).title}</span>
+                <span style={{ fontSize: 11, color: G.muted, fontFamily: "JetBrains Mono, monospace" }}>
+                  ({totpActionModal.targetId})
+                </span>
+              </div>
+            </div>
+
+            <div style={{ fontSize: 12, color: G.textSec, lineHeight: 1.4, marginBottom: 12 }}>
+              <span className={kh(lang)}>
+                {isKm
+                  ? "សូមបញ្ចូលកូដ Authenticator (TOTP) ៦ ខ្ទង់របស់អ្នក ដើម្បីអនុញ្ញាតប្រតិបត្តិការនេះ៖"
+                  : "Enter your 6-digit Google Authenticator (TOTP) code to authorize this action:"}
+              </span>
+            </div>
+
+            <div style={{ marginBottom: 14 }}>
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
+                autoFocus
+                value={totpActionCode}
+                onChange={(e) => setTotpActionCode(e.target.value.replace(/\D/g, ""))}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && totpActionCode.trim().length === 6 && !totpActionBusy) {
+                    handleConfirmTotpAction();
+                  }
+                }}
+                placeholder="000000"
+                style={{
+                  width: "100%",
+                  background: G.surface2,
+                  border: `1px solid ${totpActionModal.type === "remove" ? G.danger : G.goldBorder}`,
+                  borderRadius: 10,
+                  padding: "10px 12px",
+                  color: G.text,
+                  fontSize: 22,
+                  letterSpacing: "0.25em",
+                  textAlign: "center",
+                  outline: "none",
+                  fontFamily: "JetBrains Mono, monospace",
+                }}
+              />
+            </div>
+
+            {totpActionErr && (
+              <div
+                style={{
+                  background: "rgba(239, 68, 68, 0.1)",
+                  border: "1px solid rgba(239, 68, 68, 0.3)",
+                  borderRadius: 8,
+                  padding: "8px 12px",
+                  color: G.danger,
+                  fontSize: 11,
+                  marginBottom: 14,
+                  lineHeight: 1.4,
+                }}
+              >
+                {totpActionErr}
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button
+                onClick={() => setTotpActionModal(null)}
+                disabled={totpActionBusy}
+                style={{
+                  background: G.surface2,
+                  color: G.textSec,
+                  border: `1px solid ${G.border}`,
+                  borderRadius: 8,
+                  padding: "8px 14px",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                <span className={kh(lang)}>{isKm ? "បោះបង់" : "Cancel"}</span>
+              </button>
+              <button
+                onClick={handleConfirmTotpAction}
+                disabled={totpActionBusy || totpActionCode.trim().length < 6}
+                style={{
+                  background: totpActionModal.type === "remove" ? G.danger : G.gold,
+                  color: totpActionModal.type === "remove" ? "#fff" : "#1a1200",
+                  border: "none",
+                  borderRadius: 8,
+                  padding: "8px 16px",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  opacity: totpActionBusy || totpActionCode.trim().length < 6 ? 0.6 : 1,
+                }}
+              >
+                {totpActionBusy ? <Loader2 size={14} className="spin-animation" /> : null}
+                <span className={kh(lang)}>
+                  {totpActionModal.type === "add"
+                    ? isKm ? "បញ្ជាក់បន្ថែម" : "Confirm Add"
+                    : isKm ? "បញ្ជាក់លុប" : "Confirm Remove"}
+                </span>
+              </button>
             </div>
           </div>
         </div>

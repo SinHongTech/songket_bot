@@ -1,4 +1,4 @@
-import type { DashboardApiResponse, PlanEntry } from "./types";
+import type { DashboardApiResponse, PlanEntry, SystemConfig } from "./types";
 import { mockDashboardData, mockUser } from "./data";
 import { safeStorage } from "../shared/storage";
 
@@ -506,10 +506,27 @@ export async function saveSystemConfig(config: {
   whitelist: number[];
   allowed_groups: number[];
   group_handlers: Record<string, number[]>;
+  super_admin_ids?: number[];
 }): Promise<{ ok: boolean; config: any }> {
   return await postAction({
     action: "save_config",
     ...config,
+  });
+}
+
+export async function addSuperAdmin(targetUserId: number, totpCode: string): Promise<{ ok: boolean; config?: SystemConfig; error?: string; totp_required?: boolean }> {
+  return await postAction({
+    action: "add_super_admin",
+    target_user_id: targetUserId,
+    totp_code: totpCode,
+  });
+}
+
+export async function removeSuperAdmin(targetUserId: number, totpCode: string): Promise<{ ok: boolean; config?: SystemConfig; error?: string; totp_required?: boolean }> {
+  return await postAction({
+    action: "remove_super_admin",
+    target_user_id: targetUserId,
+    totp_code: totpCode,
   });
 }
 

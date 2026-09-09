@@ -356,7 +356,7 @@ export default function HomeView({ dashboard, threatEvents, user, lang, isMock, 
         )}
       </div>
 
-      <div style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 14, padding: "16px 14px" }}>
+      <div style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 14, padding: "16px 14px", marginTop: 10 }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: G.textSec, marginBottom: 14 }}>
           <span className={kh(lang)}>{tx.threatBreakdown}</span>
         </div>
