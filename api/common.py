@@ -891,20 +891,24 @@ def is_group_admin(user_id: int, chat_id: int) -> bool:
 
 
 def groups_for_user(user_id: int, allowed_groups: set[int]) -> list[int]:
-    """Return groups specifically assigned to this user."""
+    """Return groups specifically assigned to or invited by this user."""
     explicit_map = explicit_group_map()
     explicit = explicit_map.get(user_id)
+    group_ids = []
 
-    # 1. If user has explicit groups mapped, return ONLY their linked groups
+    # 1. Groups explicitly assigned / linked by this user
     if explicit is not None:
-        return explicit[:MAX_DASHBOARD_GROUPS]
+        group_ids = [g for g in explicit if not allowed_groups or g in allowed_groups]
 
-    # 2. If super admin has no explicit mapping, fallback to allowed_groups
-    if is_super_admin(user_id):
-        return list(sorted(allowed_groups))[:MAX_DASHBOARD_GROUPS]
+    # 2. Also include groups invited by this user that are in allowed_groups
+    if len(group_ids) < MAX_DASHBOARD_GROUPS:
+        for gid in sorted(allowed_groups):
+            if gid not in group_ids and get_group_inviter(gid) == user_id:
+                group_ids.append(gid)
+                if len(group_ids) >= MAX_DASHBOARD_GROUPS:
+                    break
 
-    # 3. Regular admin with no assigned groups sees no groups
-    return []
+    return group_ids[:MAX_DASHBOARD_GROUPS]
 
 
 def local_date() -> str:
