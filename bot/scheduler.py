@@ -58,8 +58,8 @@ def _check_and_send_daily_reports(api: TelegramAPI) -> None:
                     api.send_document(
                         uid,
                         pdf_data,
-                        caption="📄 <b>លម្អិតរបាយការណ៍សន្តិសុខ (Security Detail Report)</b>",
-                        filename=f"Songket_Security_Report_{cur_date}.pdf",
+                        caption="📄 <b>Songket Security Daily Report (Beta version)</b>",
+                        filename=f"Songket_Security_Daily_Report_{cur_date}.pdf",
                     )
                 logger.info("✓ Daily DM report & PDF sent successfully to user %d", uid)
             else:

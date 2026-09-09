@@ -1795,8 +1795,8 @@ def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
                             api.send_document(
                                 chat_id,
                                 pdf_data,
-                                caption="📄 <b>លម្អិតរបាយការណ៍សន្តិសុខ (Security Detail Report)</b>",
-                                filename=f"Songket_Security_Report_{local_date()}.pdf",
+                                caption="📄 <b>Songket Security Daily Report (Beta version)</b>",
+                                filename=f"Songket_Security_Daily_Report_{local_date()}.pdf",
                             )
                     else:
                         api.send_message(chat_id, "⚠️ មិនមានក្រុមដែលកំពុងការពារដើម្បីបង្កើតរបាយការណ៍ទេ (No active monitored groups).")
@@ -1969,8 +1969,8 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
                     api.send_document(
                         chat_id,
                         pdf_data,
-                        caption="📄 <b>លម្អិតរបាយការណ៍សន្តិសុខ (Security Detail Report)</b>",
-                        filename=f"Songket_Security_Report_{local_date()}.pdf",
+                        caption="📄 <b>Songket Security Daily Report (Beta version)</b>",
+                        filename=f"Songket_Security_Daily_Report_{local_date()}.pdf",
                     )
             else:
                 api.send_message(chat_id, "⚠️ មិនមានក្រុមដែលកំពុងការពារដើម្បីបង្កើតរបាយការណ៍ទេ (No active monitored groups).")

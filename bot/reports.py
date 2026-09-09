@@ -173,7 +173,7 @@ def format_daily_dm_report(
     today_time = local_time_str()
 
     if lang == "kh":
-        header = f"📊 <b>របាយការណ៍សន្តិសុខប្រចាំថ្ងៃ</b> (Daily Security Report)"
+        header = f"📊 <b>របាយការណ៍សន្តិសុខប្រចាំថ្ងៃ</b> (Songket Security Daily Report)"
         date_line = f"📅 <b>កាលបរិច្ឆេទ:</b> <code>{date_str}</code> (ម៉ោង {today_time})"
         summary_title = "📈 <b>សរុបសកម្មភាពស្កេនទាំងអស់ (Overall Summary):</b>"
         summary_body = (
@@ -182,9 +182,9 @@ def format_daily_dm_report(
             f"• ⚠️ គួរឱ្យសង្ស័យ: <b>{total_suspicious}</b>"
         )
         groups_title = f"👥 <b>ក្រុមដែលកំពុងការពារ ({len(managed)} ក្រុម):</b>"
-        footer = "🛡️ <i>Songket Security AI ការពារក្រុមរបស់អ្នក 24/7</i>\n⚙️ ផ្លាស់ប្តូរម៉ោងផ្ញើ៖ /daily"
+        footer = "🛡️ <i>Songket Security Bot ការពារក្រុមរបស់អ្នក 24/7</i>\n⚙️ ផ្លាស់ប្តូរម៉ោងផ្ញើ៖ /daily"
     elif lang == "en":
-        header = f"📊 <b>Daily Security Summary Report</b>"
+        header = f"📊 <b>Songket Security Daily Report</b>"
         date_line = f"📅 <b>Date:</b> <code>{date_str}</code> (Generated at {today_time})"
         summary_title = "📈 <b>Overall Threat & Scan Statistics:</b>"
         summary_body = (
@@ -193,9 +193,9 @@ def format_daily_dm_report(
             f"• ⚠️ Suspicious Items: <b>{total_suspicious}</b>"
         )
         groups_title = f"👥 <b>Monitored Groups ({len(managed)} active):</b>"
-        footer = "🛡️ <i>Songket Security AI is protecting your groups 24/7</i>\n⚙️ Change report schedule: /daily"
+        footer = "🛡️ <i>Songket Security Bot is protecting your groups 24/7</i>\n⚙️ Change report schedule: /daily"
     else:  # bilingual
-        header = f"📊 <b>របាយការណ៍សន្តិសុខប្រចាំថ្ងៃ | Daily Security Report</b>"
+        header = f"📊 <b>របាយការណ៍សន្តិសុខប្រចាំថ្ងៃ | Songket Security Daily Report</b>"
         date_line = f"📅 <b>Date / កាលបរិច្ឆេទ:</b> <code>{date_str}</code> (Asia/Phnom_Penh {today_time})"
         summary_title = "📈 <b>សរុបស្ថិតិស្កេន (Security Overview):</b>"
         summary_body = (
@@ -204,7 +204,7 @@ def format_daily_dm_report(
             f"• ⚠️ Suspicious / សង្ស័យ: <b>{total_suspicious}</b>"
         )
         groups_title = f"👥 <b>ក្រុមដែលកំពុងការពារ | Monitored Groups ({len(managed)}):</b>"
-        footer = "🛡️ <i>Songket Security AI is protecting your groups 24/7</i>\n⚙️ កំណត់ម៉ោងផ្ញើ / Schedule: /daily"
+        footer = "🛡️ <i>Songket Security Bot is protecting your groups 24/7</i>\n⚙️ កំណត់ម៉ោងផ្ញើ / Schedule: /daily"
 
     return (
         f"{header}\n"
@@ -338,11 +338,11 @@ def generate_daily_pdf_report(
     # Header Table
     header_data = [
         [
-            Paragraph("🛡️ <b>SONGKET AI CYBER SECURITY</b>", title_style),
-            Paragraph("<b>CONFIDENTIAL</b><br/>Daily Security Audit Report", ParagraphStyle('Conf', parent=subtitle_style, alignment=2, fontName='Helvetica-Bold', textColor=colors.HexColor('#2563EB')))
+            Paragraph("🛡️ <b>SONGKET SECURITY BOT</b>", title_style),
+            Paragraph("<b>CONFIDENTIAL</b><br/>Songket Security Daily Report", ParagraphStyle('Conf', parent=subtitle_style, alignment=2, fontName='Helvetica-Bold', textColor=colors.HexColor('#2563EB')))
         ],
         [
-            Paragraph("Group Protection & Real-Time Threat Intelligence", subtitle_style),
+            Paragraph("Songket Security Daily Report &bull; Beta version", subtitle_style),
             Paragraph(f"Date: <b>{date_str}</b> ({today_time} Asia/Phnom_Penh)", ParagraphStyle('GenTime', parent=subtitle_style, alignment=2))
         ]
     ]
@@ -387,15 +387,16 @@ def generate_daily_pdf_report(
     story.append(kpi_table)
     story.append(Spacer(1, 10))
 
-    # Monitored Groups Breakdown Table (No IDs shown)
+    # Monitored Groups Breakdown Table (No IDs shown, includes Deleted column)
     story.append(Paragraph(f"Monitored Groups Activity Breakdown ({len(managed)} Active Groups)", section_style))
 
     table_header = [
         Paragraph("<b>Group Name</b>", bold_body_style),
         Paragraph("<b>Scans</b>", bold_body_style),
-        Paragraph("<b>Files Checked</b>", bold_body_style),
-        Paragraph("<b>URLs Checked</b>", bold_body_style),
+        Paragraph("<b>Files</b>", bold_body_style),
+        Paragraph("<b>URLs</b>", bold_body_style),
         Paragraph("<b>Threats</b>", bold_body_style),
+        Paragraph("<b>Deleted</b>", bold_body_style),
         Paragraph("<b>Status</b>", bold_body_style),
     ]
 
@@ -403,6 +404,7 @@ def generate_daily_pdf_report(
     for row in group_rows:
         mal = row["malicious"]
         susp = row["suspicious"]
+        del_count = row["deleted"]
         if mal == 0 and susp == 0:
             status_html = "<font color='#059669'><b>CLEAN</b></font>"
         elif mal > 0:
@@ -410,17 +412,18 @@ def generate_daily_pdf_report(
         else:
             status_html = f"<font color='#D97706'><b>{susp} SUSPICIOUS</b></font>"
 
-        clean_title = (row["title"][:38] + "...") if len(row["title"]) > 40 else row["title"]
+        clean_title = (row["title"][:32] + "...") if len(row["title"]) > 34 else row["title"]
         groups_data.append([
             Paragraph(f"<b>{clean_title}</b>", body_style),
             Paragraph(str(row["scanned"]), body_style),
             Paragraph(str(row["files"]), body_style),
             Paragraph(str(row["urls"]), body_style),
             Paragraph(str(mal), body_style),
+            Paragraph(str(del_count), body_style),
             Paragraph(status_html, body_style),
         ])
 
-    group_table = Table(groups_data, colWidths=[210, 60, 70, 70, 60, 70])
+    group_table = Table(groups_data, colWidths=[190, 55, 55, 55, 55, 55, 75])
     group_table.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#F1F5F9')),
         ('TEXTCOLOR', (0,0), (-1,0), colors.HexColor('#1E293B')),
@@ -457,7 +460,7 @@ def generate_daily_pdf_report(
     story.append(Spacer(1, 16))
     story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor('#94A3B8'), spaceBefore=2, spaceAfter=6))
 
-    footer_text = f"SongKet AI Cyber Security Bot v2.0 &bull; Automated Daily Group Security Audit &bull; Generated {date_str} {today_time}"
+    footer_text = f"Songket Security Bot &bull; Beta version &bull; Songket Security Daily Report &bull; Generated {date_str} {today_time}"
     story.append(Paragraph(f"<font color='#94A3B8' size=7.5>{footer_text}</font>", ParagraphStyle('Footer', parent=body_style, alignment=1)))
 
     try:
