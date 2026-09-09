@@ -1213,7 +1213,7 @@ def set_user_lang(user_id: int, lang: str) -> bool:
 
 
 def get_user_daily_report_settings(user_id: int) -> dict:
-    """Return user DM report configuration (defaults to enabled daily at 07:00 AM in both languages)."""
+    """Return user DM report configuration (defaults to enabled daily at 07:00 AM in both languages) and saved date preferences."""
     data = kv_json_get(f"settings:user:{user_id}") or {}
     if not isinstance(data, dict):
         data = {}
@@ -1234,6 +1234,12 @@ def get_user_daily_report_settings(user_id: int) -> dict:
         "time": t_val,
         "frequency": freq,
         "lang": rlang,
+        "home_date_from": str(data.get("home_date_from") or ""),
+        "home_date_to": str(data.get("home_date_to") or ""),
+        "threats_date_from": str(data.get("threats_date_from") or ""),
+        "threats_date_to": str(data.get("threats_date_to") or ""),
+        "history_date_from": str(data.get("history_date_from") or ""),
+        "history_date_to": str(data.get("history_date_to") or ""),
     }
 
 
@@ -1268,6 +1274,34 @@ def set_user_daily_report_settings(
         if clean_lang in {"both", "kh", "en"}:
             data["report_lang"] = clean_lang
             data["lang"] = clean_lang
+    return kv_json_set(f"settings:user:{user_id}", data)
+
+
+def set_user_date_preferences(
+    user_id: int,
+    home_date_from: Optional[str] = None,
+    home_date_to: Optional[str] = None,
+    threats_date_from: Optional[str] = None,
+    threats_date_to: Optional[str] = None,
+    history_date_from: Optional[str] = None,
+    history_date_to: Optional[str] = None,
+) -> bool:
+    """Update user dashboard date filter preferences in persistent KV store."""
+    data = kv_json_get(f"settings:user:{user_id}") or {}
+    if not isinstance(data, dict):
+        data = {}
+    if home_date_from is not None:
+        data["home_date_from"] = str(home_date_from).strip()
+    if home_date_to is not None:
+        data["home_date_to"] = str(home_date_to).strip()
+    if threats_date_from is not None:
+        data["threats_date_from"] = str(threats_date_from).strip()
+    if threats_date_to is not None:
+        data["threats_date_to"] = str(threats_date_to).strip()
+    if history_date_from is not None:
+        data["history_date_from"] = str(history_date_from).strip()
+    if history_date_to is not None:
+        data["history_date_to"] = str(history_date_to).strip()
     return kv_json_set(f"settings:user:{user_id}", data)
 
 

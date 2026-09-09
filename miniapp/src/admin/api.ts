@@ -624,6 +624,20 @@ export async function saveUserSettings(settings: {
   });
 }
 
+export async function saveUserDatePreferences(dates: {
+  home_date_from?: string;
+  home_date_to?: string;
+  threats_date_from?: string;
+  threats_date_to?: string;
+  history_date_from?: string;
+  history_date_to?: string;
+}) {
+  return postAction({
+    action: "save_date_preferences",
+    ...dates,
+  });
+}
+
 export async function requestReport(
   period: "daily" | "weekly" | "monthly" = "daily",
   lang?: "both" | "kh" | "en"
@@ -634,5 +648,6 @@ export async function requestReport(
     report_lang: lang,
   });
 }
+
 
 

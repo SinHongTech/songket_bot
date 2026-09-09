@@ -19,6 +19,7 @@ import {
   AlertOctagon,
   Shield,
   X,
+  ChevronDown,
 } from "lucide-react";
 import { G, type Lang } from "../palette";
 import { t as T, kh } from "../i18n";
@@ -124,6 +125,7 @@ export default function ManageView({
   const [subs, setSubs] = useState<Subscription[]>([]);
   const [assignUserId, setAssignUserId] = useState("");
   const [assignPlanKey, setAssignPlanKey] = useState("");
+  const [planDropdownOpen, setPlanDropdownOpen] = useState(false);
   const [savingPlans, setSavingPlans] = useState(false);
   const [planToast, setPlanToast] = useState(false);
 
@@ -2166,26 +2168,113 @@ export default function ManageView({
                 inputMode="numeric"
                 style={inputStyle}
               />
-              <select
-                value={assignPlanKey}
-                onChange={(e) => setAssignPlanKey(e.target.value)}
-                style={{
-                  ...inputStyle,
-                  width: "100%",
-                  background: G.surface2,
-                  color: assignPlanKey ? G.text : G.muted,
-                  cursor: "pointer",
-                }}
-              >
-                <option value="" style={{ background: G.surface, color: G.muted }}>
-                  {tx.planSelect}
-                </option>
-                {Object.entries(planCatalog).map(([key, plan]) => (
-                  <option key={key} value={key} style={{ background: G.surface, color: G.text }}>
-                    {plan.name} (${plan.price})
-                  </option>
-                ))}
-              </select>
+              <div style={{ position: "relative", width: "100%" }}>
+                <button
+                  type="button"
+                  onClick={() => setPlanDropdownOpen(!planDropdownOpen)}
+                  style={{
+                    ...inputStyle,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    cursor: "pointer",
+                    textAlign: "left",
+                    color: assignPlanKey ? G.text : G.muted,
+                  }}
+                >
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {assignPlanKey && planCatalog[assignPlanKey]
+                      ? `${planCatalog[assignPlanKey].name} ($${planCatalog[assignPlanKey].price})`
+                      : tx.planSelect}
+                  </span>
+                  <ChevronDown
+                    size={14}
+                    color={G.muted}
+                    style={{
+                      transform: planDropdownOpen ? "rotate(180deg)" : "none",
+                      transition: "transform 0.2s ease",
+                      flexShrink: 0,
+                      marginLeft: 4,
+                    }}
+                  />
+                </button>
+                {planDropdownOpen && (
+                  <>
+                    <div
+                      onClick={() => setPlanDropdownOpen(false)}
+                      style={{
+                        position: "fixed",
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        zIndex: 99,
+                      }}
+                    />
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: "calc(100% + 4px)",
+                        left: 0,
+                        right: 0,
+                        background: G.surface,
+                        border: `1px solid ${G.border}`,
+                        borderRadius: 8,
+                        boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+                        zIndex: 100,
+                        maxHeight: 200,
+                        overflowY: "auto",
+                        padding: "4px",
+                      }}
+                    >
+                      <div
+                        onClick={() => {
+                          setAssignPlanKey("");
+                          setPlanDropdownOpen(false);
+                        }}
+                        style={{
+                          padding: "8px 10px",
+                          borderRadius: 6,
+                          fontSize: 12,
+                          cursor: "pointer",
+                          color: !assignPlanKey ? G.gold : G.muted,
+                          background: !assignPlanKey ? G.goldSurface : "transparent",
+                          fontWeight: !assignPlanKey ? 600 : 400,
+                        }}
+                      >
+                        {tx.planSelect}
+                      </div>
+                      {Object.entries(planCatalog).map(([key, plan]) => {
+                        const isSelected = assignPlanKey === key;
+                        return (
+                          <div
+                            key={key}
+                            onClick={() => {
+                              setAssignPlanKey(key);
+                              setPlanDropdownOpen(false);
+                            }}
+                            style={{
+                              padding: "8px 10px",
+                              borderRadius: 6,
+                              fontSize: 12,
+                              cursor: "pointer",
+                              display: "flex",
+                              justifyContent: "space-between",
+                              alignItems: "center",
+                              color: isSelected ? G.gold : G.text,
+                              background: isSelected ? G.goldSurface : "transparent",
+                              fontWeight: isSelected ? 600 : 400,
+                            }}
+                          >
+                            <span>{plan.name}</span>
+                            <span style={{ fontSize: 11, color: isSelected ? G.gold : G.muted }}>${plan.price}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
             </div>
             <button
               onClick={handleAssignPlan}

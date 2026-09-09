@@ -694,6 +694,19 @@ class handler(BaseHTTPRequestHandler):
                 )
                 return self._json(200, {"ok": ok, "user_settings": get_user_daily_report_settings(uid)})
 
+            # Action: Save User Date Preferences
+            if body.get("action") == "save_date_preferences":
+                ok = set_user_date_preferences(
+                    uid,
+                    home_date_from=body.get("home_date_from"),
+                    home_date_to=body.get("home_date_to"),
+                    threats_date_from=body.get("threats_date_from"),
+                    threats_date_to=body.get("threats_date_to"),
+                    history_date_from=body.get("history_date_from"),
+                    history_date_to=body.get("history_date_to"),
+                )
+                return self._json(200, {"ok": ok, "user_settings": get_user_daily_report_settings(uid)})
+
             # Action: Request Immediate Report Delivery to Telegram DM (Daily, Weekly, Monthly)
             if body.get("action") == "request_report":
                 period = str(body.get("period", "daily")).strip().lower()
