@@ -631,6 +631,7 @@ export async function saveUserDatePreferences(dates: {
   threats_date_to?: string;
   history_date_from?: string;
   history_date_to?: string;
+  last_read_threat_ts?: number;
 }) {
   return postAction({
     action: "save_date_preferences",

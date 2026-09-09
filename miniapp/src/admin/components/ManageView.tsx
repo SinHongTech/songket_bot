@@ -754,15 +754,18 @@ export default function ManageView({
 
         {/* Tab Navigation */}
         <div
+          className="no-scrollbar"
           style={{
             display: "flex",
             width: "100%",
             background: G.surface2,
-            padding: 4,
-            borderRadius: 10,
+            padding: 3,
+            borderRadius: 12,
             border: `1px solid ${G.border}`,
-            gap: 4,
+            gap: 3,
             overflowX: "auto",
+            scrollbarWidth: "none",
+            WebkitOverflowScrolling: "touch",
           }}
         >
           {/* Tab 1: Group Protection */}
@@ -770,9 +773,9 @@ export default function ManageView({
             onClick={() => setManageTab("group")}
             style={{
               flex: 1,
-              minWidth: 90,
-              padding: "8px 10px",
-              borderRadius: 7,
+              minWidth: 78,
+              padding: "6px 8px",
+              borderRadius: 9,
               border: "none",
               fontSize: 11,
               fontWeight: 700,
@@ -782,12 +785,12 @@ export default function ManageView({
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              gap: 5,
-              transition: "all 0.2s ease",
+              gap: 4,
+              transition: "all 0.18s ease",
               whiteSpace: "nowrap",
             }}
           >
-            <Shield size={13} />
+            <Shield size={12} />
             <span className={kh(lang)}>{isKm ? "ក្រុមការពារ" : "Group Security"}</span>
           </button>
 
@@ -797,9 +800,9 @@ export default function ManageView({
               onClick={() => setManageTab("super")}
               style={{
                 flex: 1,
-                minWidth: 90,
-                padding: "8px 10px",
-                borderRadius: 7,
+                minWidth: 78,
+                padding: "6px 8px",
+                borderRadius: 9,
                 border: "none",
                 fontSize: 11,
                 fontWeight: 700,
@@ -809,12 +812,12 @@ export default function ManageView({
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                gap: 5,
-                transition: "all 0.2s ease",
+                gap: 4,
+                transition: "all 0.18s ease",
                 whiteSpace: "nowrap",
               }}
             >
-              <ShieldCheck size={13} />
+              <ShieldCheck size={12} />
               <span className={kh(lang)}>{tx.superAdminTab}</span>
             </button>
           )}
@@ -824,9 +827,9 @@ export default function ManageView({
             onClick={() => setManageTab("domains")}
             style={{
               flex: 1,
-              minWidth: 90,
-              padding: "8px 10px",
-              borderRadius: 7,
+              minWidth: 78,
+              padding: "6px 8px",
+              borderRadius: 9,
               border: "none",
               fontSize: 11,
               fontWeight: 700,
@@ -836,12 +839,12 @@ export default function ManageView({
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              gap: 5,
-              transition: "all 0.2s ease",
+              gap: 4,
+              transition: "all 0.18s ease",
               whiteSpace: "nowrap",
             }}
           >
-            <Globe size={13} />
+            <Globe size={12} />
             <span className={kh(lang)}>{isKm ? "Domains" : "Domains"}</span>
           </button>
 
@@ -851,9 +854,9 @@ export default function ManageView({
               onClick={() => setManageTab("plans")}
               style={{
                 flex: 1,
-                minWidth: 90,
-                padding: "8px 10px",
-                borderRadius: 7,
+                minWidth: 78,
+                padding: "6px 8px",
+                borderRadius: 9,
                 border: "none",
                 fontSize: 11,
                 fontWeight: 700,
@@ -863,12 +866,12 @@ export default function ManageView({
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                gap: 5,
-                transition: "all 0.2s ease",
+                gap: 4,
+                transition: "all 0.18s ease",
                 whiteSpace: "nowrap",
               }}
             >
-              <CreditCard size={13} />
+              <CreditCard size={12} />
               <span className={kh(lang)}>{isKm ? "គម្រោង" : "Plans"}</span>
             </button>
           )}
