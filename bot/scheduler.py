@@ -14,6 +14,7 @@ from bot import config
 from bot.redis_client import kv_get, kv_set
 from bot.reports import (
     format_daily_dm_report,
+    generate_daily_pdf_report,
     get_user_daily_report_settings,
     local_date,
     local_time_str,
@@ -24,7 +25,7 @@ from bot.utils import is_super_admin, super_admin_ids, whitelist_user_ids
 logger = logging.getLogger("BeydaBot.scheduler")
 
 _scheduler_running = False
-_scheduler_thread: threading.Thread | null = None
+_scheduler_thread: threading.Thread | None = None
 
 
 def _check_and_send_daily_reports(api: TelegramAPI) -> None:
@@ -52,7 +53,15 @@ def _check_and_send_daily_reports(api: TelegramAPI) -> None:
             report_text = format_daily_dm_report(api, uid, target_date=cur_date)
             if report_text:
                 api.send_message(uid, report_text, parse_mode="HTML")
-                logger.info("✓ Daily DM report sent successfully to user %d", uid)
+                pdf_data = generate_daily_pdf_report(api, uid, target_date=cur_date)
+                if pdf_data:
+                    api.send_document(
+                        uid,
+                        pdf_data,
+                        caption="📄 <b>លម្អិតរបាយការណ៍សន្តិសុខ (Security Detail Report)</b>",
+                        filename=f"Songket_Security_Report_{cur_date}.pdf",
+                    )
+                logger.info("✓ Daily DM report & PDF sent successfully to user %d", uid)
             else:
                 logger.debug("No active monitored groups to report for user %d", uid)
 

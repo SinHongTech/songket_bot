@@ -23,8 +23,8 @@ import { G, type Nav, type Lang } from "@/admin/palette";
 import { t as T, kh } from "@/admin/i18n";
 import { fetchDashboardData, setupPin, loginPin, resetPin, resetPinWithTotp, setSessionToken, openTelegramDirect, getTelegramUser, getTelegramWebApp } from "@/admin/api";
 import { safeStorage } from "@/shared/storage";
-import type { DashboardApiResponse } from "@/admin/types";
-import { mockUser, getThreatsListFromDashboard } from "@/admin/data";
+import type { DashboardApiResponse, ThreatEvent } from "@/admin/types";
+import { mockUser } from "@/admin/data";
 import HomeView from "@/admin/components/HomeView";
 import GroupsView from "@/admin/components/GroupsView";
 import ThreatsView from "@/admin/components/ThreatsView";
@@ -507,23 +507,29 @@ export default function AdminApp() {
   const [apiData, setApiData] = useState<DashboardApiResponse | null>(null);
   const [manageUnlocked, setManageUnlocked] = useState(false);
 
-  // Independent date states for each tab (persisted in safe storage)
+  const getThirtyDaysAgo = () => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return d.toISOString().split("T")[0];
+  };
+
+  // Independent date states for each tab (persisted in safe storage, defaulting to 30-day view)
   const [homeDateFrom, setHomeDateFrom] = useState<string>(() => {
-    return safeStorage.getItem("songket.admin.homeDateFrom") || getToday();
+    return safeStorage.getItem("songket.admin.homeDateFrom") || getThirtyDaysAgo();
   });
   const [homeDateTo, setHomeDateTo] = useState<string>(() => {
     return safeStorage.getItem("songket.admin.homeDateTo") || getToday();
   });
 
   const [threatsDateFrom, setThreatsDateFrom] = useState<string>(() => {
-    return safeStorage.getItem("songket.admin.threatsDateFrom") || getToday();
+    return safeStorage.getItem("songket.admin.threatsDateFrom") || getThirtyDaysAgo();
   });
   const [threatsDateTo, setThreatsDateTo] = useState<string>(() => {
     return safeStorage.getItem("songket.admin.threatsDateTo") || getToday();
   });
 
   const [historyDateFrom, setHistoryDateFrom] = useState<string>(() => {
-    return safeStorage.getItem("songket.admin.historyDateFrom") || getToday();
+    return safeStorage.getItem("songket.admin.historyDateFrom") || getThirtyDaysAgo();
   });
   const [historyDateTo, setHistoryDateTo] = useState<string>(() => {
     return safeStorage.getItem("songket.admin.historyDateTo") || getToday();
@@ -682,24 +688,23 @@ export default function AdminApp() {
   const dashboard = apiData?.dashboard || null;
   const isMock = apiData?.isMock ?? (!apiData?.authorized);
 
+  // Real Threat Events from backend (clean real alerts only)
   const rawThreatEvents = apiData?.threat_events || [];
-  const allThreats = rawThreatEvents.length > 0
-    ? rawThreatEvents.map(e => ({
-        id: e.id,
-        timestamp: e.timestamp,
-        type: e.type.replace(/_/g, " ").toUpperCase(),
-        content: e.content,
-        group: e.group_title || `Group ${e.group_id}`,
-        date: `${e.date} ${e.time || ""}`.trim(),
-        risk: e.risk,
-      }))
-    : getThreatsListFromDashboard(dashboard);
+  const allThreats = rawThreatEvents.map((e: ThreatEvent) => ({
+    id: e.id,
+    timestamp: e.timestamp,
+    type: e.type.replace(/_/g, " ").toUpperCase(),
+    content: e.content,
+    group: e.group_title || `Group ${e.group_id}`,
+    date: `${e.date} ${e.time || ""}`.trim(),
+    risk: e.risk,
+  }));
 
-  const unreadThreats = allThreats.filter(t => {
+  const unreadThreats = allThreats.filter((t: any) => {
     if (readNotifications.has(t.id)) return false;
     if (lastReadThreatTs > 0) {
-      if ((t as any).timestamp && (t as any).timestamp <= lastReadThreatTs) return false;
-      if (t.date && !((t as any).timestamp)) {
+      if (t.timestamp && t.timestamp <= lastReadThreatTs) return false;
+      if (t.date && !t.timestamp) {
         try {
           const evTs = Math.floor(new Date(t.date).getTime() / 1000);
           if (evTs <= lastReadThreatTs) return false;
@@ -712,7 +717,7 @@ export default function AdminApp() {
 
   const markAllNotificationsRead = useCallback(() => {
     const next = new Set(readNotifications);
-    allThreats.forEach(t => next.add(t.id));
+    allThreats.forEach((t: any) => next.add(t.id));
     setReadNotifications(next);
     const nowTs = Math.floor(Date.now() / 1000);
     setLastReadThreatTs(nowTs);
@@ -1037,7 +1042,7 @@ export default function AdminApp() {
               <span className={kh(lang)}>{lang === "km" ? "គ្មានជូនដំណឹងថ្មី" : "No new notifications"}</span>
             </div>
           ) : (
-            unreadThreats.slice(0, 10).map(tr => (
+            unreadThreats.slice(0, 10).map((tr: any) => (
               <div
                 key={tr.id}
                 style={{ padding: "10px 14px", borderBottom: `1px solid ${G.border}`, cursor: "pointer" }}
