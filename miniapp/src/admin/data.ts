@@ -111,7 +111,7 @@ export function getTimelineFromDashboard(dashboard?: DashboardData | null) {
   return Object.values(dateMap).sort((a, b) => a.date.localeCompare(b.date));
 }
 
-export function getThreatBreakdownFromDashboard(dashboard?: DashboardData | null) {
+export function getThreatBreakdownFromDashboard(dashboard?: DashboardData | null, dateFrom?: string, dateTo?: string) {
   if (!dashboard) {
     return [
       { name: "Scanned URLs", value: 1 },
@@ -121,12 +121,35 @@ export function getThreatBreakdownFromDashboard(dashboard?: DashboardData | null
     ];
   }
 
-  const t = dashboard.totals;
+  let urls = 0;
+  let files = 0;
+  let malicious = 0;
+  let suspicious = 0;
+
+  if (dateFrom && dateTo && dashboard.groups && dashboard.groups.length > 0) {
+    dashboard.groups.forEach(g => {
+      g.daily.forEach(d => {
+        if (d.date >= dateFrom && d.date <= dateTo) {
+          urls += d.urls || 0;
+          files += d.files || 0;
+          malicious += d.malicious || 0;
+          suspicious += d.suspicious || 0;
+        }
+      });
+    });
+  } else {
+    const t = dashboard.totals;
+    urls = t.urls || 0;
+    files = t.files || 0;
+    malicious = t.malicious || 0;
+    suspicious = t.suspicious || 0;
+  }
+
   return [
-    { name: "Scanned URLs", value: t.urls || 0 },
-    { name: "Scanned Files", value: t.files || 0 },
-    { name: "Malicious Blocked", value: t.malicious || 0 },
-    { name: "Suspicious Flagged", value: t.suspicious || 0 },
+    { name: "Scanned URLs", value: urls },
+    { name: "Scanned Files", value: files },
+    { name: "Malicious Blocked", value: malicious },
+    { name: "Suspicious Flagged", value: suspicious },
   ];
 }
 

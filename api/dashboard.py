@@ -166,9 +166,12 @@ logger = logging.getLogger("BeydaWebApp")
 METRICS = ("scanned", "files", "urls", "malicious", "deleted", "suspicious", "errors", "oversize")
 
 
-def build_dashboard(user_id: int, days: int = 31) -> dict:
-    history_days = max(1, min(90, int(days or 31)))
-    allowed_groups = get_allowed_groups()
+def build_dashboard(user_id: int, days: int = 90, allowed_groups: list = None, known_groups: dict = None) -> dict:
+    history_days = max(1, min(90, int(days or 90)))
+    if allowed_groups is None:
+        allowed_groups = get_allowed_groups()
+    if known_groups is None:
+        known_groups = get_known_groups()
     group_ids = groups_for_user(user_id, allowed_groups)
     groups = []
     totals = {m: 0 for m in METRICS}
@@ -206,7 +209,7 @@ def build_dashboard(user_id: int, days: int = 31) -> dict:
                 totals[k] += row[k]
         if not title or title == str(gid) or title == "Group":
             chat = get_chat(gid)
-            title = (chat or {}).get("title") or (get_known_groups().get(str(gid))) or str(gid)
+            title = (chat or {}).get("title") or known_groups.get(str(gid)) or str(gid)
         if title and title != str(gid) and title != "Group":
             record_known_group(gid, title)
         groups.append({"id": gid, "title": title, "daily": daily})
@@ -720,14 +723,17 @@ class handler(BaseHTTPRequestHandler):
 
     def _full_payload(self, uid: int, user: dict, super_admin: bool, body: dict, session: str = "") -> dict:
         tok = session or body.get("session") or create_session(uid)
-        days = int(body.get("days", 1))
+        days = max(1, min(90, int(body.get("days") or 90)))
+
+        # Cache shared group maps
+        allowed_groups = get_allowed_groups()
+        known_groups = get_known_groups()
+        group_ids = groups_for_user(uid, allowed_groups)
 
         # Build dashboard summary
-        dash = build_dashboard(uid, days=days)
+        dash = build_dashboard(uid, days=days, allowed_groups=allowed_groups, known_groups=known_groups)
 
         # Threat Events
-        allowed_groups = get_allowed_groups()
-        group_ids = groups_for_user(uid, allowed_groups)
         raw_threats = get_threat_events(group_ids, days=days)
 
         # Apply role-based ID & group privacy rules
@@ -767,7 +773,7 @@ class handler(BaseHTTPRequestHandler):
             "domain_whitelist": get_domain_whitelist(),
             "group_details": group_details,
             "known_users": known_users,
-            "known_groups": get_known_groups(),
+            "known_groups": known_groups,
             "config": get_system_config() if super_admin else None,
             "plans": get_plan_catalog() if super_admin else None,
             "subscriptions": list_subscriptions() if super_admin else None,

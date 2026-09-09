@@ -114,7 +114,7 @@ export default function HomeView({ dashboard, threatEvents, user, lang, isMock, 
   const allTimelineData = getTimelineFromDashboard(dashboard);
   const timelineData = allTimelineData.filter(item => item.date >= dateFrom && item.date <= dateTo);
   const chartData = isSingleDate ? get24HourTimeline(dateFrom, dashboard, threatEvents) : timelineData;
-  const pieData = getThreatBreakdownFromDashboard(dashboard);
+  const pieData = getThreatBreakdownFromDashboard(dashboard, dateFrom, dateTo);
   const threatsList = getThreatsListFromDashboard(dashboard);
 
   // Compute stats
@@ -310,9 +310,7 @@ export default function HomeView({ dashboard, threatEvents, user, lang, isMock, 
               : `${tx.threatActivity} (${dateFrom} ~ ${dateTo})`}
           </span>
           <span style={{ fontSize: 11, color: G.gold, fontWeight: 700 }}>
-            {isSingleDate
-              ? `${chartData.reduce((acc, c) => acc + (c.scans || 0), 0)} scans`
-              : `${totals.scanned} scans`}
+            {`${(isSingleDate ? chartData : timelineData).reduce((acc, c) => acc + (c.scans || 0), 0).toLocaleString()} scans`}
           </span>
         </div>
         {chartData.length > 0 ? (
