@@ -1,6 +1,6 @@
 FROM aiogram/telegram-bot-api:latest
 
-RUN apk add --no-cache python3 py3-pip py3-pillow zbar
+RUN apk add --no-cache python3 py3-pip py3-pillow zbar chromium font-noto-khmer
 
 WORKDIR /app
 
