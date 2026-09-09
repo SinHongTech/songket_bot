@@ -445,7 +445,8 @@ class handler(BaseHTTPRequestHandler):
                 whitelist = [int(x) for x in body.get("whitelist", []) if str(x).strip()]
                 allowed_groups = [int(x) for x in body.get("allowed_groups", []) if str(x).strip()]
                 group_handlers = body.get("group_handlers", {})
-                ok = save_system_config(whitelist, allowed_groups, group_handlers)
+                super_admins = [int(x) for x in body.get("super_admin_ids", []) if str(x).strip()]
+                ok = save_system_config(whitelist, allowed_groups, group_handlers, super_admins)
                 return self._json(200, {"ok": ok, "config": get_system_config()})
 
             # Action: Save monitored groups (any authorized admin)

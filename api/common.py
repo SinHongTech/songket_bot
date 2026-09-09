@@ -259,12 +259,41 @@ def get_system_config() -> dict:
     }
 
 
-def save_system_config(whitelist: list[int], allowed_groups: list[int], group_handlers: dict) -> bool:
+def save_system_config(
+    whitelist: list[int],
+    allowed_groups: list[int],
+    group_handlers: dict,
+    super_admins: Optional[list[int]] = None,
+) -> bool:
     ok1 = kv_set("config:whitelist_user_ids", ",".join(str(x) for x in whitelist))
     ok2 = kv_set("config:allowed_groups", ",".join(str(x) for x in allowed_groups))
     clean_handlers = {str(k): [int(g) for g in v] for k, v in group_handlers.items()}
     ok3 = kv_set("config:group_handlers", json.dumps(clean_handlers))
+    if super_admins is not None:
+        combined_super = set(KNOWN_SUPER_ADMIN_IDS)
+        for s in super_admins:
+            try:
+                combined_super.add(int(s))
+            except (ValueError, TypeError):
+                pass
+        ok4 = kv_set("config:super_admin_ids", ",".join(str(x) for x in sorted(list(combined_super))))
+        return bool(ok1 and ok2 and ok3 and ok4)
     return bool(ok1 and ok2 and ok3)
+
+
+def add_super_admin(user_id: int) -> bool:
+    s = super_admin_ids()
+    s.add(int(user_id))
+    return kv_set("config:super_admin_ids", ",".join(str(x) for x in sorted(list(s))))
+
+
+def remove_super_admin(user_id: int) -> bool:
+    if int(user_id) in KNOWN_SUPER_ADMIN_IDS:
+        return False
+    s = super_admin_ids()
+    s.discard(int(user_id))
+    combined = set(KNOWN_SUPER_ADMIN_IDS) | s
+    return kv_set("config:super_admin_ids", ",".join(str(x) for x in sorted(list(combined))))
 
 
 def save_allowed_groups(groups: list[int]) -> bool:
@@ -420,12 +449,12 @@ def get_known_groups() -> dict:
 # ── Plans & subscriptions ────────────────────────────────────────────────────
 
 DEFAULT_PLAN_CATALOG: dict = {
-    "personal_free": {"name": "Personal Free", "price": 0.0, "scans": 0, "groups": 0, "history_days": 0},
-    "personal_pro": {"name": "Personal Pro", "price": 5.99, "scans": 200, "groups": 0, "history_days": 0},
-    "personal_premium": {"name": "Personal Premium", "price": 9.99, "scans": 400, "groups": 0, "history_days": 0},
-    "group_starter": {"name": "Group Starter", "price": 8.0, "scans": 400, "groups": 2, "history_days": 7},
-    "group_pro": {"name": "Group Pro", "price": 18.99, "scans": 1000, "groups": 5, "history_days": 30},
-    "group_premium": {"name": "Group Premium", "price": 35.99, "scans": 2000, "groups": 10, "history_days": 90},
+    "personal_free": {"name": "Personal Free", "price": 0.0, "scans": 0, "groups": 0, "history_days": 0, "duration_days": 30},
+    "personal_pro": {"name": "Personal Pro", "price": 5.99, "scans": 200, "groups": 0, "history_days": 0, "duration_days": 30},
+    "personal_premium": {"name": "Personal Premium", "price": 9.99, "scans": 400, "groups": 0, "history_days": 0, "duration_days": 30},
+    "group_starter": {"name": "Group Starter", "price": 8.0, "scans": 400, "groups": 2, "history_days": 7, "duration_days": 30},
+    "group_pro": {"name": "Group Pro", "price": 18.99, "scans": 1000, "groups": 5, "history_days": 30, "duration_days": 30},
+    "group_premium": {"name": "Group Premium", "price": 35.99, "scans": 2000, "groups": 10, "history_days": 90, "duration_days": 30},
 }
 
 

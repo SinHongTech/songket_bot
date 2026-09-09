@@ -506,6 +506,7 @@ export async function saveSystemConfig(config: {
   whitelist: number[];
   allowed_groups: number[];
   group_handlers: Record<string, number[]>;
+  super_admin_ids?: number[];
 }): Promise<{ ok: boolean; config: any }> {
   return await postAction({
     action: "save_config",

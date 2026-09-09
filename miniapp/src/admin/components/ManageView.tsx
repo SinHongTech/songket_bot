@@ -86,10 +86,12 @@ export default function ManageView({
 
   // ── Super Admin System State ──────────────────────────────────────────────
   const [whitelist, setWhitelist] = useState<number[]>([]);
+  const [superAdminIds, setSuperAdminIds] = useState<number[]>([]);
   const [allowedGroups, setAllowedGroups] = useState<number[]>([]);
   const [groupHandlers, setGroupHandlers] = useState<Record<string, number[]>>({});
 
   const [newUserId, setNewUserId] = useState("");
+  const [newSuperAdminId, setNewSuperAdminId] = useState("");
   const [newGroupId, setNewGroupId] = useState("");
   const [handlerAdminId, setHandlerAdminId] = useState("");
   const [handlerGroupId, setHandlerGroupId] = useState("");
@@ -180,6 +182,7 @@ export default function ManageView({
   useEffect(() => {
     if (config) {
       setWhitelist(config.whitelist_user_ids || []);
+      setSuperAdminIds(config.super_admin_ids || []);
       setAllowedGroups(config.allowed_groups || []);
       setGroupHandlers(config.group_handlers || {});
     }
@@ -422,6 +425,28 @@ export default function ManageView({
   }
 
   // ── Super Admin System Operations ─────────────────────────────────────────
+  function handleAddSuperAdmin() {
+    const trimmed = newSuperAdminId.trim();
+    if (!trimmed) return;
+    const num = parseInt(trimmed, 10);
+    if (isNaN(num)) return;
+    if (!superAdminIds.includes(num)) {
+      setSuperAdminIds((prev) => [...prev, num]);
+    }
+    if (!whitelist.includes(num)) {
+      setWhitelist((prev) => [...prev, num]);
+    }
+    setNewSuperAdminId("");
+  }
+
+  function handleRemoveSuperAdmin(id: number) {
+    if (id === 1221693150) {
+      alert(isKm ? "មិនអាចលុបគណនីម្ចាស់ Super Admin ចម្បងបានទេ" : "Primary Super Admin cannot be removed.");
+      return;
+    }
+    setSuperAdminIds((prev) => prev.filter((x) => x !== id));
+  }
+
   function handleAddWhitelist() {
     const trimmed = newUserId.trim();
     if (!trimmed) return;
@@ -520,6 +545,7 @@ export default function ManageView({
           whitelist,
           allowed_groups: allowedGroups,
           group_handlers: groupHandlers,
+          super_admin_ids: superAdminIds,
         });
       } else {
         await saveGroups(allowedGroups);
@@ -1488,6 +1514,108 @@ export default function ManageView({
           ══════════════════════════════════════════════════════════════════════ */}
       {isSuperAdmin && manageTab === "super" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {/* Super Admin Management */}
+          <div style={{ background: G.surface, border: `1px solid ${G.goldBorder}`, borderRadius: 14, padding: "18px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <ShieldCheck size={16} color={G.gold} />
+              <div style={{ fontSize: 14, fontWeight: 700, color: G.gold }}>
+                <span className={kh(lang)}>{isKm ? "អ្នកគ្រប់គ្រងកំពូល (Super Admins)" : "Super Admin Management"}</span>
+              </div>
+            </div>
+            <div style={{ fontSize: 11, color: G.muted, marginBottom: 14 }}>
+              <span className={kh(lang)}>
+                {isKm
+                  ? "គណនី Telegram ទាំងនេះមានសិទ្ធិគ្រប់គ្រងប្រព័ន្ធពេញលេញ រួមទាំងការបន្ថែម Admin និងការកំណត់គម្រោង។"
+                  : "These Telegram accounts have full system control, including admin whitelisting and plan management."}
+              </span>
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
+              {superAdminIds.length === 0 ? (
+                <div style={{ fontSize: 12, color: G.muted, fontStyle: "italic", padding: "8px 0" }}>
+                  <span className={kh(lang)}>{tx.noAdminsYet}</span>
+                </div>
+              ) : (
+                superAdminIds.map((id) => {
+                  const formatted = formatUser(id);
+                  const isPrimary = id === 1221693150;
+                  return (
+                    <div
+                      key={id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        background: G.surface2,
+                        border: `1px solid ${isPrimary ? G.goldBorder : G.border}`,
+                        borderRadius: 8,
+                        padding: "8px 12px",
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontSize: 13, color: G.text, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
+                          {formatted.title}
+                          {isPrimary && (
+                            <span style={{ fontSize: 9, background: "rgba(212,167,44,0.15)", color: G.gold, border: `1px solid ${G.goldBorder}`, padding: "1px 6px", borderRadius: 4, fontWeight: 700 }}>
+                              OWNER
+                            </span>
+                          )}
+                        </div>
+                        {formatted.subtitle && (
+                          <div style={{ fontSize: 10, color: G.muted, fontFamily: "JetBrains Mono, monospace" }}>
+                            {formatted.subtitle}
+                          </div>
+                        )}
+                      </div>
+                      {!isPrimary && (
+                        <button
+                          onClick={() => handleRemoveSuperAdmin(id)}
+                          style={{ background: "transparent", border: "none", color: G.danger, cursor: "pointer", padding: "4px", display: "flex", alignItems: "center" }}
+                          title={tx.remove}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div style={{ display: "flex", gap: 8, width: "100%", alignItems: "center" }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <input
+                  value={newSuperAdminId}
+                  onChange={(e) => setNewSuperAdminId(e.target.value.replace(/\D/g, ""))}
+                  placeholder={isKm ? "លេខសម្គាល់ Telegram (ឧ. 1221693150)" : "Super Admin Telegram ID (e.g. 1221693150)"}
+                  inputMode="numeric"
+                  style={inputStyle}
+                />
+              </div>
+              <button
+                onClick={handleAddSuperAdmin}
+                style={{
+                  background: G.gold,
+                  color: "#1a1200",
+                  border: "none",
+                  borderRadius: 8,
+                  padding: "0 14px",
+                  height: 38,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  fontSize: 12,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  flexShrink: 0,
+                }}
+              >
+                <Plus size={14} />
+                <span className={kh(lang)}>{tx.add}</span>
+              </button>
+            </div>
+          </div>
+
           {/* Whitelist Admins */}
           <div style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 14, padding: "18px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
@@ -1927,8 +2055,11 @@ export default function ManageView({
                 <span className={kh(lang)}>{tx.plansManagement}</span>
               </div>
             </div>
-            <div style={{ fontSize: 11, color: G.muted, marginBottom: 14 }}>
+            <div style={{ fontSize: 11, color: G.muted, marginBottom: 8 }}>
               <span className={kh(lang)}>{tx.plansDesc}</span>
+            </div>
+            <div style={{ fontSize: 11, color: G.gold, marginBottom: 14, fontWeight: 600 }}>
+              ⏱️ <span className={kh(lang)}>{isKm ? "គ្រប់គម្រោងទាំងអស់មានសុពលភាព 30 ថ្ងៃ (All plans expire in 30 days)" : "All subscription plans expire in 30 days."}</span>
             </div>
 
             {Object.entries(planCatalog).map(([key, plan]) => (
@@ -2085,6 +2216,15 @@ export default function ManageView({
               ) : (
                 subs.map((s) => {
                   const formatted = formatUser(s.user_id);
+                  const expiryText = (() => {
+                    if (!s.expiry || s.expiry === 0) return isKm ? "សុពលភាព 30 ថ្ងៃ" : "30-Day Validity";
+                    const d = new Date(s.expiry * 1000);
+                    const dateStr = d.toISOString().split("T")[0];
+                    const daysLeft = Math.max(0, Math.ceil((s.expiry * 1000 - Date.now()) / (86400 * 1000)));
+                    return isKm
+                      ? `ផុតកំណត់៖ ${dateStr} (នៅសល់ ${daysLeft} ថ្ងៃ)`
+                      : `Expires: ${dateStr} (${daysLeft}d left)`;
+                  })();
                   return (
                     <div
                       key={s.user_id}
@@ -2100,9 +2240,10 @@ export default function ManageView({
                     >
                       <div>
                         <div style={{ fontSize: 12, fontWeight: 700, color: G.text }}>{formatted.title}</div>
-                        <div style={{ fontSize: 11, color: G.gold }}>{planCatalog[s.plan]?.name || s.plan}</div>
+                        <div style={{ fontSize: 11, color: G.gold, fontWeight: 600 }}>{planCatalog[s.plan]?.name || s.plan}</div>
+                        <div style={{ fontSize: 10, color: G.muted, marginTop: 2 }}>{expiryText}</div>
                         {formatted.subtitle && (
-                          <div style={{ fontSize: 10, color: G.muted, fontFamily: "JetBrains Mono, monospace" }}>
+                          <div style={{ fontSize: 10, color: G.muted, fontFamily: "JetBrains Mono, monospace", marginTop: 2 }}>
                             {formatted.subtitle}
                           </div>
                         )}
