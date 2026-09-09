@@ -70,6 +70,7 @@ try:
         get_candidate_groups_for_user,
         get_user_daily_report_settings,
         set_user_daily_report_settings,
+        send_security_report_to_user_dm,
     )
     from api.totp import (
         generate_totp_secret,
@@ -140,6 +141,7 @@ except ImportError:
         get_candidate_groups_for_user,
         get_user_daily_report_settings,
         set_user_daily_report_settings,
+        send_security_report_to_user_dm,
     )
     from totp import (
         generate_totp_secret,
@@ -609,12 +611,27 @@ class handler(BaseHTTPRequestHandler):
                 ok = remove_group_whitelisted_file(gid, sha)
                 return self._json(200, {"ok": ok, "whitelisted_files": get_group_whitelisted_files(gid)})
 
-            # Action: Save User Preferences & Daily Report Schedule
+            # Action: Save User Preferences & Report Settings
             if body.get("action") == "save_user_settings":
                 en = body.get("daily_report_enabled")
                 t_str = body.get("daily_report_time")
-                ok = set_user_daily_report_settings(uid, enabled=en, time_str=t_str)
+                freq = body.get("report_frequency")
+                rlang = body.get("report_lang") or body.get("lang")
+                ok = set_user_daily_report_settings(
+                    uid,
+                    enabled=en,
+                    time_str=t_str,
+                    frequency=freq,
+                    lang=rlang,
+                )
                 return self._json(200, {"ok": ok, "user_settings": get_user_daily_report_settings(uid)})
+
+            # Action: Request Immediate Report Delivery to Telegram DM (Daily, Weekly, Monthly)
+            if body.get("action") == "request_report":
+                period = str(body.get("period", "daily")).strip().lower()
+                rlang = body.get("report_lang") or body.get("lang")
+                result = send_security_report_to_user_dm(uid, period=period, lang=rlang)
+                return self._json(200, result)
 
             user_groups = groups_for_user(uid, get_allowed_groups())
             has_dashboard_access = super_admin or is_admin or uid in whitelist_ids() or bool(user_groups)

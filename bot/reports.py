@@ -65,21 +65,54 @@ def get_report(chat_id: int, day: str) -> dict:
     return kv_json_get(f"report:{day}:{chat_id}") or {"date": day, "group_id": chat_id, **{m: 0 for m in REPORT_METRICS}}
 
 
-# ── User Daily DM Report Settings ─────────────────────────────────────────────
+# ── Period Dates & Multi-Range Calculator ───────────────────────────────────
+
+def _get_dates_for_period(period: str = "daily", end_date_str: Optional[str] = None) -> tuple[list[str], str, str]:
+    """Return (date_list, start_date_str, end_date_str) for period ('daily' | 'weekly' | 'monthly')."""
+    end_str = end_date_str or local_date()
+    try:
+        end_d = datetime.strptime(end_str, "%Y-%m-%d").date()
+    except Exception:
+        end_d = datetime.utcnow().date()
+        end_str = end_d.isoformat()
+
+    period_clean = (period or "daily").lower().strip()
+    if period_clean == "weekly":
+        start_d = end_d - timedelta(days=6)
+        dates = [(start_d + timedelta(days=i)).isoformat() for i in range(7)]
+        return dates, start_d.isoformat(), end_str
+    elif period_clean == "monthly":
+        start_d = end_d - timedelta(days=29)
+        dates = [(start_d + timedelta(days=i)).isoformat() for i in range(30)]
+        return dates, start_d.isoformat(), end_str
+    else:  # daily
+        return [end_str], end_str, end_str
+
+
+# ── User Daily / Periodic DM Report Settings ──────────────────────────────────
 
 def get_user_daily_report_settings(user_id: int) -> dict:
-    """Return user daily DM report configuration (defaults to enabled at 07:00 AM)."""
+    """Return user DM report configuration (defaults to enabled daily at 07:00 AM in both languages)."""
     data = kv_json_get(f"settings:user:{user_id}") or {}
     if not isinstance(data, dict):
         data = {}
     en = bool(data.get("daily_report_enabled", True))
     t_val = str(data.get("daily_report_time", DEFAULT_REPORT_TIME))
+    freq = str(data.get("report_frequency", "daily")).lower().strip()
+    if freq not in {"daily", "weekly", "monthly"}:
+        freq = "daily"
+    rlang = str(data.get("report_lang", data.get("lang", "both"))).lower().strip()
+    if rlang not in {"both", "kh", "en"}:
+        rlang = "both"
     return {
         "daily_report_enabled": en,
         "daily_report_time": t_val,
+        "report_frequency": freq,
+        "report_lang": rlang,
         "enabled": en,
         "time": t_val,
-        "lang": str(data.get("lang", "both")),
+        "frequency": freq,
+        "lang": rlang,
     }
 
 
@@ -87,8 +120,10 @@ def set_user_daily_report_settings(
     user_id: int,
     enabled: Optional[bool] = None,
     time_str: Optional[str] = None,
+    frequency: Optional[str] = None,
+    lang: Optional[str] = None,
 ) -> bool:
-    """Update user daily DM report schedule and toggle."""
+    """Update user DM report schedule, frequency ('daily'|'weekly'|'monthly'), and language ('both'|'kh'|'en')."""
     data = kv_json_get(f"settings:user:{user_id}") or {}
     if not isinstance(data, dict):
         data = {}
@@ -106,27 +141,44 @@ def set_user_daily_report_settings(
         else:
             return False
 
+    if frequency is not None:
+        clean_freq = frequency.strip().lower()
+        if clean_freq in {"daily", "weekly", "monthly"}:
+            data["report_frequency"] = clean_freq
+
+    if lang is not None:
+        clean_lang = lang.strip().lower()
+        if clean_lang in {"both", "kh", "en"}:
+            data["report_lang"] = clean_lang
+            data["lang"] = clean_lang
+
     return kv_json_set(f"settings:user:{user_id}", data)
 
 
-# ── Daily DM Report Formatter ────────────────────────────────────────────────
+# ── Periodic DM Report Formatter ──────────────────────────────────────────────
 
-def format_daily_dm_report(
+def format_security_dm_report(
     api,
     user_id: int,
+    period: str = "daily",
+    lang: Optional[str] = None,
     target_date: Optional[str] = None,
 ) -> Optional[str]:
-    """Build a rich daily summary DM report for the user's monitored groups."""
+    """Build a rich DM summary report for daily, weekly, or monthly periods in user's selected language."""
     from bot.utils import get_managed_groups_for_user
 
-    date_str = target_date or local_date()
+    period_clean = (period or "daily").lower().strip()
+    if period_clean not in {"daily", "weekly", "monthly"}:
+        period_clean = "daily"
+
+    date_list, start_str, end_str = _get_dates_for_period(period_clean, target_date)
 
     managed = get_managed_groups_for_user(api, user_id)
     if not managed:
         return None
 
     settings = get_user_daily_report_settings(user_id)
-    lang = settings.get("lang", "both")
+    selected_lang = lang or settings.get("report_lang", "both")
 
     total_scanned = 0
     total_files = 0
@@ -139,14 +191,22 @@ def format_daily_dm_report(
     for g in managed:
         gid = g["id"]
         title = g["title"]
-        rep = get_report(gid, date_str)
 
-        scanned = rep.get("scanned", 0)
-        files = rep.get("files", 0)
-        urls = rep.get("urls", 0)
-        malicious = rep.get("malicious", 0)
-        suspicious = rep.get("suspicious", 0)
-        deleted = rep.get("deleted", 0)
+        scanned = 0
+        files = 0
+        urls = 0
+        malicious = 0
+        suspicious = 0
+        deleted = 0
+
+        for d in date_list:
+            rep = get_report(gid, d)
+            scanned += int(rep.get("scanned", 0))
+            files += int(rep.get("files", 0))
+            urls += int(rep.get("urls", 0))
+            malicious += int(rep.get("malicious", 0))
+            suspicious += int(rep.get("suspicious", 0))
+            deleted += int(rep.get("deleted", 0))
 
         total_scanned += scanned
         total_files += files
@@ -157,24 +217,70 @@ def format_daily_dm_report(
 
         status_emoji = "🟢" if malicious == 0 and suspicious == 0 else "🔴"
         threat_text = ""
-        if malicious > 0:
-            threat_text += f"\n   🚨 <b>Malicious:</b> {malicious} (Auto-deleted: {deleted})"
-        if suspicious > 0:
-            threat_text += f"\n   ⚠️ <b>Suspicious:</b> {suspicious}"
-        if malicious == 0 and suspicious == 0:
-            threat_text = "\n   ✨ <i>100% Clean & Protected</i>"
 
-        group_blocks.append(
-            f"{status_emoji} <b>{title}</b>\n"
-            f"   🔍 Scans: <b>{scanned}</b> (📁 {files} files · 🔗 {urls} links){threat_text}"
-        )
+        if selected_lang == "kh":
+            if malicious > 0:
+                threat_text += f"\n   🚨 <b>មេរោគ:</b> {malicious} (លុបស្វ័យប្រវត្តិ: {deleted})"
+            if suspicious > 0:
+                threat_text += f"\n   ⚠️ <b>សង្ស័យ:</b> {suspicious}"
+            if malicious == 0 and suspicious == 0:
+                threat_text = "\n   ✨ <i>100% ស្អាត និងមានសុវត្ថិភាព</i>"
+            group_blocks.append(
+                f"{status_emoji} <b>{title}</b>\n"
+                f"   🔍 ស្កេន: <b>{scanned}</b> (📁 {files} ឯកសារ · 🔗 {urls} តំណ){threat_text}"
+            )
+        elif selected_lang == "en":
+            if malicious > 0:
+                threat_text += f"\n   🚨 <b>Malicious:</b> {malicious} (Auto-deleted: {deleted})"
+            if suspicious > 0:
+                threat_text += f"\n   ⚠️ <b>Suspicious:</b> {suspicious}"
+            if malicious == 0 and suspicious == 0:
+                threat_text = "\n   ✨ <i>100% Clean & Protected</i>"
+            group_blocks.append(
+                f"{status_emoji} <b>{title}</b>\n"
+                f"   🔍 Scans: <b>{scanned}</b> (📁 {files} files · 🔗 {urls} links){threat_text}"
+            )
+        else:  # bilingual
+            if malicious > 0:
+                threat_text += f"\n   🚨 <b>Malicious / មេរោគ:</b> {malicious} (Auto-deleted: {deleted})"
+            if suspicious > 0:
+                threat_text += f"\n   ⚠️ <b>Suspicious / សង្ស័យ:</b> {suspicious}"
+            if malicious == 0 and suspicious == 0:
+                threat_text = "\n   ✨ <i>100% Clean & Protected</i>"
+            group_blocks.append(
+                f"{status_emoji} <b>{title}</b>\n"
+                f"   🔍 Scans: <b>{scanned}</b> (📁 {files} files · 🔗 {urls} links){threat_text}"
+            )
 
     groups_summary = "\n\n".join(group_blocks)
     today_time = local_time_str()
 
-    if lang == "kh":
-        header = f"📊 <b>របាយការណ៍សន្តិសុខប្រចាំថ្ងៃ</b> (Songket Security Daily Report)"
-        date_line = f"📅 <b>កាលបរិច្ឆេទ:</b> <code>{date_str}</code> (ម៉ោង {today_time})"
+    # Titles and date headers per period
+    if period_clean == "weekly":
+        title_kh = "📊 <b>របាយការណ៍សន្តិសុខប្រចាំសប្តាហ៍</b> (Songket Security Weekly Report)"
+        title_en = "📊 <b>Songket Security Weekly Report</b>"
+        title_both = "📊 <b>របាយការណ៍សន្តិសុខប្រចាំសប្តាហ៍ | Songket Security Weekly Report</b>"
+        date_kh = f"📅 <b>រយៈពេល (៧ ថ្ងៃ):</b> <code>{start_str}</code> ដល់ <code>{end_str}</code> (ម៉ោង {today_time})"
+        date_en = f"📅 <b>Period (7 Days):</b> <code>{start_str}</code> to <code>{end_str}</code> (Generated at {today_time})"
+        date_both = f"📅 <b>Period / រយៈពេល:</b> <code>{start_str}</code> ដល់ <code>{end_str}</code> (7 Days · {today_time})"
+    elif period_clean == "monthly":
+        title_kh = "📊 <b>របាយការណ៍សន្តិសុខប្រចាំខែ</b> (Songket Security Monthly Report)"
+        title_en = "📊 <b>Songket Security Monthly Report</b>"
+        title_both = "📊 <b>របាយការណ៍សន្តិសុខប្រចាំខែ | Songket Security Monthly Report</b>"
+        date_kh = f"📅 <b>រយៈពេល (៣០ ថ្ងៃ):</b> <code>{start_str}</code> ដល់ <code>{end_str}</code> (ម៉ោង {today_time})"
+        date_en = f"📅 <b>Period (30 Days):</b> <code>{start_str}</code> to <code>{end_str}</code> (Generated at {today_time})"
+        date_both = f"📅 <b>Period / រយៈពេល:</b> <code>{start_str}</code> ដល់ <code>{end_str}</code> (30 Days · {today_time})"
+    else:  # daily
+        title_kh = "📊 <b>របាយការណ៍សន្តិសុខប្រចាំថ្ងៃ</b> (Songket Security Daily Report)"
+        title_en = "📊 <b>Songket Security Daily Report</b>"
+        title_both = "📊 <b>របាយការណ៍សន្តិសុខប្រចាំថ្ងៃ | Songket Security Daily Report</b>"
+        date_kh = f"📅 <b>កាលបរិច្ឆេទ:</b> <code>{end_str}</code> (ម៉ោង {today_time})"
+        date_en = f"📅 <b>Date:</b> <code>{end_str}</code> (Generated at {today_time})"
+        date_both = f"📅 <b>Date / កាលបរិច្ឆេទ:</b> <code>{end_str}</code> (Asia/Phnom_Penh {today_time})"
+
+    if selected_lang == "kh":
+        header = title_kh
+        date_line = date_kh
         summary_title = "📈 <b>សរុបសកម្មភាពស្កេនទាំងអស់ (Overall Summary):</b>"
         summary_body = (
             f"• 🔍 ស្កេនសរុប: <b>{total_scanned}</b> (📁 {total_files} ឯកសារ · 🔗 {total_urls} តំណ)\n"
@@ -182,10 +288,10 @@ def format_daily_dm_report(
             f"• ⚠️ គួរឱ្យសង្ស័យ: <b>{total_suspicious}</b>"
         )
         groups_title = f"👥 <b>ក្រុមដែលកំពុងការពារ ({len(managed)} ក្រុម):</b>"
-        footer = "🛡️ <i>Songket Security Bot ការពារក្រុមរបស់អ្នក 24/7</i>\n⚙️ ផ្លាស់ប្តូរម៉ោងផ្ញើ៖ /daily"
-    elif lang == "en":
-        header = f"📊 <b>Songket Security Daily Report</b>"
-        date_line = f"📅 <b>Date:</b> <code>{date_str}</code> (Generated at {today_time})"
+        footer = "🛡️ <i>Songket Security Bot ការពារក្រុមរបស់អ្នក 24/7</i>\n⚙️ ផ្លាស់ប្តូរការកំណត់របាយការណ៍៖ /daily ឬ /report"
+    elif selected_lang == "en":
+        header = title_en
+        date_line = date_en
         summary_title = "📈 <b>Overall Threat & Scan Statistics:</b>"
         summary_body = (
             f"• 🔍 Total Scans: <b>{total_scanned}</b> (📁 {total_files} files · 🔗 {total_urls} links)\n"
@@ -193,10 +299,10 @@ def format_daily_dm_report(
             f"• ⚠️ Suspicious Items: <b>{total_suspicious}</b>"
         )
         groups_title = f"👥 <b>Monitored Groups ({len(managed)} active):</b>"
-        footer = "🛡️ <i>Songket Security Bot is protecting your groups 24/7</i>\n⚙️ Change report schedule: /daily"
+        footer = "🛡️ <i>Songket Security Bot is protecting your groups 24/7</i>\n⚙️ Change report schedule: /daily or /report"
     else:  # bilingual
-        header = f"📊 <b>របាយការណ៍សន្តិសុខប្រចាំថ្ងៃ | Songket Security Daily Report</b>"
-        date_line = f"📅 <b>Date / កាលបរិច្ឆេទ:</b> <code>{date_str}</code> (Asia/Phnom_Penh {today_time})"
+        header = title_both
+        date_line = date_both
         summary_title = "📈 <b>សរុបស្ថិតិស្កេន (Security Overview):</b>"
         summary_body = (
             f"• 🔍 Total Scans: <b>{total_scanned}</b> (📁 {total_files} files · 🔗 {total_urls} links)\n"
@@ -204,7 +310,7 @@ def format_daily_dm_report(
             f"• ⚠️ Suspicious / សង្ស័យ: <b>{total_suspicious}</b>"
         )
         groups_title = f"👥 <b>ក្រុមដែលកំពុងការពារ | Monitored Groups ({len(managed)}):</b>"
-        footer = "🛡️ <i>Songket Security Bot is protecting your groups 24/7</i>\n⚙️ កំណត់ម៉ោងផ្ញើ / Schedule: /daily"
+        footer = "🛡️ <i>Songket Security Bot is protecting your groups 24/7</i>\n⚙️ កំណត់ម៉ោងផ្ញើ / Schedule: /daily ឬ /report"
 
     return (
         f"{header}\n"
@@ -217,12 +323,32 @@ def format_daily_dm_report(
     )
 
 
-def generate_daily_pdf_report(
+def format_daily_dm_report(
     api,
     user_id: int,
     target_date: Optional[str] = None,
+) -> Optional[str]:
+    """Backward-compatible helper for daily DM report."""
+    settings = get_user_daily_report_settings(user_id)
+    return format_security_dm_report(
+        api,
+        user_id,
+        period="daily",
+        lang=settings.get("report_lang", "both"),
+        target_date=target_date,
+    )
+
+
+# ── PDF Security Report Generator (Daily, Weekly, Monthly) ─────────────────────
+
+def generate_security_pdf_report(
+    api,
+    user_id: int,
+    period: str = "daily",
+    lang: Optional[str] = None,
+    target_date: Optional[str] = None,
 ) -> Optional[bytes]:
-    """Generate a detailed PDF security audit report for the user's managed groups."""
+    """Generate a detailed PDF security audit report for daily, weekly, or monthly periods."""
     import io
     from reportlab.lib.pagesizes import letter
     from reportlab.lib import colors
@@ -232,7 +358,11 @@ def generate_daily_pdf_report(
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from bot.utils import get_managed_groups_for_user
 
-    date_str = target_date or local_date()
+    period_clean = (period or "daily").lower().strip()
+    if period_clean not in {"daily", "weekly", "monthly"}:
+        period_clean = "daily"
+
+    date_list, start_str, end_str = _get_dates_for_period(period_clean, target_date)
     managed = get_managed_groups_for_user(api, user_id)
     if not managed:
         return None
@@ -250,14 +380,22 @@ def generate_daily_pdf_report(
     for g in managed:
         gid = g["id"]
         title = g.get("title") or "Protected Group"
-        rep = get_report(gid, date_str)
 
-        scanned = int(rep.get("scanned", 0))
-        files = int(rep.get("files", 0))
-        urls = int(rep.get("urls", 0))
-        malicious = int(rep.get("malicious", 0))
-        suspicious = int(rep.get("suspicious", 0))
-        deleted = int(rep.get("deleted", 0))
+        scanned = 0
+        files = 0
+        urls = 0
+        malicious = 0
+        suspicious = 0
+        deleted = 0
+
+        for d in date_list:
+            rep = get_report(gid, d)
+            scanned += int(rep.get("scanned", 0))
+            files += int(rep.get("files", 0))
+            urls += int(rep.get("urls", 0))
+            malicious += int(rep.get("malicious", 0))
+            suspicious += int(rep.get("suspicious", 0))
+            deleted += int(rep.get("deleted", 0))
 
         total_scanned += scanned
         total_files += files
@@ -335,10 +473,8 @@ def generate_daily_pdf_report(
 
     story = []
 
-    # Locate or extract rounded project logo
+    # Locate or render rounded project logo
     import os
-    import re
-    import base64
     from PIL import Image as PILImage, ImageDraw as PILImageDraw
     from reportlab.platypus import Image as RLImage
 
@@ -382,6 +518,20 @@ def generate_daily_pdf_report(
             except Exception as e:
                 logger.warning("Could not render rounded logo from SVG: %s", e)
 
+    # PDF Period Headers & Subtitles
+    if period_clean == "weekly":
+        pdf_title = "SONGKET SECURITY WEEKLY REPORT"
+        pdf_badge = "Weekly Security Audit Report"
+        pdf_period_text = f"Period: <b>{start_str} to {end_str}</b> (7 Days)"
+    elif period_clean == "monthly":
+        pdf_title = "SONGKET SECURITY MONTHLY REPORT"
+        pdf_badge = "Monthly Security Audit Report"
+        pdf_period_text = f"Period: <b>{start_str} to {end_str}</b> (30 Days)"
+    else:
+        pdf_title = "SONGKET SECURITY DAILY REPORT"
+        pdf_badge = "Daily Security Audit Report"
+        pdf_period_text = f"Date: <b>{end_str}</b> ({today_time} Asia/Phnom_Penh)"
+
     # Header Table
     if os.path.exists(logo_path):
         logo_img = RLImage(logo_path, width=40, height=40)
@@ -389,7 +539,7 @@ def generate_daily_pdf_report(
             [[
                 logo_img,
                 Paragraph(
-                    "<b>SONGKET SECURITY DAILY REPORT</b><br/>"
+                    f"<b>{pdf_title}</b><br/>"
                     "<font size=8.5 color='#64748B'>Songket Security Bot &bull; Beta version</font>",
                     title_style
                 )
@@ -405,7 +555,7 @@ def generate_daily_pdf_report(
         ]))
     else:
         brand_cell = Paragraph(
-            "<b>SONGKET SECURITY DAILY REPORT</b><br/>"
+            f"<b>{pdf_title}</b><br/>"
             "<font size=8.5 color='#64748B'>Songket Security Bot &bull; Beta version</font>",
             title_style
         )
@@ -413,7 +563,10 @@ def generate_daily_pdf_report(
     header_data = [
         [
             brand_cell,
-            Paragraph(f"<b>CONFIDENTIAL</b><br/>Daily Security Audit Report<br/><font size=8 color='#64748B'>Date: <b>{date_str}</b> ({today_time} Asia/Phnom_Penh)</font>", ParagraphStyle('Conf', parent=subtitle_style, alignment=2, fontName='Helvetica-Bold', textColor=colors.HexColor('#2563EB')))
+            Paragraph(
+                f"<b>CONFIDENTIAL</b><br/>{pdf_badge}<br/><font size=8 color='#64748B'>{pdf_period_text}</font>",
+                ParagraphStyle('Conf', parent=subtitle_style, alignment=2, fontName='Helvetica-Bold', textColor=colors.HexColor('#2563EB'))
+            )
         ]
     ]
     header_table = Table(header_data, colWidths=[340, 200])
@@ -514,7 +667,7 @@ def generate_daily_pdf_report(
         "&bull; <b>Real-Time Antivirus & Phishing Filter:</b> Active inspection on all Telegram messages, media, APKs, documents, and URLs.<br/>"
         "&bull; <b>Dual-Engine Intelligence:</b> Powered by VirusTotal Intelligence and Google Safe Browsing API v5.<br/>"
         "&bull; <b>Zero-Trust Auto Quarantine:</b> Detected malware and dangerous phishing links are automatically purged with warnings.<br/>"
-        "&bull; <b>Isolated Admin Routing:</b> Threat notifications and daily audits are strictly sent to handling administrators."
+        "&bull; <b>Isolated Admin Routing:</b> Threat notifications and security audits are strictly sent to handling administrators."
     )
     policy_table = Table([[Paragraph(policies, body_style)]], colWidths=[540])
     policy_table.setStyle(TableStyle([
@@ -530,7 +683,7 @@ def generate_daily_pdf_report(
     story.append(Spacer(1, 16))
     story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor('#94A3B8'), spaceBefore=2, spaceAfter=6))
 
-    footer_text = f"Songket Security Bot &bull; Beta version &bull; Songket Security Daily Report &bull; Generated {date_str} {today_time}"
+    footer_text = f"Songket Security Bot &bull; Beta version &bull; {pdf_title} &bull; Generated {end_str} {today_time}"
     story.append(Paragraph(f"<font color='#94A3B8' size=7.5>{footer_text}</font>", ParagraphStyle('Footer', parent=body_style, alignment=1)))
 
     try:
@@ -539,5 +692,21 @@ def generate_daily_pdf_report(
         buffer.close()
         return pdf_bytes
     except Exception as exc:
-        logger.error("Failed to generate PDF daily report for user %d: %s", user_id, exc)
+        logger.error("Failed to generate PDF %s report for user %d: %s", period_clean, user_id, exc)
         return None
+
+
+def generate_daily_pdf_report(
+    api,
+    user_id: int,
+    target_date: Optional[str] = None,
+) -> Optional[bytes]:
+    """Backward-compatible helper for daily PDF report."""
+    settings = get_user_daily_report_settings(user_id)
+    return generate_security_pdf_report(
+        api,
+        user_id,
+        period="daily",
+        lang=settings.get("report_lang", "both"),
+        target_date=target_date,
+    )

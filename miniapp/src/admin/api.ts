@@ -598,10 +598,23 @@ export async function removeManagedGroup(groupId: number) {
 export async function saveUserSettings(settings: {
   daily_report_enabled?: boolean;
   daily_report_time?: string;
+  report_frequency?: "daily" | "weekly" | "monthly";
+  report_lang?: "both" | "kh" | "en";
 }) {
   return postAction({
     action: "save_user_settings",
     ...settings,
+  });
+}
+
+export async function requestReport(
+  period: "daily" | "weekly" | "monthly" = "daily",
+  lang?: "both" | "kh" | "en"
+): Promise<{ ok: boolean; message?: string; error?: string }> {
+  return postAction({
+    action: "request_report",
+    period,
+    report_lang: lang,
   });
 }
 

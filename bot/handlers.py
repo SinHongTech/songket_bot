@@ -72,7 +72,9 @@ from bot.redis_client import (
 )
 from bot.reports import (
     format_daily_dm_report,
+    format_security_dm_report,
     generate_daily_pdf_report,
+    generate_security_pdf_report,
     get_user_daily_report_settings,
     record_report,
     set_user_daily_report_settings,
@@ -1490,6 +1492,9 @@ ADMIN_COMMANDS = [
     {"command": "app", "description": "Open Mini App"},
     {"command": "settings", "description": "Bot Settings"},
     {"command": "daily", "description": "Daily security report"},
+    {"command": "weekly", "description": "Weekly security report"},
+    {"command": "monthly", "description": "Monthly security report"},
+    {"command": "report", "description": "Security reports & schedule"},
     {"command": "guide", "description": "How to use"},
     {"command": "lang", "description": "My chat language"},
     {"command": "help", "description": "Safety guide"},
@@ -1676,12 +1681,19 @@ MENU_ALIASES = {
     "📊 Plan & Quota": "plan",
     "📊 My Plan": "plan",
     "📊 គម្រោង": "plan",
-    # Daily Report
+    # Reports
     "📊 Daily Report": "daily",
+    "📊 Weekly Report": "weekly",
+    "📊 Monthly Report": "monthly",
+    "📊 Security Report": "report",
     "📊 របាយការណ៍ប្រចាំថ្ងៃ": "daily",
-    "📊 របាយការណ៍": "daily",
+    "📊 របាយការណ៍ប្រចាំសប្តាហ៍": "weekly",
+    "📊 របាយការណ៍ប្រចាំខែ": "monthly",
+    "📊 របាយការណ៍": "report",
     "📊 Daily": "daily",
-    "📊 Report": "daily",
+    "📊 Weekly": "weekly",
+    "📊 Monthly": "monthly",
+    "📊 Report": "report",
     # Guide / Privacy / Terms / Lang
     "📖 Guide": "guide",
     "📖 មគ្គុទ្ទេសក៍": "guide",
@@ -1788,6 +1800,48 @@ def _menu_keyboard(whitelisted: bool, lang: str = "both") -> dict:
     return {"keyboard": rows, "resize_keyboard": True}
 
 
+def _send_report_to_user(
+    api: TelegramAPI,
+    chat_id: int,
+    user_id: int,
+    period: str = "daily",
+    lang: Optional[str] = None,
+) -> bool:
+    """Helper to generate text and PDF report and deliver directly to Telegram chat."""
+    settings = get_user_daily_report_settings(user_id)
+    report_lang = lang or settings.get("report_lang", "both")
+    period_clean = (period or settings.get("report_frequency", "daily")).lower().strip()
+    if period_clean not in {"daily", "weekly", "monthly"}:
+        period_clean = "daily"
+
+    rep = format_security_dm_report(api, user_id, period=period_clean, lang=report_lang)
+    if not rep:
+        no_grp_msg = {
+            "kh": "⚠️ មិនមានក្រុមដែលកំពុងការពារដើម្បីបង្កើតរបាយការណ៍ទេ (No active monitored groups).",
+            "en": "⚠️ No active monitored groups found to generate report.",
+            "both": "⚠️ មិនមានក្រុមដែលកំពុងការពារ (No active monitored groups to report).",
+        }.get(report_lang, "⚠️ No active monitored groups found to generate report.")
+        api.send_message(chat_id, no_grp_msg)
+        return False
+
+    api.send_message(chat_id, rep, parse_mode="HTML")
+    pdf_data = generate_security_pdf_report(api, user_id, period=period_clean, lang=report_lang)
+    if pdf_data:
+        from bot.reports import local_date
+        period_title = {
+            "weekly": "Weekly",
+            "monthly": "Monthly",
+            "daily": "Daily",
+        }.get(period_clean, "Daily")
+        api.send_document(
+            chat_id,
+            pdf_data,
+            caption=f"📄 <b>Songket Security {period_title} Report (Beta version)</b>",
+            filename=f"Songket_Security_{period_title}_Report_{local_date()}.pdf",
+        )
+    return True
+
+
 def _send_daily_report_settings_message(
     api: TelegramAPI,
     chat_id: int,
@@ -1797,33 +1851,69 @@ def _send_daily_report_settings_message(
     settings = get_user_daily_report_settings(user_id)
     enabled = settings.get("enabled", True)
     time_str = settings.get("time", "07:00")
+    freq = settings.get("report_frequency", "daily")
+    rlang = settings.get("report_lang", "both")
 
     status_icon = "🟢 បើក (Enabled)" if enabled else "🔴 បិទ (Disabled)"
+    freq_display = {
+        "daily": "📅 ប្រចាំថ្ងៃ (Daily)",
+        "weekly": "📅 ប្រចាំសប្តាហ៍ (Weekly)",
+        "monthly": "📅 ប្រចាំខែ (Monthly)",
+    }.get(freq, "📅 ប្រចាំថ្ងៃ (Daily)")
+
+    lang_display = {
+        "both": "🌐 Both (ខ្មែរ + English)",
+        "kh": "🇰🇭 ភាសាខ្មែរ (Khmer)",
+        "en": "🇬🇧 English Only",
+    }.get(rlang, "🌐 Both (ខ្មែរ + English)")
 
     text = (
-        f"📊 <b>ការកំណត់របាយការណ៍ប្រចាំថ្ងៃ | Daily Report Settings</b>\n\n"
-        f"🤖 Bot នឹងផ្ញើសេចក្តីសង្ខេបសន្តិសុខនៃក្រុមទាំងអស់ដែលអ្នកគ្រប់គ្រងចូលក្នុង Telegram DM នេះជារៀងរាល់ថ្ងៃ។\n"
-        f"<i>(The bot delivers a daily security summary of your monitored groups directly to your DM.)</i>\n\n"
+        f"📊 <b>ការកំណត់របាយការណ៍សន្តិសុខ | Security Report Settings</b>\n\n"
+        f"🤖 Bot នឹងផ្ញើសេចក្តីសង្ខេបសន្តិសុខនៃក្រុមគ្រប់គ្រងចូលក្នុង Telegram DM នេះតាមកាលវិភាគកំណត់។\n"
+        f"<i>(The bot delivers periodic security reports of your monitored groups directly to your DM.)</i>\n\n"
         f"🔔 <b>ស្ថានភាព (Status):</b> {status_icon}\n"
+        f"🔄 <b>កាលវិភាគ (Frequency):</b> {freq_display}\n"
+        f"🌐 <b>ភាសារបាយការណ៍ (Language):</b> {lang_display}\n"
         f"⏰ <b>ម៉ោងកំណត់ (Schedule Time):</b> <code>{time_str}</code> (Asia/Phnom_Penh GMT+7)\n\n"
-        f"👇 ជ្រើសរើសម៉ោង ឬបិទ/បើកខាងក្រោម | Choose time or toggle below:\n"
-        f"<i>អ្នកក៏អាចវាយបញ្ជាផ្ទាល់ឧទាហរណ៍៖ <code>/daily 08:30</code></i>"
+        f"👇 <b>ជ្រើសរើសជម្រើសខាងក្រោម | Select options below:</b>\n"
+        f"<i>អ្នកអាចវាយបញ្ជាផ្ទាល់ឧទាហរណ៍៖ <code>/daily 08:30</code> ឬ <code>/weekly</code> ឬ <code>/monthly</code></i>"
     )
 
     times = ["07:00", "08:00", "09:00", "12:00", "18:00", "20:00"]
     time_buttons = []
     for t in times:
         prefix = "✅ " if (enabled and time_str == t) else "⏰ "
-        time_buttons.append({"text": f"{prefix}{t}", "callback_data": f"daily_time:{user_id}:{t}"})
+        time_buttons.append({"text": f"{prefix}{t}", "callback_data": f"rep_time:{user_id}:{t}"})
+
+    freq_buttons = [
+        {"text": f"{'✓ ' if freq == 'daily' else ''}📅 Daily", "callback_data": f"rep_freq:{user_id}:daily"},
+        {"text": f"{'✓ ' if freq == 'weekly' else ''}📅 Weekly", "callback_data": f"rep_freq:{user_id}:weekly"},
+        {"text": f"{'✓ ' if freq == 'monthly' else ''}📅 Monthly", "callback_data": f"rep_freq:{user_id}:monthly"},
+    ]
+
+    lang_buttons = [
+        {"text": f"{'✓ ' if rlang == 'both' else ''}🌐 Both", "callback_data": f"rep_lang:{user_id}:both"},
+        {"text": f"{'✓ ' if rlang == 'kh' else ''}🇰🇭 ខ្មែរ", "callback_data": f"rep_lang:{user_id}:kh"},
+        {"text": f"{'✓ ' if rlang == 'en' else ''}🇬🇧 English", "callback_data": f"rep_lang:{user_id}:en"},
+    ]
+
+    send_period_buttons = [
+        {"text": "📊 Daily PDF", "callback_data": f"rep_send:{user_id}:daily"},
+        {"text": "📊 Weekly PDF", "callback_data": f"rep_send:{user_id}:weekly"},
+        {"text": "📊 Monthly PDF", "callback_data": f"rep_send:{user_id}:monthly"},
+    ]
 
     kb = {
         "inline_keyboard": [
+            freq_buttons,
+            lang_buttons,
             time_buttons[:3],
             time_buttons[3:],
             [
-                {"text": "🔔 បិទ/បើក (Toggle ON/OFF)", "callback_data": f"daily_toggle:{user_id}"},
-                {"text": "📊 ផ្ញើឥឡូវ (Send Now)", "callback_data": f"daily_send_now:{user_id}"},
+                {"text": "🔔 បិទ/បើក (Toggle ON/OFF)", "callback_data": f"rep_toggle:{user_id}"},
+                {"text": f"⚡ ផ្ញើឥឡូវ ({freq.capitalize()})", "callback_data": f"rep_send:{user_id}:{freq}"},
             ],
+            send_period_buttons,
         ]
     }
 
@@ -1919,33 +2009,49 @@ def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
             }
             api.send_message(chat_id, "🌐 <b>ជ្រើសរើសភាសា | Select your chat language:</b>", reply_markup=kb)
             return
-        if command in {"/daily", "/report", "/dailyreport"}:
+        if command in {"/daily", "/report", "/reports", "/dailyreport", "/weekly", "/monthly"}:
             args = text.split()[1:] if len(text.split()) > 1 else []
+
+            # 1. /weekly command
+            if command == "/weekly":
+                req_lang = None
+                if args and args[0].lower() in {"kh", "en", "both"}:
+                    req_lang = args[0].lower()
+                _send_report_to_user(api, chat_id, user_id, period="weekly", lang=req_lang)
+                return
+
+            # 2. /monthly command
+            if command == "/monthly":
+                req_lang = None
+                if args and args[0].lower() in {"kh", "en", "both"}:
+                    req_lang = args[0].lower()
+                _send_report_to_user(api, chat_id, user_id, period="monthly", lang=req_lang)
+                return
+
+            # 3. /daily or /report with arguments
             if args:
                 arg0 = args[0].lower().strip()
                 if arg0 in {"on", "enable", "open"}:
                     set_user_daily_report_settings(user_id, enabled=True)
-                    api.send_message(chat_id, "✅ <b>របាយការណ៍ប្រចាំថ្ងៃត្រូវបានបើក | Daily DM Report Enabled</b>\n⏰ Time: 07:00 AM (default)")
+                    api.send_message(chat_id, "✅ <b>របាយការណ៍ត្រូវបានបើក | Security DM Reports Enabled</b>\n⏰ Time: 07:00 AM (default)")
                     return
                 elif arg0 in {"off", "disable", "stop"}:
                     set_user_daily_report_settings(user_id, enabled=False)
-                    api.send_message(chat_id, "🔴 <b>របាយការណ៍ប្រចាំថ្ងៃត្រូវបានបិទ | Daily DM Report Disabled</b>")
+                    api.send_message(chat_id, "🔴 <b>របាយការណ៍ត្រូវបានបិទ | Security DM Reports Disabled</b>")
                     return
                 elif arg0 in {"now", "send", "preview"}:
-                    rep = format_daily_dm_report(api, user_id)
-                    if rep:
-                        api.send_message(chat_id, rep, parse_mode="HTML")
-                        pdf_data = generate_daily_pdf_report(api, user_id)
-                        if pdf_data:
-                            from bot.reports import local_date
-                            api.send_document(
-                                chat_id,
-                                pdf_data,
-                                caption="📄 <b>Songket Security Daily Report (Beta version)</b>",
-                                filename=f"Songket_Security_Daily_Report_{local_date()}.pdf",
-                            )
-                    else:
-                        api.send_message(chat_id, "⚠️ មិនមានក្រុមដែលកំពុងការពារដើម្បីបង្កើតរបាយការណ៍ទេ (No active monitored groups).")
+                    req_period = args[1].lower() if len(args) > 1 and args[1].lower() in {"daily", "weekly", "monthly"} else "daily"
+                    req_lang = args[2].lower() if len(args) > 2 and args[2].lower() in {"kh", "en", "both"} else None
+                    _send_report_to_user(api, chat_id, user_id, period=req_period, lang=req_lang)
+                    return
+                elif arg0 in {"daily", "weekly", "monthly"}:
+                    req_lang = args[1].lower() if len(args) > 1 and args[1].lower() in {"kh", "en", "both"} else None
+                    _send_report_to_user(api, chat_id, user_id, period=arg0, lang=req_lang)
+                    return
+                elif arg0 in {"kh", "en", "both"}:
+                    set_user_daily_report_settings(user_id, lang=arg0)
+                    lang_name = {"both": "Both (ខ្មែរ + English)", "kh": "ខ្មែរ", "en": "English"}.get(arg0, arg0)
+                    api.send_message(chat_id, f"✅ <b>បានប្តូរភាសារបាយការណ៍ | Report Language Updated!</b>\n🌐 Language: {lang_name}")
                     return
                 else:
                     # Try parsing as HH:MM time
@@ -1953,8 +2059,8 @@ def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
                     if ok:
                         api.send_message(
                             chat_id,
-                            f"✅ <b>បានកំណត់ម៉ោងផ្ញើជោគជ័យ | Daily Report Time Updated!</b>\n"
-                            f"⏰ ម៉ោងផ្ញើប្រចាំថ្ងៃ: <code>{arg0}</code> (Asia/Phnom_Penh GMT+7)",
+                            f"✅ <b>បានកំណត់ម៉ោងផ្ញើជោគជ័យ | Report Schedule Updated!</b>\n"
+                            f"⏰ ម៉ោងផ្ញើ: <code>{arg0}</code> (Asia/Phnom_Penh GMT+7)",
                         )
                         return
                     else:
@@ -1963,6 +2069,7 @@ def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
                             "❌ <b>ទម្រង់ម៉ោងមិនត្រឹមត្រូវ (Invalid time format)!</b>\nសូមប្រើទម្រង់ <code>HH:MM</code> (ឧទាហរណ៍៖ <code>/daily 07:00</code> ឬ <code>/daily 08:30</code>)",
                         )
                         return
+
             _send_daily_report_settings_message(api, chat_id, user_id)
             return
         if command == "/settings":
@@ -2070,8 +2177,38 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
         _send_plan_status(api, chat_id, user_id, message_id=msg_id)
         return
 
-    # Daily report callbacks
-    if data.startswith("daily_time:"):
+    # Report Frequency toggle callback
+    if data.startswith("rep_freq:"):
+        parts = data.split(":")
+        if len(parts) == 3:
+            target_uid = int(parts[1])
+            new_freq = parts[2]
+            if user_id != target_uid and not is_super_admin(user_id):
+                api.answer_callback_query(query_id, text="❌ Not authorized", show_alert=True)
+                return
+            set_user_daily_report_settings(target_uid, frequency=new_freq)
+            freq_lbl = {"daily": "Daily (ប្រចាំថ្ងៃ)", "weekly": "Weekly (ប្រចាំសប្តាហ៍)", "monthly": "Monthly (ប្រចាំខែ)"}.get(new_freq, new_freq)
+            api.answer_callback_query(query_id, text=f"✅ កាលវិភាគ: {freq_lbl}")
+            _send_daily_report_settings_message(api, chat_id, target_uid, message_id=msg_id)
+            return
+
+    # Report Language toggle callback
+    if data.startswith("rep_lang:"):
+        parts = data.split(":")
+        if len(parts) == 3:
+            target_uid = int(parts[1])
+            new_lang = parts[2]
+            if user_id != target_uid and not is_super_admin(user_id):
+                api.answer_callback_query(query_id, text="❌ Not authorized", show_alert=True)
+                return
+            set_user_daily_report_settings(target_uid, lang=new_lang)
+            lang_lbl = {"both": "Both (ខ្មែរ+EN)", "kh": "ខ្មែរ", "en": "English"}.get(new_lang, new_lang)
+            api.answer_callback_query(query_id, text=f"✅ ភាសា: {lang_lbl}")
+            _send_daily_report_settings_message(api, chat_id, target_uid, message_id=msg_id)
+            return
+
+    # Report schedule time callback
+    if data.startswith("rep_time:") or data.startswith("daily_time:"):
         parts = data.split(":")
         if len(parts) == 3:
             target_uid = int(parts[1])
@@ -2084,7 +2221,8 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
             _send_daily_report_settings_message(api, chat_id, target_uid, message_id=msg_id)
             return
 
-    if data.startswith("daily_toggle:"):
+    # Report toggle ON/OFF callback
+    if data.startswith("rep_toggle:") or data.startswith("daily_toggle:"):
         parts = data.split(":")
         if len(parts) == 2:
             target_uid = int(parts[1])
@@ -2098,29 +2236,18 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
             _send_daily_report_settings_message(api, chat_id, target_uid, message_id=msg_id)
             return
 
-    if data.startswith("daily_send_now:"):
+    # Send report now callback
+    if data.startswith("rep_send:") or data.startswith("daily_send_now:"):
         parts = data.split(":")
-        if len(parts) == 2:
-            target_uid = int(parts[1])
-            if user_id != target_uid and not is_super_admin(user_id):
-                api.answer_callback_query(query_id, text="❌ Not authorized", show_alert=True)
-                return
-            api.answer_callback_query(query_id, text="📊 កំពុងបង្កើតរបាយការណ៍...")
-            rep = format_daily_dm_report(api, target_uid)
-            if rep:
-                api.send_message(chat_id, rep, parse_mode="HTML")
-                pdf_data = generate_daily_pdf_report(api, target_uid)
-                if pdf_data:
-                    from bot.reports import local_date
-                    api.send_document(
-                        chat_id,
-                        pdf_data,
-                        caption="📄 <b>Songket Security Daily Report (Beta version)</b>",
-                        filename=f"Songket_Security_Daily_Report_{local_date()}.pdf",
-                    )
-            else:
-                api.send_message(chat_id, "⚠️ មិនមានក្រុមដែលកំពុងការពារដើម្បីបង្កើតរបាយការណ៍ទេ (No active monitored groups).")
+        target_uid = int(parts[1]) if len(parts) >= 2 else user_id
+        period = parts[2] if len(parts) >= 3 else "daily"
+        if user_id != target_uid and not is_super_admin(user_id):
+            api.answer_callback_query(query_id, text="❌ Not authorized", show_alert=True)
             return
+        period_lbl = {"daily": "Daily", "weekly": "Weekly", "monthly": "Monthly"}.get(period, period)
+        api.answer_callback_query(query_id, text=f"📊 កំពុងបង្កើតរបាយការណ៍ {period_lbl}...")
+        _send_report_to_user(api, chat_id, target_uid, period=period)
+        return
 
     # 0. New-member verification button
     if data.startswith("verify:"):
