@@ -19,6 +19,11 @@ try:
         groups_for_user,
         is_super_admin,
         super_admin_ids,
+        primary_admin_ids,
+        add_super_admin,
+        remove_super_admin,
+        explicit_group_map,
+        kv_set,
         kv_json_get,
         kv_json_mget,
         list_subscriptions,
@@ -90,6 +95,11 @@ except ImportError:
         groups_for_user,
         is_super_admin,
         super_admin_ids,
+        primary_admin_ids,
+        add_super_admin,
+        remove_super_admin,
+        explicit_group_map,
+        kv_set,
         kv_json_get,
         kv_json_mget,
         list_subscriptions,
@@ -251,7 +261,7 @@ class handler(BaseHTTPRequestHandler):
                     logger.info("[PIN] login_pin SUCCESS for uid=%d", matched_uid)
                     return self._json(200, {"ok": True, "session": token, "user_id": matched_uid})
 
-                rec_uid = candidate_uids[0] if candidate_uids else 1221693150
+                rec_uid = candidate_uids[0] if candidate_uids else (next(iter(primary_admin_ids())) if primary_admin_ids() else 0)
                 fails = record_pin_fail(rec_uid)
                 curr_lock = pin_lock_seconds(rec_uid)
                 logger.warning("[PIN] login_pin INCORRECT (attempt=%s, locked=%ds)", fails.get("count", 0), curr_lock)
@@ -433,7 +443,7 @@ class handler(BaseHTTPRequestHandler):
                 )
 
             # Check PIN session for all sensitive management mutations
-            if action in {"save_config", "save_groups", "save_plans", "assign_plan", "remove_plan"}:
+            if action in {"save_config", "save_groups", "save_plans", "assign_plan", "remove_plan", "add_super_admin", "remove_super_admin"}:
                 session_uid = validate_session(body.get("session", ""))
                 if session_uid != uid:
                     return self._json(403, {"ok": False, "error": "PIN verification required for management changes."})
@@ -447,6 +457,58 @@ class handler(BaseHTTPRequestHandler):
                 group_handlers = body.get("group_handlers", {})
                 super_admins = [int(x) for x in body.get("super_admin_ids", []) if str(x).strip()]
                 ok = save_system_config(whitelist, allowed_groups, group_handlers, super_admins)
+                return self._json(200, {"ok": ok, "config": get_system_config()})
+
+            # Action: Add Super Admin (Super Admin + TOTP verification)
+            if body.get("action") == "add_super_admin":
+                if not super_admin:
+                    return self._json(403, {"ok": False, "error": "Unauthorized. Super Admin access required."})
+                if not is_totp_enabled(uid):
+                    return self._json(400, {
+                        "ok": False,
+                        "error": "2FA (Google Authenticator) is required on your account before adding Super Admins. Please enable 2FA in Account settings.",
+                        "totp_required": True,
+                    })
+                code = str(body.get("totp_code") or body.get("code") or "").strip()
+                if not code or not verify_user_totp_or_backup(uid, code):
+                    return self._json(400, {"ok": False, "error": "Invalid Authenticator (2FA) code."})
+                try:
+                    target_uid = int(body.get("target_user_id") or body.get("user_id") or 0)
+                except (TypeError, ValueError):
+                    return self._json(400, {"ok": False, "error": "Invalid user_id"})
+                if not target_uid:
+                    return self._json(400, {"ok": False, "error": "Missing target_user_id"})
+                
+                ok = add_super_admin(target_uid)
+                wl = whitelist_ids()
+                if target_uid not in wl:
+                    wl.add(target_uid)
+                    kv_set("config:whitelist_user_ids", ",".join(str(x) for x in sorted(list(wl))))
+                return self._json(200, {"ok": ok, "config": get_system_config()})
+
+            # Action: Remove Super Admin (Super Admin + TOTP verification)
+            if body.get("action") == "remove_super_admin":
+                if not super_admin:
+                    return self._json(403, {"ok": False, "error": "Unauthorized. Super Admin access required."})
+                if not is_totp_enabled(uid):
+                    return self._json(400, {
+                        "ok": False,
+                        "error": "2FA (Google Authenticator) is required on your account before removing Super Admins. Please enable 2FA in Account settings.",
+                        "totp_required": True,
+                    })
+                code = str(body.get("totp_code") or body.get("code") or "").strip()
+                if not code or not verify_user_totp_or_backup(uid, code):
+                    return self._json(400, {"ok": False, "error": "Invalid Authenticator (2FA) code."})
+                try:
+                    target_uid = int(body.get("target_user_id") or body.get("user_id") or 0)
+                except (TypeError, ValueError):
+                    return self._json(400, {"ok": False, "error": "Invalid user_id"})
+                if not target_uid:
+                    return self._json(400, {"ok": False, "error": "Missing target_user_id"})
+                if target_uid in primary_admin_ids():
+                    return self._json(400, {"ok": False, "error": "Primary Super Admin (ADMIN_CHAT_ID) cannot be removed."})
+                
+                ok = remove_super_admin(target_uid)
                 return self._json(200, {"ok": ok, "config": get_system_config()})
 
             # Action: Save monitored groups (any authorized admin)

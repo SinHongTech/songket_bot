@@ -51,7 +51,23 @@ for env_candidate in [
             pass
         break
 
-KNOWN_SUPER_ADMIN_IDS: set[int] = {1221693150}
+def primary_admin_ids() -> set[int]:
+    raw = (
+        os.environ.get("ADMIN_CHAT_ID", "")
+        or os.environ.get("SUPER_ADMIN_IDS", "")
+    )
+    res = set()
+    for item in raw.split(","):
+        item = item.strip()
+        if item:
+            try:
+                res.add(int(item))
+            except ValueError:
+                pass
+    return res
+
+
+KNOWN_SUPER_ADMIN_IDS: set[int] = primary_admin_ids()
 KNOWN_WHITELIST_USER_IDS: set[int] = {
     1221693150, 6903398617, 665698758, 1110438159, 918434351, 1130272106, 817197042
 }
@@ -220,15 +236,7 @@ def kv_json_mget(keys: list[str]) -> list:
 
 
 def super_admin_ids() -> set[int]:
-    result = set(KNOWN_SUPER_ADMIN_IDS)
-    raw = os.environ.get("ADMIN_CHAT_ID", "") or os.environ.get("SUPER_ADMIN_IDS", "")
-    for item in raw.split(","):
-        item = item.strip()
-        if item:
-            try:
-                result.add(int(item))
-            except ValueError:
-                pass
+    result = set(primary_admin_ids())
     try:
         redis_super = kv_get("config:super_admin_ids")
         if redis_super:
@@ -256,6 +264,7 @@ def get_system_config() -> dict:
         "allowed_groups": sorted(list(get_allowed_groups())),
         "group_handlers": explicit_group_map(),
         "super_admin_ids": sorted(list(super_admin_ids())),
+        "primary_admin_ids": sorted(list(primary_admin_ids())),
     }
 
 
@@ -270,7 +279,7 @@ def save_system_config(
     clean_handlers = {str(k): [int(g) for g in v] for k, v in group_handlers.items()}
     ok3 = kv_set("config:group_handlers", json.dumps(clean_handlers))
     if super_admins is not None:
-        combined_super = set(KNOWN_SUPER_ADMIN_IDS)
+        combined_super = set(primary_admin_ids())
         for s in super_admins:
             try:
                 combined_super.add(int(s))
@@ -288,11 +297,11 @@ def add_super_admin(user_id: int) -> bool:
 
 
 def remove_super_admin(user_id: int) -> bool:
-    if int(user_id) in KNOWN_SUPER_ADMIN_IDS:
+    if int(user_id) in primary_admin_ids():
         return False
     s = super_admin_ids()
     s.discard(int(user_id))
-    combined = set(KNOWN_SUPER_ADMIN_IDS) | s
+    combined = set(primary_admin_ids()) | s
     return kv_set("config:super_admin_ids", ",".join(str(x) for x in sorted(list(combined))))
 
 

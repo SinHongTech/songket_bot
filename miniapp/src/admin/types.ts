@@ -48,6 +48,7 @@ export interface SystemConfig {
   allowed_groups: number[];
   group_handlers: Record<string, number[]>;
   super_admin_ids: number[];
+  primary_admin_ids?: number[];
 }
 
 export interface ThreatEvent {
