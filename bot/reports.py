@@ -72,9 +72,13 @@ def get_user_daily_report_settings(user_id: int) -> dict:
     data = kv_json_get(f"settings:user:{user_id}") or {}
     if not isinstance(data, dict):
         data = {}
+    en = bool(data.get("daily_report_enabled", True))
+    t_val = str(data.get("daily_report_time", DEFAULT_REPORT_TIME))
     return {
-        "enabled": bool(data.get("daily_report_enabled", True)),
-        "time": str(data.get("daily_report_time", DEFAULT_REPORT_TIME)),
+        "daily_report_enabled": en,
+        "daily_report_time": t_val,
+        "enabled": en,
+        "time": t_val,
         "lang": str(data.get("lang", "both")),
     }
 
@@ -95,8 +99,10 @@ def set_user_daily_report_settings(
     if time_str is not None:
         clean_time = time_str.strip()
         # Validate HH:MM (00:00 to 23:59)
-        if re.match(r"^([01]\d|2[0-3]):([0-5]\d)$", clean_time):
-            data["daily_report_time"] = clean_time
+        if re.match(r"^([0-9]|0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$", clean_time):
+            parts = clean_time.split(":")
+            formatted = f"{int(parts[0]):02d}:{int(parts[1]):02d}"
+            data["daily_report_time"] = formatted
         else:
             return False
 

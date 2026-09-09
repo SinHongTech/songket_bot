@@ -448,7 +448,7 @@ class handler(BaseHTTPRequestHandler):
 
             # Action: Add / Link group directly from Mini App UI (handles both super & group admin)
             if body.get("action") in {"add_group", "link_group"}:
-                if not (super_admin or uid in whitelist_ids()):
+                if not (super_admin or uid in whitelist_ids() or is_admin):
                     return self._json(403, {"ok": False, "error": "Unauthorized"})
                 try:
                     raw_gid = body.get("group_id")

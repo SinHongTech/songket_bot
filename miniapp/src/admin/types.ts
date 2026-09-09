@@ -110,6 +110,8 @@ export interface CandidateGroup {
 export interface UserSettings {
   daily_report_enabled?: boolean;
   daily_report_time?: string;
+  enabled?: boolean;
+  time?: string;
   lang?: string;
 }
 
