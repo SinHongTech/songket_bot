@@ -102,11 +102,24 @@ export interface KnownUser {
   updated_at?: number;
 }
 
+export interface CandidateGroup {
+  id: number;
+  title: string;
+}
+
+export interface UserSettings {
+  daily_report_enabled?: boolean;
+  daily_report_time?: string;
+  lang?: string;
+}
+
 export interface DashboardApiResponse {
   authorized: boolean;
   is_super_admin?: boolean;
   user?: TelegramUser;
   dashboard?: DashboardData;
+  candidate_groups?: CandidateGroup[];
+  user_settings?: UserSettings;
   threat_events?: ThreatEvent[];
   domain_whitelist?: string[];
   group_details?: Record<string, GroupDetail>;

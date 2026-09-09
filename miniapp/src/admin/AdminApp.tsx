@@ -526,6 +526,14 @@ export default function AdminApp() {
       return new Set();
     }
   });
+  const [lastReadThreatTs, setLastReadThreatTs] = useState<number>(() => {
+    try {
+      const saved = safeStorage.getItem("songket.admin.last_read_threat_ts");
+      return saved ? parseInt(saved, 10) : 0;
+    } catch {
+      return 0;
+    }
+  });
 
   const tx = T(lang);
 
@@ -661,9 +669,35 @@ export default function AdminApp() {
   const dashboard = apiData?.dashboard || null;
   const isMock = apiData?.isMock ?? (!apiData?.authorized);
 
-  const allThreats = getThreatsListFromDashboard(dashboard);
-  const unreadThreats = allThreats.filter(t => !readNotifications.has(t.id));
+  const rawThreatEvents = apiData?.threat_events || [];
+  const allThreats = rawThreatEvents.length > 0
+    ? rawThreatEvents.map(e => ({
+        id: e.id,
+        timestamp: e.timestamp,
+        type: e.type.replace(/_/g, " ").toUpperCase(),
+        content: e.content,
+        group: e.group_title || `Group ${e.group_id}`,
+        date: `${e.date} ${e.time || ""}`.trim(),
+        risk: e.risk,
+      }))
+    : getThreatsListFromDashboard(dashboard);
+
+  const unreadThreats = allThreats.filter(t => {
+    if (readNotifications.has(t.id)) return false;
+    if (lastReadThreatTs > 0 && (t as any).timestamp && (t as any).timestamp <= lastReadThreatTs) return false;
+    return true;
+  });
   const threatCount = unreadThreats.length;
+
+  const markAllNotificationsRead = () => {
+    const next = new Set(readNotifications);
+    allThreats.forEach(t => next.add(t.id));
+    setReadNotifications(next);
+    const nowTs = Math.floor(Date.now() / 1000);
+    setLastReadThreatTs(nowTs);
+    safeStorage.setItem("songket.admin.readNotifications", JSON.stringify([...next]));
+    safeStorage.setItem("songket.admin.last_read_threat_ts", String(nowTs));
+  };
 
   const views: Record<Nav, React.ReactElement> = {
     dashboard: (
@@ -685,9 +719,11 @@ export default function AdminApp() {
     groups: (
       <GroupsView
         dashboard={dashboard}
+        candidateGroups={apiData?.candidate_groups}
         threatEvents={apiData?.threat_events}
         isSuperAdmin={isSuperAdmin}
         lang={lang}
+        onRefresh={() => loadData(false)}
       />
     ),
     threats: (
@@ -778,7 +814,19 @@ export default function AdminApp() {
         onRefresh={() => loadData(true, 31)}
       />
     ),
-    account: <AccountView user={user} dashboard={dashboard} dark={dark} setDark={setDark} lang={lang} setLang={setLang} onLogout={handleLogout} />,
+    account: (
+      <AccountView
+        user={user}
+        dashboard={dashboard}
+        userSettings={apiData?.user_settings}
+        dark={dark}
+        setDark={setDark}
+        lang={lang}
+        setLang={setLang}
+        onLogout={handleLogout}
+        onRefresh={() => loadData(false)}
+      />
+    ),
   };
 
   return (
@@ -929,13 +977,7 @@ export default function AdminApp() {
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               {threatCount > 0 && (
                 <button
-                  onClick={() => {
-                    const allIds = allThreats.map(t => t.id);
-                    const next = new Set(readNotifications);
-                    allIds.forEach(id => next.add(id));
-                    setReadNotifications(next);
-                    safeStorage.setItem("songket.admin.readNotifications", JSON.stringify([...next]));
-                  }}
+                  onClick={markAllNotificationsRead}
                   style={{ background: "transparent", border: "none", color: G.gold, cursor: "pointer", fontSize: 10, fontWeight: 600, padding: 0 }}
                 >
                   <span className={kh(lang)}>{lang === "km" ? "អានទាំងអស់" : "Mark all read"}</span>
@@ -964,7 +1006,7 @@ export default function AdminApp() {
                   setReadNotifications(next);
                   safeStorage.setItem("songket.admin.readNotifications", JSON.stringify([...next]));
                   setShowNotifications(false);
-                  setNav("history");
+                  setNav("threats");
                 }}
               >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 3 }}>

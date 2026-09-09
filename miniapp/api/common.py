@@ -1033,6 +1033,54 @@ def set_user_lang(user_id: int, lang: str) -> bool:
     return kv_json_set(f"settings:user:{user_id}", data)
 
 
+def get_user_daily_report_settings(user_id: int) -> dict:
+    data = kv_json_get(f"settings:user:{user_id}") or {}
+    if not isinstance(data, dict):
+        data = {}
+    return {
+        "enabled": bool(data.get("daily_report_enabled", True)),
+        "time": str(data.get("daily_report_time", "07:00")),
+    }
+
+
+def set_user_daily_report_settings(
+    user_id: int,
+    enabled: Optional[bool] = None,
+    time_str: Optional[str] = None,
+) -> bool:
+    data = kv_json_get(f"settings:user:{user_id}") or {}
+    if not isinstance(data, dict):
+        data = {}
+    if enabled is not None:
+        data["daily_report_enabled"] = bool(enabled)
+    if time_str is not None:
+        clean = time_str.strip()
+        import re
+        if re.match(r"^([01]\d|2[0-3]):([0-5]\d)$", clean):
+            data["daily_report_time"] = clean
+        else:
+            return False
+    return kv_json_set(f"settings:user:{user_id}", data)
+
+
+def get_candidate_groups_for_user(user_id: int) -> list[dict]:
+    """Return groups where bot is present and user invited or is admin, but not yet linked."""
+    known = get_known_groups()
+    user_active = set(groups_for_user(user_id, get_allowed_groups()))
+    candidates = []
+    for gid_str, title in known.items():
+        try:
+            gid = int(gid_str)
+        except (TypeError, ValueError):
+            continue
+        if gid in user_active:
+            continue
+        inviter = get_group_inviter(gid)
+        if inviter == user_id or (is_super_admin(user_id) and not inviter) or is_group_admin(user_id, gid):
+            candidates.append({"id": gid, "title": title or f"Group {gid}"})
+    return candidates
+
+
 def get_strikes(chat_id: int, user_id: int) -> int:
     value = kv_get(f"strikes:{chat_id}:{user_id}")
     try:

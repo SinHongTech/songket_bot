@@ -1,43 +1,271 @@
 import { useState } from "react";
-import { MessageSquare, ArrowRight, ChevronUp, Shield, AlertTriangle, CheckCircle } from "lucide-react";
+import { MessageSquare, ArrowRight, ChevronUp, Shield, AlertTriangle, CheckCircle, Plus, ExternalLink, X, Loader2 } from "lucide-react";
 import { G, type Lang } from "../palette";
 import { t as T, kh } from "../i18n";
-import type { DashboardData, ThreatEvent } from "../types";
+import type { DashboardData, ThreatEvent, CandidateGroup } from "../types";
 import { getGroupCardsFromDashboard } from "../data";
+import { addManagedGroup } from "../api";
 import { SectionHeader } from "./Badges";
 
 interface GroupsViewProps {
   dashboard: DashboardData | null;
+  candidateGroups?: CandidateGroup[] | null;
   threatEvents?: ThreatEvent[] | null;
   isSuperAdmin?: boolean;
   lang: Lang;
+  onRefresh?: () => void;
 }
 
-export default function GroupsView({ dashboard, threatEvents, isSuperAdmin, lang }: GroupsViewProps) {
+export default function GroupsView({
+  dashboard,
+  candidateGroups,
+  threatEvents,
+  isSuperAdmin,
+  lang,
+  onRefresh,
+}: GroupsViewProps) {
   const tx = T(lang);
   const [expanded, setExpanded] = useState<number | null>(null);
-  const [addToast, setAddToast] = useState(false);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [linkingId, setLinkingId] = useState<number | null>(null);
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   const groupCards = getGroupCardsFromDashboard(dashboard);
   const maxGroups = 5;
   const isKm = lang === "km";
 
-  function handleAdd() {
-    setAddToast(true);
-    setTimeout(() => setAddToast(false), 3500);
+  const candidates = candidateGroups || [];
+
+  async function handleLinkGroup(g: CandidateGroup) {
+    setLinkingId(g.id);
+    try {
+      const res = await addManagedGroup(g.id, g.title);
+      if (res && res.ok) {
+        setToastMsg(isKm ? `✅ បានភ្ជាប់ក្រុម "${g.title}" ជោគជ័យ!` : `✅ Successfully linked "${g.title}"!`);
+        setTimeout(() => setToastMsg(null), 3500);
+        setShowAddModal(false);
+        onRefresh?.();
+      } else {
+        setToastMsg(res?.error || (isKm ? "❌ ការភ្ជាប់បានបរាជ័យ" : "❌ Failed to link group"));
+        setTimeout(() => setToastMsg(null), 3500);
+      }
+    } catch (err: any) {
+      setToastMsg(err?.message || "❌ Error linking group");
+      setTimeout(() => setToastMsg(null), 3500);
+    } finally {
+      setLinkingId(null);
+    }
+  }
+
+  function handleOpenTelegramBot() {
+    // Open Telegram add group link
+    const botUrl = "https://t.me/songket_beyda_bot?startgroup=link";
+    if (typeof window !== "undefined") {
+      const tg = (window as any).Telegram?.WebApp;
+      if (tg && typeof tg.openTelegramLink === "function") {
+        try {
+          tg.openTelegramLink(botUrl);
+          return;
+        } catch {}
+      }
+      window.open(botUrl, "_blank");
+    }
   }
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      {addToast && (
-        <div style={{ background: G.surface2, border: `1px solid ${G.goldBorder}`, borderRadius: 10, padding: "12px 16px", fontSize: 13, color: G.textSec, textAlign: "center" }}>
-          <span className={kh(lang)}>{tx.comingSoon}</span>
+      {toastMsg && (
+        <div style={{ background: G.surface2, border: `1px solid ${G.goldBorder}`, borderRadius: 10, padding: "12px 16px", fontSize: 13, color: G.text, textAlign: "center", fontWeight: 600 }}>
+          <span className={kh(lang)}>{toastMsg}</span>
+        </div>
+      )}
+
+      {/* ── Add Group Modal ── */}
+      {showAddModal && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(0,0,0,0.7)",
+            backdropFilter: "blur(4px)",
+            zIndex: 999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+        >
+          <div
+            style={{
+              background: G.surface,
+              border: `1px solid ${G.goldBorder}`,
+              borderRadius: 16,
+              maxWidth: 440,
+              width: "100%",
+              padding: 20,
+              display: "flex",
+              flexDirection: "column",
+              gap: 16,
+              boxShadow: "0 20px 50px rgba(0,0,0,0.5)",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 700, color: G.gold, fontSize: 15 }}>
+                <Plus size={18} />
+                <span className={kh(lang)}>{isKm ? "ភ្ជាប់ក្រុមថ្មី (Add & Link Group)" : "Link Telegram Group"}</span>
+              </div>
+              <button
+                onClick={() => setShowAddModal(false)}
+                style={{ background: "transparent", border: "none", color: G.muted, cursor: "pointer", padding: 4 }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Candidate Groups Detected */}
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: G.text, marginBottom: 8 }}>
+                <span className={kh(lang)}>
+                  {isKm
+                    ? `🔍 ក្រុមដែល Bot បានចូលរួម (${candidates.length} ក្រុមត្រូវបានរកឃើញ)`
+                    : `🔍 Candidate Groups with Bot Present (${candidates.length} detected)`}
+                </span>
+              </div>
+
+              {candidates.length > 0 ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 200, overflowY: "auto" }}>
+                  {candidates.map((cg) => (
+                    <div
+                      key={cg.id}
+                      style={{
+                        background: G.surface2,
+                        border: `1px solid ${G.border}`,
+                        borderRadius: 10,
+                        padding: "10px 12px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 10,
+                      }}
+                    >
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: G.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          👥 {cg.title}
+                        </div>
+                        {isSuperAdmin && (
+                          <div style={{ fontSize: 10, color: G.muted, fontFamily: "monospace", marginTop: 2 }}>
+                            ID: {cg.id}
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => handleLinkGroup(cg)}
+                        disabled={linkingId === cg.id}
+                        style={{
+                          background: G.gold,
+                          color: "#1a1200",
+                          border: "none",
+                          borderRadius: 8,
+                          padding: "6px 12px",
+                          fontWeight: 700,
+                          fontSize: 11,
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 4,
+                          flexShrink: 0,
+                        }}
+                      >
+                        {linkingId === cg.id ? (
+                          <Loader2 size={13} className="animate-spin" />
+                        ) : (
+                          <Plus size={13} />
+                        )}
+                        <span className={kh(lang)}>{isKm ? "ភ្ជាប់" : "Link"}</span>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div
+                  style={{
+                    background: G.surface2,
+                    border: `1px solid ${G.border}`,
+                    borderRadius: 10,
+                    padding: "14px",
+                    fontSize: 12,
+                    color: G.textSec,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  <span className={kh(lang)}>
+                    {isKm
+                      ? "មិនទាន់មានក្រុមថ្មីដែល Bot បានចូលរួមនៅឡើយទេ។ សូម Add Bot ទៅក្នុងក្រុមរបស់អ្នកជា Administrator ជាមុនសិន។"
+                      : "No unlinked groups detected. Please add @SongketSecurityBot as an Admin to your Telegram group first."}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Step 2: Add Bot to new Telegram Group */}
+            <div style={{ borderTop: `1px solid ${G.border}`, paddingTop: 14 }}>
+              <div style={{ fontSize: 11, color: G.muted, marginBottom: 10, lineHeight: 1.4 }}>
+                <span className={kh(lang)}>
+                  {isKm
+                    ? "💡 ដើម្បីការពារក្រុមថ្មី៖ ចុចប៊ូតុងខាងក្រោមដើម្បី Add Bot ទៅកាន់ Telegram Group របស់អ្នកជា Administrator រួចត្រឡប់មកទីនេះវិញ។"
+                    : "💡 To protect a new group: Add the bot as Admin to your Telegram group, then return here to link it."}
+                </span>
+              </div>
+              <button
+                onClick={handleOpenTelegramBot}
+                style={{
+                  width: "100%",
+                  background: G.surface2,
+                  border: `1px solid ${G.goldBorder}`,
+                  color: G.gold,
+                  borderRadius: 10,
+                  padding: "10px 16px",
+                  fontWeight: 700,
+                  fontSize: 13,
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 8,
+                }}
+              >
+                <ExternalLink size={15} />
+                <span className={kh(lang)}>
+                  {isKm ? "➕ បន្ថែម Bot ទៅកាន់ Group ថ្មី (Open Telegram)" : "➕ Add Bot to Telegram Group"}
+                </span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <SectionHeader title={tx.myGroups} sub={`${groupCards.length} of ${maxGroups} ${tx.planSlots}`} lang={lang} />
-        <button onClick={handleAdd} style={{ background: G.gold, color: "#1a1200", border: "none", borderRadius: 9, padding: "8px 16px", fontWeight: 700, cursor: "pointer", fontSize: 12 }}>
+        <button
+          onClick={() => setShowAddModal(true)}
+          style={{
+            background: G.gold,
+            color: "#1a1200",
+            border: "none",
+            borderRadius: 9,
+            padding: "8px 16px",
+            fontWeight: 700,
+            cursor: "pointer",
+            fontSize: 12,
+            display: "flex",
+            alignItems: "center",
+            gap: 5,
+          }}
+        >
+          <Plus size={14} />
           <span className={kh(lang)}>{tx.addGroup}</span>
         </button>
       </div>

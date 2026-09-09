@@ -588,4 +588,14 @@ export async function addManagedGroup(groupId: number, title?: string) {
   });
 }
 
+export async function saveUserSettings(settings: {
+  daily_report_enabled?: boolean;
+  daily_report_time?: string;
+}) {
+  return postAction({
+    action: "save_user_settings",
+    ...settings,
+  });
+}
+
 
