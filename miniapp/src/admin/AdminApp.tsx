@@ -591,25 +591,11 @@ export default function AdminApp() {
     );
   }, []);
 
-  const calcDaysNeeded = useCallback(() => {
-    const checkRange = (from: string, to: string) => {
-      try {
-        const diffMs = new Date(to).getTime() - new Date(from).getTime();
-        return Math.max(31, Math.ceil(diffMs / (1000 * 60 * 60 * 24)) + 1);
-      } catch {
-        return 31;
-      }
-    };
-    return Math.max(
-      31,
-      checkRange(homeDateFrom, homeDateTo),
-      checkRange(threatsDateFrom, threatsDateTo),
-      checkRange(historyDateFrom, historyDateTo)
-    );
-  }, [homeDateFrom, homeDateTo, threatsDateFrom, threatsDateTo, historyDateFrom, historyDateTo]);
+  const apiDataRef = React.useRef(apiData);
+  apiDataRef.current = apiData;
 
-  const loadData = useCallback(async (isRefresh = false, queryDays = 31) => {
-    if (isRefresh) {
+  const loadData = useCallback(async (isRefresh = false, queryDays = 90) => {
+    if (isRefresh || apiDataRef.current) {
       setRefreshing(true);
     } else {
       setLoading(true);
@@ -624,7 +610,9 @@ export default function AdminApp() {
       setApiData(data);
     } catch (err: any) {
       console.error("Dashboard fetch error:", err);
-      setError(err?.message || "Failed to load dashboard data");
+      if (!apiDataRef.current) {
+        setError(err?.message || "Failed to load dashboard data");
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -639,8 +627,7 @@ export default function AdminApp() {
       try { tg.expand(); } catch {}
     }
 
-    const initDays = calcDaysNeeded();
-    loadData(false, initDays);
+    loadData(false, 90);
 
     // Listen for late Telegram Desktop webview handshake
     const handleMsg = (e: MessageEvent) => {
@@ -650,7 +637,7 @@ export default function AdminApp() {
           try { d = JSON.parse(d); } catch {}
         }
         if (d && d.eventType === "web_app_setup_data" && mounted) {
-          loadData(true, calcDaysNeeded());
+          loadData(true, 90);
         }
       } catch {}
     };
@@ -658,15 +645,15 @@ export default function AdminApp() {
 
     // Auto-retry at 400ms, 1200ms, and 2500ms for Telegram Desktop webview readiness
     const t1 = setTimeout(() => {
-      if (mounted) loadData(false, calcDaysNeeded());
+      if (mounted) loadData(true, 90);
     }, 400);
 
     const t2 = setTimeout(() => {
-      if (mounted) loadData(false, calcDaysNeeded());
+      if (mounted) loadData(true, 90);
     }, 1200);
 
     const t3 = setTimeout(() => {
-      if (mounted) loadData(false, calcDaysNeeded());
+      if (mounted) loadData(true, 90);
     }, 2500);
 
     return () => {
@@ -676,21 +663,12 @@ export default function AdminApp() {
       clearTimeout(t2);
       clearTimeout(t3);
     };
-  }, [loadData, calcDaysNeeded]);
-
-  // Expand history data if any date filter requires more days than currently loaded
-  useEffect(() => {
-    const needed = calcDaysNeeded();
-    const current = apiData?.dashboard?.days || 0;
-    if (needed > current && current > 0) {
-      loadData(false, needed);
-    }
-  }, [calcDaysNeeded, apiData?.dashboard?.days, loadData]);
+  }, [loadData]);
 
   const handleLogout = () => {
     setSessionToken("");
     setManageUnlocked(false);
-    loadData(false, 31);
+    loadData(false, 90);
   };
 
   const tg = getTelegramWebApp();
@@ -778,7 +756,7 @@ export default function AdminApp() {
         threatEvents={apiData?.threat_events}
         isSuperAdmin={isSuperAdmin}
         lang={lang}
-        onRefresh={() => loadData(false, calcDaysNeeded())}
+        onRefresh={() => loadData(true, 90)}
       />
     ),
     threats: (
@@ -855,7 +833,7 @@ export default function AdminApp() {
         lang={lang}
         onSuccess={() => {
           setManageUnlocked(true);
-          loadData(true, calcDaysNeeded());
+          loadData(true, 90);
         }}
       />
     ) : (
@@ -871,7 +849,7 @@ export default function AdminApp() {
         candidateGroups={apiData?.candidate_groups}
         lang={lang}
         isSuperAdmin={isSuperAdmin}
-        onRefresh={() => loadData(true, calcDaysNeeded())}
+        onRefresh={() => loadData(true, 90)}
       />
     ),
     account: (
@@ -884,7 +862,7 @@ export default function AdminApp() {
         lang={lang}
         setLang={setLang}
         onLogout={handleLogout}
-        onRefresh={() => loadData(false, calcDaysNeeded())}
+        onRefresh={() => loadData(true, 90)}
       />
     ),
   };
@@ -912,7 +890,7 @@ export default function AdminApp() {
 
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <button
-            onClick={() => loadData(true, calcDaysNeeded())}
+            onClick={() => loadData(true, 90)}
             style={{
               background: "transparent",
               border: `1px solid ${G.border}`,
@@ -1141,18 +1119,14 @@ export default function AdminApp() {
       )}
 
       <main style={{ flex: 1, overflowY: "auto", padding: "16px 16px 24px" }}>
-        {loading || refreshing ? (
+        {loading && !apiData ? (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "65%", gap: 16, color: G.muted }}>
             <Loader2 size={36} color={G.gold} className="spin-animation" />
             <div style={{ fontSize: 13, fontWeight: 600, color: G.textSec }}>
-              <span className={kh(lang)}>
-                {refreshing
-                  ? (lang === "km" ? "កំពុងទាញទិន្នន័យថ្មី..." : "Refreshing data...")
-                  : tx.loading}
-              </span>
+              <span className={kh(lang)}>{tx.loading}</span>
             </div>
           </div>
-        ) : error ? (
+        ) : error && !apiData ? (
           <div style={{ background: G.surface, border: `1px solid ${G.danger}`, borderRadius: 14, padding: "24px 18px", textAlign: "center" }}>
             <ShieldAlert size={36} color={G.danger} style={{ marginBottom: 10 }} />
             <div style={{ fontSize: 15, fontWeight: 700, color: G.text, marginBottom: 6 }}>
@@ -1160,7 +1134,7 @@ export default function AdminApp() {
             </div>
             <div style={{ fontSize: 12, color: G.muted, marginBottom: 16 }}>{error}</div>
             <button
-              onClick={() => loadData(false, calcDaysNeeded())}
+              onClick={() => loadData(false, 90)}
               style={{
                 background: G.gold,
                 color: "#1a1200",

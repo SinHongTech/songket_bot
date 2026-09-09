@@ -8,6 +8,11 @@
 class SafeStorageWrapper {
   private memoryStore = new Map<string, string>();
 
+  private sanitizeCloudKey(key: string): string {
+    // Telegram CloudStorage keys may only contain A-Z, a-z, 0-9, _ (underscore), and - (hyphen).
+    return key.replace(/[^a-zA-Z0-9_-]/g, "_");
+  }
+
   private getCookie(name: string): string | null {
     try {
       if (typeof document === "undefined") return null;
@@ -37,6 +42,8 @@ class SafeStorageWrapper {
       if (typeof window !== "undefined" && window.localStorage) {
         const val = window.localStorage.getItem(key);
         if (val !== null) return val;
+        const sanitizedVal = window.localStorage.getItem(this.sanitizeCloudKey(key));
+        if (sanitizedVal !== null) return sanitizedVal;
       }
     } catch {}
 
@@ -50,15 +57,17 @@ class SafeStorageWrapper {
     const cookieVal = this.getCookie(key);
     if (cookieVal !== null) return cookieVal;
 
-    return this.memoryStore.get(key) ?? null;
+    return this.memoryStore.get(key) ?? this.memoryStore.get(this.sanitizeCloudKey(key)) ?? null;
   }
 
   setItem(key: string, value: string): void {
     this.memoryStore.set(key, value);
+    this.memoryStore.set(this.sanitizeCloudKey(key), value);
 
     try {
       if (typeof window !== "undefined" && window.localStorage) {
         window.localStorage.setItem(key, value);
+        window.localStorage.setItem(this.sanitizeCloudKey(key), value);
       }
     } catch {}
 
@@ -74,7 +83,8 @@ class SafeStorageWrapper {
     try {
       const tgCloud = (window as any)?.Telegram?.WebApp?.CloudStorage;
       if (tgCloud && typeof tgCloud.setItem === "function") {
-        tgCloud.setItem(key, value, (err: any) => {
+        const cloudKey = this.sanitizeCloudKey(key);
+        tgCloud.setItem(cloudKey, value, (err: any) => {
           if (err) {
             console.debug("Telegram CloudStorage setItem error:", err);
           }
@@ -85,10 +95,12 @@ class SafeStorageWrapper {
 
   removeItem(key: string): void {
     this.memoryStore.delete(key);
+    this.memoryStore.delete(this.sanitizeCloudKey(key));
 
     try {
       if (typeof window !== "undefined" && window.localStorage) {
         window.localStorage.removeItem(key);
+        window.localStorage.removeItem(this.sanitizeCloudKey(key));
       }
     } catch {}
 
@@ -103,7 +115,8 @@ class SafeStorageWrapper {
     try {
       const tgCloud = (window as any)?.Telegram?.WebApp?.CloudStorage;
       if (tgCloud && typeof tgCloud.removeItem === "function") {
-        tgCloud.removeItem(key, (err: any) => {
+        const cloudKey = this.sanitizeCloudKey(key);
+        tgCloud.removeItem(cloudKey, (err: any) => {
           if (err) {
             console.debug("Telegram CloudStorage removeItem error:", err);
           }
@@ -132,19 +145,34 @@ class SafeStorageWrapper {
     try {
       const tgCloud = (window as any)?.Telegram?.WebApp?.CloudStorage;
       if (tgCloud && typeof tgCloud.getItems === "function") {
-        tgCloud.getItems(keys, (err: any, result: Record<string, string>) => {
+        const keyMap: Record<string, string> = {};
+        const cloudKeys: string[] = [];
+        keys.forEach(k => {
+          const ck = this.sanitizeCloudKey(k);
+          keyMap[ck] = k;
+          keyMap[k] = k;
+          if (!cloudKeys.includes(ck)) cloudKeys.push(ck);
+          if (!cloudKeys.includes(k) && ck !== k) cloudKeys.push(k);
+        });
+
+        tgCloud.getItems(cloudKeys, (err: any, result: Record<string, string>) => {
           if (!err && result) {
-            Object.entries(result).forEach(([k, v]) => {
+            const mappedResult: Record<string, string> = {};
+            Object.entries(result).forEach(([ck, v]) => {
               if (v !== undefined && v !== null && v !== "") {
-                this.memoryStore.set(k, v);
+                const originalKey = keyMap[ck] || ck;
+                mappedResult[originalKey] = v;
+                this.memoryStore.set(originalKey, v);
+                this.memoryStore.set(ck, v);
                 try {
-                  window.localStorage?.setItem(k, v);
+                  window.localStorage?.setItem(originalKey, v);
+                  window.localStorage?.setItem(ck, v);
                 } catch {}
-                this.setCookie(k, v);
+                this.setCookie(originalKey, v);
               }
             });
             if (onLoaded) {
-              onLoaded(result);
+              onLoaded(mappedResult);
             }
           }
         });

@@ -452,7 +452,21 @@ def unlink_group_completely(chat_id: int) -> bool:
 
 
 def get_known_groups() -> dict:
-    return kv_json_get("known_groups") or {}
+    kg = kv_json_get("known_groups") or {}
+    ckg = kv_json_get("config:known_groups") or {}
+    if isinstance(ckg, dict):
+        kg.update(ckg)
+    try:
+        allowed = get_allowed_groups()
+        for gid in allowed:
+            sid = str(gid)
+            if sid not in kg or not kg[sid] or kg[sid] == "Group" or kg[sid] == sid:
+                cached = kv_get(f"cache:chat_title:{gid}")
+                if cached:
+                    kg[sid] = str(cached)
+    except Exception:
+        pass
+    return kg
 
 
 # ── Plans & subscriptions ────────────────────────────────────────────────────
@@ -1018,6 +1032,7 @@ def get_chat(chat_id: int) -> Optional[dict]:
     if res and res.get("title"):
         try:
             kv_set(f"cache:chat_title:{chat_id}", res["title"], ttl=86400)
+            record_known_group(chat_id, res["title"])
         except Exception:
             pass
     return res

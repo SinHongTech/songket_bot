@@ -217,10 +217,12 @@ export default function ManageView({
   }, [subscriptions]);
 
   // ── Helper: Format User Display based on Super Admin vs Regular Admin ──────
+  // ── Helper: Format User Display based on Super Admin vs Regular Admin ──────
   function formatUser(
     userId: number | string,
     fallbackUsername?: string,
-    fallbackName?: string
+    fallbackName?: string,
+    showId: boolean = false
   ): { title: string; subtitle?: string } {
     const idStr = String(userId || "").trim();
     const info = knownUsers?.[idStr];
@@ -228,7 +230,17 @@ export default function ManageView({
     const dname = fallbackName || info?.name || "";
     const cleanUname = uname ? (uname.startsWith("@") ? uname : `@${uname}`) : "";
 
-    // Privacy standard: Show USERNAME only (or Display Name if no username)
+    // For Super Admin view: show Both Name/Username and ID
+    if (showId && idStr) {
+      const namePart = cleanUname || dname || `User ${idStr}`;
+      const extraPart = cleanUname && dname && dname !== cleanUname ? `${dname} • ` : "";
+      return {
+        title: namePart,
+        subtitle: namePart === `User ${idStr}` ? undefined : `${extraPart}ID: ${idStr}`,
+      };
+    }
+
+    // For Regular Admin view: Privacy standard (NEVER show numeric ID)
     if (cleanUname) {
       return {
         title: cleanUname,
@@ -241,12 +253,29 @@ export default function ManageView({
     return { title: "User" };
   }
 
-  function getGroupTitle(gid: number): string {
+  function getGroupDisplay(gid: number, showId: boolean = false): { title: string; subtitle?: string } {
     const dg = dashboardGroups?.find((g) => g.id === gid);
-    if (dg?.title) return dg.title;
+    const cg = candidateGroups?.find((g) => g.id === gid);
     const kg = knownGroups?.[String(gid)];
-    if (kg) return kg;
-    return "Group";
+    const rawTitle =
+      (dg?.title && dg.title !== "Group" ? dg.title : "") ||
+      (cg?.title && cg.title !== "Group" ? cg.title : "") ||
+      (kg && kg !== "Group" ? kg : "");
+    const title = rawTitle || "Group";
+
+    if (showId) {
+      return {
+        title: title !== "Group" ? title : `Group ${gid}`,
+        subtitle: `ID: ${gid}`,
+      };
+    }
+    return {
+      title,
+    };
+  }
+
+  function getGroupTitle(gid: number): string {
+    return getGroupDisplay(gid, false).title;
   }
 
   function triggerGroupToast(msg: string) {
@@ -1612,7 +1641,7 @@ export default function ManageView({
                 </div>
               ) : (
                 superAdminIds.map((id) => {
-                  const formatted = formatUser(id);
+                  const formatted = formatUser(id, undefined, undefined, true);
                   const isPrimary = primaryAdminIds.includes(id);
                   return (
                     <div
@@ -1715,7 +1744,7 @@ export default function ManageView({
                 </div>
               ) : (
                 whitelist.map((id) => {
-                  const formatted = formatUser(id);
+                  const formatted = formatUser(id, undefined, undefined, true);
                   return (
                     <div
                       key={id}
@@ -1802,31 +1831,39 @@ export default function ManageView({
                   <span className={kh(lang)}>{tx.noGroupsYet}</span>
                 </div>
               ) : (
-                allowedGroups.map((gid) => (
-                  <div
-                    key={gid}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      background: G.surface2,
-                      border: `1px solid ${G.border}`,
-                      borderRadius: 8,
-                      padding: "8px 12px",
-                    }}
-                  >
-                    <div>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: G.text }}>{getGroupTitle(gid)}</div>
-                    </div>
-                    <button
-                      onClick={() => handleRemoveGroup(gid)}
-                      style={{ background: "transparent", border: "none", color: G.danger, cursor: "pointer", padding: "4px", display: "flex", alignItems: "center" }}
-                      title={tx.remove}
+                allowedGroups.map((gid) => {
+                  const gDisp = getGroupDisplay(gid, true);
+                  return (
+                    <div
+                      key={gid}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        background: G.surface2,
+                        border: `1px solid ${G.border}`,
+                        borderRadius: 8,
+                        padding: "8px 12px",
+                      }}
                     >
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                ))
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: G.text }}>{gDisp.title}</div>
+                        {gDisp.subtitle && (
+                          <div style={{ fontSize: 10, color: G.muted, fontFamily: "JetBrains Mono, monospace" }}>
+                            {gDisp.subtitle}
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => handleRemoveGroup(gid)}
+                        style={{ background: "transparent", border: "none", color: G.danger, cursor: "pointer", padding: "4px", display: "flex", alignItems: "center" }}
+                        title={tx.remove}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  );
+                })
               )}
             </div>
 
@@ -1885,7 +1922,7 @@ export default function ManageView({
                 whitelist.map((uidNum) => {
                   const uid = String(uidNum);
                   const gids = groupHandlers[uid] || [];
-                  const formatted = formatUser(uid);
+                  const formatted = formatUser(uid, undefined, undefined, true);
                   return (
                     <div key={uid} style={{ background: G.surface2, border: `1px solid ${G.border}`, borderRadius: 8, padding: "10px 12px" }}>
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
@@ -1902,30 +1939,33 @@ export default function ManageView({
                             {superAdminIds.includes(Number(uid)) ? "All Groups (Super Admin)" : "No specific groups assigned"}
                           </span>
                         ) : (
-                          gids.map((gid) => (
-                            <span
-                              key={gid}
-                              style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: 4,
-                                background: G.surface,
-                                border: `1px solid ${G.border}`,
-                                borderRadius: 6,
-                                padding: "3px 8px",
-                                fontSize: 11,
-                                fontFamily: "JetBrains Mono, monospace",
-                              }}
-                            >
-                              {getGroupTitle(gid)}
-                              <button
-                                onClick={() => handleRemoveHandlerMapping(uid, gid)}
-                                style={{ background: "transparent", border: "none", color: G.danger, cursor: "pointer", padding: "0 2px", display: "flex", alignItems: "center" }}
+                          gids.map((gid) => {
+                            const gDisp = getGroupDisplay(gid, true);
+                            return (
+                              <span
+                                key={gid}
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: 4,
+                                  background: G.surface,
+                                  border: `1px solid ${G.border}`,
+                                  borderRadius: 6,
+                                  padding: "3px 8px",
+                                  fontSize: 11,
+                                  fontFamily: "JetBrains Mono, monospace",
+                                }}
                               >
-                                ×
-                              </button>
-                            </span>
-                          ))
+                                {gDisp.title} ({gid})
+                                <button
+                                  onClick={() => handleRemoveHandlerMapping(uid, gid)}
+                                  style={{ background: "transparent", border: "none", color: G.danger, cursor: "pointer", padding: "0 2px", display: "flex", alignItems: "center" }}
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            );
+                          })
                         )}
                       </div>
                     </div>
@@ -2295,7 +2335,7 @@ export default function ManageView({
                 </div>
               ) : (
                 subs.map((s) => {
-                  const formatted = formatUser(s.user_id);
+                  const formatted = formatUser(s.user_id, undefined, undefined, true);
                   const expiryText = (() => {
                     if (!s.expiry || s.expiry === 0) return isKm ? "សុពលភាព 30 ថ្ងៃ" : "30-Day Validity";
                     const d = new Date(s.expiry * 1000);

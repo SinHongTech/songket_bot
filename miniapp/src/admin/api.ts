@@ -240,7 +240,7 @@ export function requestTelegramWriteAccess(): Promise<boolean> {
   });
 }
 
-export async function fetchDashboardData(days: number = 7): Promise<DashboardApiResponse> {
+export async function fetchDashboardData(days: number = 90): Promise<DashboardApiResponse> {
   const tg = getTelegramWebApp();
   if (tg) {
     try {

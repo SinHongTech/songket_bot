@@ -114,7 +114,7 @@ export default function HomeView({ dashboard, threatEvents, user, lang, isMock, 
   const allTimelineData = getTimelineFromDashboard(dashboard);
   const timelineData = allTimelineData.filter(item => item.date >= dateFrom && item.date <= dateTo);
   const chartData = isSingleDate ? get24HourTimeline(dateFrom, dashboard, threatEvents) : timelineData;
-  const pieData = getThreatBreakdownFromDashboard(dashboard);
+  const pieData = getThreatBreakdownFromDashboard(dashboard, dateFrom, dateTo);
   const threatsList = getThreatsListFromDashboard(dashboard);
 
   // Compute stats
@@ -310,9 +310,7 @@ export default function HomeView({ dashboard, threatEvents, user, lang, isMock, 
               : `${tx.threatActivity} (${dateFrom} ~ ${dateTo})`}
           </span>
           <span style={{ fontSize: 11, color: G.gold, fontWeight: 700 }}>
-            {isSingleDate
-              ? `${chartData.reduce((acc, c) => acc + (c.scans || 0), 0)} scans`
-              : `${totals.scanned} scans`}
+            {`${(isSingleDate ? chartData : timelineData).reduce((acc, c) => acc + (c.scans || 0), 0).toLocaleString()} scans`}
           </span>
         </div>
         {chartData.length > 0 ? (
@@ -360,13 +358,13 @@ export default function HomeView({ dashboard, threatEvents, user, lang, isMock, 
         <div style={{ fontSize: 13, fontWeight: 600, color: G.textSec, marginBottom: 14 }}>
           <span className={kh(lang)}>{tx.threatBreakdown}</span>
         </div>
-        <ResponsiveContainer width="100%" height={190}>
-          <PieChart>
-            <Pie data={pieData} cx="50%" cy="45%" innerRadius={50} outerRadius={75} dataKey="value" paddingAngle={3}>
+        <ResponsiveContainer width="100%" height={230}>
+          <PieChart margin={{ top: 16, bottom: 6, left: 0, right: 0 }}>
+            <Pie data={pieData} cx="50%" cy="48%" innerRadius={48} outerRadius={72} dataKey="value" paddingAngle={3}>
               {pieData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
             </Pie>
             <Tooltip contentStyle={{ background: G.surface2, border: `1px solid ${G.goldBorder}`, borderRadius: 8, color: G.text, fontSize: 12 }} />
-            <Legend iconSize={8} wrapperStyle={{ fontSize: 11, color: G.textSec }} />
+            <Legend iconSize={8} wrapperStyle={{ fontSize: 11, color: G.textSec, paddingTop: 10 }} />
           </PieChart>
         </ResponsiveContainer>
       </div>
