@@ -21,7 +21,7 @@ import {
 import LogoMark from "@/shared/components/LogoMark";
 import { G, type Nav, type Lang } from "@/admin/palette";
 import { t as T, kh } from "@/admin/i18n";
-import { fetchDashboardData, setupPin, loginPin, resetPin, resetPinWithTotp, setSessionToken, openTelegramDirect, getTelegramUser, getTelegramWebApp } from "@/admin/api";
+import { fetchDashboardData, setupPin, loginPin, resetPin, resetPinWithTotp, setSessionToken, openTelegramDirect, getTelegramUser, getTelegramWebApp, saveUserDatePreferences } from "@/admin/api";
 import { safeStorage } from "@/shared/storage";
 import type { DashboardApiResponse, ThreatEvent } from "@/admin/types";
 import { mockUser } from "@/admin/data";
@@ -591,13 +591,46 @@ export default function AdminApp() {
     );
   }, []);
 
+  // Sync server saved date preferences if available in user_settings
+  const userSettingsSyncedRef = React.useRef(false);
+  useEffect(() => {
+    if (apiData?.user_settings && !userSettingsSyncedRef.current) {
+      userSettingsSyncedRef.current = true;
+      const us = apiData.user_settings as any;
+      if (us.home_date_from) {
+        setHomeDateFrom(us.home_date_from);
+        safeStorage.setItem("songket.admin.homeDateFrom", us.home_date_from);
+      }
+      if (us.home_date_to) {
+        setHomeDateTo(us.home_date_to);
+        safeStorage.setItem("songket.admin.homeDateTo", us.home_date_to);
+      }
+      if (us.threats_date_from) {
+        setThreatsDateFrom(us.threats_date_from);
+        safeStorage.setItem("songket.admin.threatsDateFrom", us.threats_date_from);
+      }
+      if (us.threats_date_to) {
+        setThreatsDateTo(us.threats_date_to);
+        safeStorage.setItem("songket.admin.threatsDateTo", us.threats_date_to);
+      }
+      if (us.history_date_from) {
+        setHistoryDateFrom(us.history_date_from);
+        safeStorage.setItem("songket.admin.historyDateFrom", us.history_date_from);
+      }
+      if (us.history_date_to) {
+        setHistoryDateTo(us.history_date_to);
+        safeStorage.setItem("songket.admin.historyDateTo", us.history_date_to);
+      }
+    }
+  }, [apiData]);
+
   const apiDataRef = React.useRef(apiData);
   apiDataRef.current = apiData;
 
-  const loadData = useCallback(async (isRefresh = false, queryDays = 90) => {
-    if (isRefresh || apiDataRef.current) {
+  const loadData = useCallback(async (isRefresh = false, queryDays = 90, isSilent = false) => {
+    if (isRefresh) {
       setRefreshing(true);
-    } else {
+    } else if (!apiDataRef.current && !isSilent) {
       setLoading(true);
     }
     setError(null);
@@ -637,7 +670,7 @@ export default function AdminApp() {
           try { d = JSON.parse(d); } catch {}
         }
         if (d && d.eventType === "web_app_setup_data" && mounted) {
-          loadData(true, 90);
+          loadData(false, 90, true);
         }
       } catch {}
     };
@@ -645,15 +678,15 @@ export default function AdminApp() {
 
     // Auto-retry at 400ms, 1200ms, and 2500ms for Telegram Desktop webview readiness
     const t1 = setTimeout(() => {
-      if (mounted) loadData(true, 90);
+      if (mounted) loadData(false, 90, true);
     }, 400);
 
     const t2 = setTimeout(() => {
-      if (mounted) loadData(true, 90);
+      if (mounted) loadData(false, 90, true);
     }, 1200);
 
     const t3 = setTimeout(() => {
-      if (mounted) loadData(true, 90);
+      if (mounted) loadData(false, 90, true);
     }, 2500);
 
     return () => {
@@ -740,6 +773,7 @@ export default function AdminApp() {
           setHomeDateTo(to);
           safeStorage.setItem("songket.admin.homeDateFrom", from);
           safeStorage.setItem("songket.admin.homeDateTo", to);
+          saveUserDatePreferences({ home_date_from: from, home_date_to: to }).catch(() => {});
         }}
         onNavigate={tab => {
           if (tab === "threats" && threatCount > 0) {
@@ -772,6 +806,7 @@ export default function AdminApp() {
           setThreatsDateTo(to);
           safeStorage.setItem("songket.admin.threatsDateFrom", from);
           safeStorage.setItem("songket.admin.threatsDateTo", to);
+          saveUserDatePreferences({ threats_date_from: from, threats_date_to: to }).catch(() => {});
         }}
       />
     ),
@@ -787,6 +822,7 @@ export default function AdminApp() {
           setHistoryDateTo(to);
           safeStorage.setItem("songket.admin.historyDateFrom", from);
           safeStorage.setItem("songket.admin.historyDateTo", to);
+          saveUserDatePreferences({ history_date_from: from, history_date_to: to }).catch(() => {});
         }}
       />
     ),
@@ -1119,11 +1155,11 @@ export default function AdminApp() {
       )}
 
       <main style={{ flex: 1, overflowY: "auto", padding: "16px 16px 24px" }}>
-        {loading && !apiData ? (
+        {(loading && !apiData) || refreshing ? (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "65%", gap: 16, color: G.muted }}>
             <Loader2 size={36} color={G.gold} className="spin-animation" />
             <div style={{ fontSize: 13, fontWeight: 600, color: G.textSec }}>
-              <span className={kh(lang)}>{tx.loading}</span>
+              <span className={kh(lang)}>{refreshing ? (lang === "km" ? "កំពុងទាញយកទិន្នន័យថ្មី..." : "Refreshing data...") : tx.loading}</span>
             </div>
           </div>
         ) : error && !apiData ? (
