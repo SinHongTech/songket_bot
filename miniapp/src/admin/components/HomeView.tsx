@@ -107,8 +107,10 @@ export default function HomeView({ dashboard, threatEvents, user, lang, isMock, 
   const [expandedThreat, setExpandedThreat] = useState<string | null>(null);
 
   const displayName =
+    [user?.first_name, user?.last_name].filter(Boolean).join(" ").trim() ||
+    user?.name ||
     user?.first_name ||
-    (user?.username ? `@${user.username}` : (lang === "km" ? "អ្នកគ្រប់គ្រង" : "Admin"));
+    (user?.username ? `@${user.username.replace(/^@/, "")}` : (lang === "km" ? "អ្នកគ្រប់គ្រង" : "Admin"));
 
   const isSingleDate = dateFrom === dateTo;
   const allTimelineData = getTimelineFromDashboard(dashboard);

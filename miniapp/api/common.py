@@ -2683,8 +2683,21 @@ def get_known_users() -> dict:
         "817197042": {"username": "Panhakhonn", "name": "KHON PANHA"},
         "772640725": {"username": "Sovathana168", "name": "Ne Sovathana"},
     }
-    defaults.update(known)
-    return defaults
+    res = dict(defaults)
+    for uid_str, udata in known.items():
+        if not isinstance(udata, dict):
+            continue
+        if uid_str in res:
+            existing = dict(res[uid_str])
+            if udata.get("username"):
+                existing["username"] = udata["username"]
+            u_name = str(udata.get("name") or "").strip()
+            if u_name and not u_name.startswith("@"):
+                existing["name"] = u_name
+            res[uid_str] = existing
+        else:
+            res[uid_str] = udata
+    return res
 
 
 # ── Threat Events ───────────────────────────────────────────────────────────
