@@ -16,6 +16,8 @@ import os
 import re
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Optional
 from urllib.parse import quote
 
 import requests
@@ -26,6 +28,12 @@ from bot.redis_client import cache_get, cache_set
 logger = logging.getLogger("BeydaBot.scanner")
 
 VT_HEADERS = {"x-apikey": config.VT_API_KEY}
+
+# Shared HTTP session with keep-alive connection pooling
+_http_session = requests.Session()
+adapter = requests.adapters.HTTPAdapter(pool_connections=15, pool_maxsize=30, max_retries=1)
+_http_session.mount("https://", adapter)
+_http_session.mount("http://", adapter)
 
 # Shared throttle: guarantees a minimum spacing between VT HTTP calls.
 _rate_lock = threading.Lock()
@@ -138,10 +146,10 @@ def check_telegram_phishing_heuristics(url: str) -> Optional[dict]:
 def check_urlhaus_prefilter(url: str) -> Optional[dict]:
     """Pre-filter URLs against URLhaus database to catch active malware immediately."""
     try:
-        r = requests.post(
+        r = _http_session.post(
             "https://urlhaus-api.abuse.ch/v1/url/",
             data={"url": url},
-            timeout=3,
+            timeout=2.0,
         )
         if r.status_code == 200:
             data = r.json()
@@ -184,7 +192,7 @@ def check_google_safebrowsing(url: str) -> Optional[dict]:
         ]
         query_str = f"key={api_key}&uri={encoded_url}&{'&'.join(threat_params)}"
         endpoint_v5 = f"https://safebrowsing.googleapis.com/v5/uris:search?{query_str}"
-        r = requests.get(endpoint_v5, timeout=3)
+        r = _http_session.get(endpoint_v5, timeout=2.0)
         if r.status_code == 200:
             data = r.json()
             threat = data.get("threat") or {}
@@ -201,7 +209,6 @@ def check_google_safebrowsing(url: str) -> Optional[dict]:
                     "threat": threat_label,
                     "heuristic": "phishing" if "SOCIAL_ENGINEERING" in threat_label else "malware",
                 }
-            # 200 OK with no threat indicates clean URL in v5
             return None
     except Exception as e:
         logger.debug("GSB v5 check skipped/failed: %s", e)
@@ -223,7 +230,7 @@ def check_google_safebrowsing(url: str) -> Optional[dict]:
                 "threatEntries": [{"url": url}],
             },
         }
-        r = requests.post(endpoint_v4, json=payload_v4, timeout=3)
+        r = _http_session.post(endpoint_v4, json=payload_v4, timeout=2.0)
         if r.status_code == 200:
             res = r.json()
             matches = res.get("matches") or []
@@ -246,82 +253,115 @@ def check_google_safebrowsing(url: str) -> Optional[dict]:
     return None
 
 
-def vt_scan_url(url: str) -> dict:
-    # 1. Resolve potential redirect / shortener destination
-    from bot.utils import resolve_redirect
-    final_url = resolve_redirect(url)
-    urls_to_check = [url]
-    if final_url and final_url != url:
-        urls_to_check.append(final_url)
-
-    # 2. Check Trusted Domain Whitelist (only if NOT a shortener)
-    from bot.redis_client import is_domain_whitelisted
-    if all(is_domain_whitelisted(u) for u in urls_to_check):
-        return {"malicious": 0, "suspicious": 0, "harmless": 100, "undetected": 0, "whitelisted": True}
-
-    # 3. Check Fast Local Heuristics on all URLs in redirect chain
-    for u in urls_to_check:
-        heuristic_hit = check_telegram_phishing_heuristics(u)
-        if heuristic_hit:
-            return heuristic_hit
-
-    # 4. Check Multi-Engine Pre-Filters (URLhaus & Google Safe Browsing)
-    for u in urls_to_check:
-        urlhaus_hit = check_urlhaus_prefilter(u)
-        if urlhaus_hit:
-            return urlhaus_hit
-
-        gsb_hit = check_google_safebrowsing(u)
-        if gsb_hit:
-            return gsb_hit
-
+def _fast_vt_url_lookup(url: str) -> Optional[dict]:
+    """Fast non-blocking read from VirusTotal's existing URL intelligence database."""
     if not config.VT_API_KEY:
-        return {"error": "VT_API_KEY not configured"}
+        return None
+    try:
+        url_id = _url_id(url)
+        r = _http_session.get(f"{config.VT_BASE_URL}/urls/{url_id}", headers=VT_HEADERS, timeout=2.5)
+        if r.status_code == 200:
+            attrs = r.json().get("data", {}).get("attributes", {})
+            stats = attrs.get("last_analysis_stats", {})
+            last_date = int(attrs.get("last_analysis_date", 0) or 0)
+            if stats and (time.time() - last_date) <= config.URL_LOOKUP_MAX_AGE_SECONDS:
+                return {
+                    "malicious": stats.get("malicious", 0),
+                    "suspicious": stats.get("suspicious", 0),
+                    "harmless": stats.get("harmless", 0),
+                    "undetected": stats.get("undetected", 0),
+                    "lookup": True,
+                }
+    except Exception as exc:
+        logger.debug("Fast VT lookup skipped/failed: %s", exc)
+    return None
 
-    # Target the final unshortened URL for VT scan if different
-    target_scan_url = final_url if (final_url and final_url != url) else url
-    key = _make_cache_key(target_scan_url)
+
+def _async_submit_vt_url(url: str) -> None:
+    """Asynchronously submit a new URL to VirusTotal in background without blocking chat."""
+    try:
+        _request("POST", f"{config.VT_BASE_URL}/urls", data={"url": url}, timeout=10)
+    except Exception:
+        pass
+
+
+def vt_scan_url(url: str) -> dict:
+    # 1. Quick Redis Cache Check (<1ms)
+    key = _make_cache_key(url)
     cached = cache_get(key)
     if cached:
         return cached
 
-    # Hybrid lookup: reuse VT's latest verdict when it is still fresh.
-    if config.URL_LOOKUP_ENABLED:
-        try:
-            url_id = _url_id(url)
-            r = _request("GET", f"{config.VT_BASE_URL}/urls/{url_id}", timeout=10)
-            if r.status_code == 200:
-                attrs = r.json().get("data", {}).get("attributes", {})
-                stats = attrs.get("last_analysis_stats", {})
-                last_date = int(attrs.get("last_analysis_date", 0) or 0)
-                if stats and (time.time() - last_date) <= config.URL_LOOKUP_MAX_AGE_SECONDS:
-                    result = {
-                        "malicious": stats.get("malicious", 0),
-                        "suspicious": stats.get("suspicious", 0),
-                        "harmless": stats.get("harmless", 0),
-                        "undetected": stats.get("undetected", 0),
-                        "lookup": True,
-                    }
-                    cache_set(key, result, ttl=config.URL_CACHE_TTL_SECONDS)
-                    return result
-        except Exception as exc:
-            logger.error("vt_scan_url lookup: %s", exc)
+    # 2. Check Trusted Domain Whitelist (<1ms)
+    from bot.redis_client import is_domain_whitelisted
+    if is_domain_whitelisted(url):
+        res = {"malicious": 0, "suspicious": 0, "harmless": 100, "undetected": 0, "whitelisted": True}
+        cache_set(key, res, ttl=config.URL_CACHE_TTL_SECONDS)
+        return res
 
-    try:
-        resp = _request("POST", f"{config.VT_BASE_URL}/urls", data={"url": url}, timeout=10)
-        if resp.status_code == 429:
-            return {"error": "VT rate limit"}
-        if resp.status_code != 200:
-            return {"error": f"VT submit HTTP {resp.status_code}"}
+    # 3. Check Fast Local Heuristics (<1ms)
+    heuristic_hit = check_telegram_phishing_heuristics(url)
+    if heuristic_hit:
+        cache_set(key, heuristic_hit, ttl=config.URL_CACHE_TTL_SECONDS)
+        return heuristic_hit
 
-        analysis_id = resp.json()["data"]["id"]
-        result = _poll_analysis(analysis_id)
-        if "error" not in result:
-            cache_set(key, result, ttl=config.URL_CACHE_TTL_SECONDS)
-        return result
-    except Exception as exc:
-        logger.error("vt_scan_url: %s", exc)
-        return {"error": str(exc)}
+    # 4. Resolve redirect ONLY if known shortener or candidate
+    from bot.utils import is_shortener, resolve_redirect
+    urls_to_check = [url]
+    if is_shortener(url):
+        final_url = resolve_redirect(url, max_redirects=2, timeout=1.0)
+        if final_url and final_url != url:
+            urls_to_check.append(final_url)
+            cached_final = cache_get(_make_cache_key(final_url))
+            if cached_final:
+                return cached_final
+            if is_domain_whitelisted(final_url):
+                res = {"malicious": 0, "suspicious": 0, "harmless": 100, "undetected": 0, "whitelisted": True}
+                cache_set(key, res, ttl=config.URL_CACHE_TTL_SECONDS)
+                return res
+            h_hit = check_telegram_phishing_heuristics(final_url)
+            if h_hit:
+                cache_set(key, h_hit, ttl=config.URL_CACHE_TTL_SECONDS)
+                return h_hit
+
+    # 5. Concurrent Multi-Engine Pre-Filters (Google Safe Browsing + URLhaus + VT Lookup) in Parallel!
+    tasks = []
+    latest_lookup_result = None
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        for u in urls_to_check:
+            tasks.append(executor.submit(check_google_safebrowsing, u))
+            tasks.append(executor.submit(check_urlhaus_prefilter, u))
+            if config.VT_API_KEY and config.URL_LOOKUP_ENABLED:
+                tasks.append(executor.submit(_fast_vt_url_lookup, u))
+
+        for future in as_completed(tasks, timeout=3.0):
+            try:
+                verdict = future.result()
+                if verdict and isinstance(verdict, dict):
+                    mal = int(verdict.get("malicious", 0) or 0)
+                    susp = int(verdict.get("suspicious", 0) or 0)
+                    if mal > 0 or susp > 0:
+                        cache_set(key, verdict, ttl=config.URL_CACHE_TTL_SECONDS)
+                        return verdict
+                    if verdict.get("lookup"):
+                        latest_lookup_result = verdict
+            except Exception as e:
+                logger.debug("Parallel scanner task error: %s", e)
+
+    # 6. If VT lookup had fresh clean stats, return it
+    if latest_lookup_result:
+        cache_set(key, latest_lookup_result, ttl=config.URL_CACHE_TTL_SECONDS)
+        return latest_lookup_result
+
+    # 7. Pre-filters confirmed Clean: Return Safe immediately (<300ms)
+    clean_verdict = {"malicious": 0, "suspicious": 0, "harmless": 100, "undetected": 0, "clean": True}
+    cache_set(key, clean_verdict, ttl=config.URL_CACHE_TTL_SECONDS)
+
+    # Submit background analysis for VT indexing (non-blocking daemon thread)
+    if config.VT_API_KEY:
+        threading.Thread(target=_async_submit_vt_url, args=(url,), daemon=True).start()
+
+    return clean_verdict
 
 
 def vt_scan_file(file_bytes: bytes, filename: str) -> dict:

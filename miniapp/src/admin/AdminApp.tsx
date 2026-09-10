@@ -699,6 +699,16 @@ export default function AdminApp() {
     };
   }, [loadData]);
 
+  // Periodic silent background auto-sync every 30 seconds when tab is active
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (document.visibilityState === "visible") {
+        loadData(false, 90, true);
+      }
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [loadData]);
+
   const handleLogout = () => {
     setSessionToken("");
     setManageUnlocked(false);
