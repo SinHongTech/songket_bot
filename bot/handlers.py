@@ -301,24 +301,47 @@ def get_msg_suspicious_file(lang: str, user: str, filename: str) -> str:
     )
 
 
-MSG_TOO_LARGE = (
-    "🚨 <b>ព្រមាន! ឯកសារអាចមានគ្រោះថ្នាក់ | SECURITY ALERT</b>\n\n"
-    "🫣 <b>អ្នកផ្ញើរ :</b> {user}\n"
-    "👾 <b>ឯកសារ :</b> <code>{filename}</code>\n"
-    "📦 <b>ទំហំ :</b> {size_mb} MB\n\n"
-    "⚠️ <b>សូមប្រុងប្រយ័ត្ន!</b>\n"
-    " - ឯកសារដែលមានឈ្មោះមិនប្រក្រតី គួរឱ្យសង្ស័យ អាចផ្ទុកមេរោគ ឬកម្មវិធីបង្កគ្រោះថ្នាក់\n"
-    " - ឯកសារគ្រប់ប្រភេទដែលមានកន្ទុយខាងក្រោយដូចជា: (.exe, .zip, .rar, .iso, .js, .bat, .cmd, .scr, .msi, .vbs, .dll, .docm, .xlsm, .pptm, .apk, .z និងឯកសារផ្សេងៗទៀត)\n\n"
-    "👉 <b>សូមអនុវត្ត៖</b>\n"
-    "❌ ហាមបើក / ពន្លា (extract)\n"
-    "❌ ហាមចុច (Run ឬ Install)\n"
-    "❌ ហាមបញ្ជូនបន្ត (forward)\n"
-    "🗑️ លុបចោលភ្លាមៗ រួមទាំង Trash\n\n"
-    "🙈 <b>បើបានបើកឯកសាររួចហើយ៖</b>\n"
-    "<b>1️⃣</b> ផ្ដាច់ Wi-Fi/LAN ភ្លាមៗ\n"
-    "<b>2️⃣</b> ប្តូរពាក្យសម្ងាត់ពីឧបករណ៍ផ្សេងៗ\n\n"
-    "🤖 <b>ក្រុមការងារ PLP / DPE, MoEYS</b>\n"
-)
+def get_msg_oversize(lang: str, user: str, filename: str, size_mb: float) -> str:
+    if lang == "en":
+        return (
+            "🚨 <b>Warning! File May Be Dangerous | SECURITY ALERT</b>\n\n"
+            f"🫣 <b>Sender :</b> {user}\n"
+            f"👾 <b>File :</b> <code>{filename}</code>\n"
+            f"📦 <b>Size :</b> {size_mb} MB (Exceeds {config.MAX_FILE_SIZE_MB} MB limit)\n\n"
+            "⚠️ <b>Caution!</b>\n"
+            " - Files with suspicious names or unusual extensions may contain viruses or malware\n"
+            " - All file types with dangerous extensions: (.exe, .zip, .rar, .iso, .js, .bat, .cmd, .scr, .msi, .vbs, .dll, .docm, .xlsm, .pptm, .apk, .z and other files)\n\n"
+            "👉 <b>Please follow:</b>\n"
+            "❌ Do NOT open / extract\n"
+            "❌ Do NOT run or install\n"
+            "❌ Do NOT forward\n"
+            "🗑️ Delete immediately including Trash\n\n"
+            "🙈 <b>If you already opened the file:</b>\n"
+            "<b>1️⃣</b> Disconnect Wi-Fi/LAN immediately\n"
+            "<b>2️⃣</b> Change passwords from other devices\n\n"
+            "🤖 <b>SongKet Security Team</b>"
+        )
+    return (
+        "🚨 <b>ព្រមាន! ឯកសារអាចមានគ្រោះថ្នាក់ | SECURITY ALERT</b>\n\n"
+        f"🫣 <b>អ្នកផ្ញើរ :</b> {user}\n"
+        f"👾 <b>ឯកសារ :</b> <code>{filename}</code>\n"
+        f"📦 <b>ទំហំ :</b> {size_mb} MB\n\n"
+        "⚠️ <b>សូមប្រុងប្រយ័ត្ន!</b>\n"
+        " - ឯកសារដែលមានឈ្មោះមិនប្រក្រតី គួរឱ្យសង្ស័យ អាចផ្ទុកមេរោគ ឬកម្មវិធីបង្កគ្រោះថ្នាក់\n"
+        " - ឯកសារគ្រប់ប្រភេទដែលមានកន្ទុយខាងក្រោយដូចជា: (.exe, .zip, .rar, .iso, .js, .bat, .cmd, .scr, .msi, .vbs, .dll, .docm, .xlsm, .pptm, .apk, .z និងឯកសារផ្សេងៗទៀត)\n\n"
+        "👉 <b>សូមអនុវត្ត៖</b>\n"
+        "❌ ហាមបើក / ពន្លា (extract)\n"
+        "❌ ហាមចុច (Run ឬ Install)\n"
+        "❌ ហាមបញ្ជូនបន្ត (forward)\n"
+        "🗑️ លុបចោលភ្លាមៗ រួមទាំង Trash\n\n"
+        "🙈 <b>បើបានបើកឯកសាររួចហើយ៖</b>\n"
+        "<b>1️⃣</b> ផ្ដាច់ Wi-Fi/LAN ភ្លាមៗ\n"
+        "<b>2️⃣</b> ប្តូរពាក្យសម្ងាត់ពីឧបករណ៍ផ្សេងៗ\n\n"
+        "🤖 <b>SongKet Security Team | ក្រុមការងារសង្កេត</b>"
+    )
+
+
+MSG_TOO_LARGE = get_msg_oversize("both", "{user}", "{filename}", "{size_mb}")
 
 
 def engine_consensus(result: dict) -> str:
@@ -3179,7 +3202,7 @@ def process_update(api: TelegramAPI, update: dict) -> None:
     if decision.oversize:
         record_report(chat_id, chat_title, "oversize")
         delete_notice()
-        api.send_message(chat_id, MSG_TOO_LARGE.format(user=sender_label, filename=esc(filename), size_mb=decision.size_mb))
+        api.send_message(chat_id, get_msg_oversize(lang, sender_label, esc(filename), decision.size_mb))
         return
 
     if not decision.ok:
