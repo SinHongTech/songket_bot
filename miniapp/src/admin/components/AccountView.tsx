@@ -22,7 +22,7 @@ interface AccountViewProps {
 
 export default function AccountView({
   user,
-  dashboard,
+  dashboard: _dashboard,
   userSettings,
   dark,
   setDark,
@@ -146,6 +146,26 @@ export default function AccountView({
       setSendingReport((prev) => ({ ...prev, [period]: false }));
     }
   }
+  const userFullName =
+    [user?.first_name, user?.last_name].filter(Boolean).join(" ").trim() ||
+    user?.name ||
+    user?.first_name ||
+    (user?.username ? `@${user.username.replace(/^@/, "")}` : "Admin User");
+
+  const avatarInitials = (() => {
+    if (user?.first_name && user?.last_name) {
+      return (user.first_name.trim().charAt(0) + user.last_name.trim().charAt(0)).toUpperCase();
+    }
+    if (userFullName && userFullName !== "Admin User") {
+      const parts = userFullName.replace(/^@/, "").trim().split(/\s+/);
+      if (parts.length >= 2) {
+        return (parts[0].charAt(0) + parts[1].charAt(0)).toUpperCase();
+      }
+      return parts[0].slice(0, 2).toUpperCase();
+    }
+    return user?.first_name ? user.first_name.charAt(0).toUpperCase() : "A";
+  })();
+
   const [org, setOrg] = useState(() => {
     return safeStorage.getItem("songket.admin.org") || "Group Security Admin";
   });
@@ -155,7 +175,7 @@ export default function AccountView({
   const [telegram, setTelegram] = useState(() => {
     return (
       safeStorage.getItem("songket.admin.telegram") ||
-      (user?.username ? `@${user.username}` : user?.first_name || "@admin")
+      (user?.username ? `@${user.username.replace(/^@/, "")}` : userFullName !== "Admin User" ? userFullName : "@admin")
     );
   });
   const [notifTelegram, setNotifTelegram] = useState(() => {
@@ -263,15 +283,17 @@ export default function AccountView({
       <div style={{ background: G.surface, border: `1px solid ${G.goldBorder}`, borderRadius: 14, padding: "18px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div style={{ width: 44, height: 44, borderRadius: "50%", background: "#3b9eef", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 16, fontWeight: 700, fontFamily: "Outfit, sans-serif" }}>
-            {user?.first_name ? user.first_name.charAt(0).toUpperCase() : "A"}{user?.last_name ? user.last_name.charAt(0).toUpperCase() : ""}
+            {avatarInitials}
           </div>
           <div>
             <div style={{ fontWeight: 700, fontSize: 16, color: G.text }}>
-              {user?.first_name || "Admin User"}
+              {userFullName}
             </div>
-            <div style={{ fontSize: 12, color: G.muted, marginTop: 2 }}>
-              {user?.username ? `@${user.username} · ` : ""}ID: {user?.id || dashboard?.user_id || "N/A"}
-            </div>
+            {user?.username ? (
+              <div style={{ fontSize: 12, color: G.muted, marginTop: 2 }}>
+                @{user.username.replace(/^@/, "")}
+              </div>
+            ) : null}
           </div>
         </div>
       </div>

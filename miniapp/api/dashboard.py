@@ -742,12 +742,17 @@ class handler(BaseHTTPRequestHandler):
 
             if not has_dashboard_access:
                 logger.warning("[Dashboard API] Access denied for uid=%d (@%s) - not in whitelist and no group access", uid, user.get("username"))
+                k_info = get_known_users().get(str(uid), {})
+                fn = user.get("first_name", "")
+                ln = user.get("last_name", "")
+                un = user.get("username") or k_info.get("username", "")
+                full_n = f"{fn} {ln}".strip() or k_info.get("name", "") or (f"@{un}" if un else f"Admin_{uid}")
                 return self._json(
                     200,
                     {
                         "authorized": False,
                         "is_super_admin": False,
-                        "user": {"id": uid, "first_name": user.get("first_name", ""), "username": user.get("username", "")},
+                        "user": {"id": uid, "first_name": fn, "last_name": ln, "username": un, "name": full_n},
                         "error": f"User {uid} not in whitelist",
                     },
                 )
@@ -848,14 +853,32 @@ class handler(BaseHTTPRequestHandler):
             }
 
         known_users = get_known_users()
+        known_info = known_users.get(str(uid), {})
+        first_name = user.get("first_name", "")
+        last_name = user.get("last_name", "")
+        u_name = user.get("username") or known_info.get("username", "")
+
+        full_name = f"{first_name} {last_name}".strip()
+        if not full_name:
+            full_name = known_info.get("name", "")
+        if not full_name:
+            full_name = f"@{u_name}" if u_name else f"Admin_{uid}"
+
+        if not first_name and full_name:
+            parts = full_name.split(" ", 1)
+            first_name = parts[0]
+            if len(parts) > 1 and not last_name:
+                last_name = parts[1]
 
         payload = {
             "authorized": True,
             "is_super_admin": super_admin,
             "user": {
                 "id": uid,
-                "first_name": user.get("first_name", ""),
-                "username": user.get("username", ""),
+                "first_name": first_name,
+                "last_name": last_name,
+                "username": u_name,
+                "name": full_name,
             },
             "dashboard": dash,
             "candidate_groups": get_candidate_groups_for_user(uid),
