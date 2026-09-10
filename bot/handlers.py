@@ -2846,9 +2846,11 @@ def _handle_inline_query(api: TelegramAPI, inline_query: dict) -> None:
         return
 
     # Scan target URL
-    is_safe, verdict = _check_url(target_url)
+    scan_res = vt_scan_url(target_url)
+    is_safe = not scan_res.get("malicious", False)
+    verdict = scan_res.get("threat_type") or scan_res.get("verdict") or ("Safe" if is_safe else "Malicious Link")
     icon = "✅" if is_safe else "🚨"
-    title_res = f"{icon} {target_url}"
+    title_res = f"✅ [SAFE] {target_url}" if is_safe else f"🚨 [THREAT] {target_url}"
     desc_res = "Status: SAFE" if is_safe else f"Status: THREAT DETECTED ({verdict})"
 
     results = [

@@ -118,12 +118,12 @@ export function getInitData(): string {
   return _cachedInitData || "";
 }
 
-export async function waitForTelegramInitData(timeoutMs: number = 400): Promise<string> {
+export async function waitForTelegramInitData(timeoutMs: number = 100): Promise<string> {
   const initial = getInitData();
   if (initial) return initial;
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    await new Promise((r) => setTimeout(r, 40));
+    await new Promise((r) => setTimeout(r, 20));
     const data = getInitData();
     if (data) return data;
   }
@@ -202,6 +202,20 @@ export function setSessionToken(token: string) {
   }
 }
 
+export function getCachedDashboardData(): DashboardApiResponse | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const saved = safeStorage.getItem("songket.admin.cachedDashboard");
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed && typeof parsed === "object" && parsed.dashboard) {
+        return parsed;
+      }
+    }
+  } catch {}
+  return null;
+}
+
 export function getAuthPayload(extra: Record<string, unknown> = {}) {
   const tg = getTelegramWebApp();
   const initData = getInitData();
@@ -240,76 +254,97 @@ export function requestTelegramWriteAccess(): Promise<boolean> {
   });
 }
 
-export async function fetchDashboardData(days: number = 90): Promise<DashboardApiResponse> {
-  const tg = getTelegramWebApp();
-  if (tg) {
-    try {
-      tg.ready();
-      tg.expand();
-    } catch (e) {
-      console.warn("Telegram WebApp initialization warning:", e);
-    }
+let _inFlightDashboardPromise: Promise<DashboardApiResponse> | null = null;
+
+export async function fetchDashboardData(days: number = 90, force: boolean = false): Promise<DashboardApiResponse> {
+  if (_inFlightDashboardPromise && !force) {
+    return _inFlightDashboardPromise;
   }
 
-  // Poll briefly for initData
-  await waitForTelegramInitData(1200);
-  const payload = getAuthPayload({ days });
-
-  try {
-    const response = await fetch("/api/dashboard", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (response.ok) {
-      const data: DashboardApiResponse = await response.json();
-      if (data && data.authorized) {
-        if ((data as any).session) {
-          setSessionToken((data as any).session);
-        }
-        return { ...data, isMock: false };
-      }
-      return {
-        authorized: false,
-        user: data.user || getTelegramUser() || mockUser,
-        dashboard: mockDashboardData(days),
-        isMock: true,
-        pin_exists: data.pin_exists ?? false,
-        error: data.error,
-      };
-    }
-
-    if (response.status === 401) {
-      let data: any = null;
+  const doFetch = async (): Promise<DashboardApiResponse> => {
+    const tg = getTelegramWebApp();
+    if (tg) {
       try {
-        data = await response.json();
-      } catch {}
-      console.warn("[MiniApp] fetchDashboardData 401 Unauthorized:", data);
-      return {
-        authorized: false,
-        user: data?.user || getTelegramUser() || mockUser,
-        dashboard: mockDashboardData(days),
-        isMock: true,
-        pin_exists: data?.pin_exists ?? false,
-        error: data?.error || "Unauthorized",
-      };
+        tg.ready();
+        tg.expand();
+      } catch (e) {
+        console.warn("Telegram WebApp initialization warning:", e);
+      }
     }
 
-    throw new Error(`Failed to fetch dashboard data (HTTP ${response.status})`);
-  } catch (err: any) {
-    console.warn("[MiniApp] Dashboard API request error:", err);
-    return {
-      authorized: false,
-      user: getTelegramUser() || mockUser,
-      dashboard: mockDashboardData(days),
-      isMock: true,
-      pin_exists: false,
-      error: err?.message || "Network error",
-    };
-  }
+    // Fast check for initData (returns immediately if already present)
+    const initData = getInitData();
+    if (!initData) {
+      await waitForTelegramInitData(100);
+    }
+    const payload = getAuthPayload({ days });
+
+    try {
+      const response = await fetch("/api/dashboard", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (response.ok) {
+        const data: DashboardApiResponse = await response.json();
+        if (data && data.authorized) {
+          if ((data as any).session) {
+            setSessionToken((data as any).session);
+          }
+          try {
+            safeStorage.setItem("songket.admin.cachedDashboard", JSON.stringify(data));
+          } catch {}
+          return { ...data, isMock: false };
+        }
+        return {
+          authorized: false,
+          user: data.user || getTelegramUser() || mockUser,
+          dashboard: mockDashboardData(days),
+          isMock: true,
+          pin_exists: data.pin_exists ?? false,
+          error: data.error,
+        };
+      }
+
+      if (response.status === 401) {
+        let data: any = null;
+        try {
+          data = await response.json();
+        } catch {}
+        console.warn("[MiniApp] fetchDashboardData 401 Unauthorized:", data);
+        return {
+          authorized: false,
+          user: data?.user || getTelegramUser() || mockUser,
+          dashboard: mockDashboardData(days),
+          isMock: true,
+          pin_exists: data?.pin_exists ?? false,
+          error: data?.error || "Unauthorized",
+        };
+      }
+
+      throw new Error(`Failed to fetch dashboard data (HTTP ${response.status})`);
+    } catch (err: any) {
+      console.warn("[MiniApp] Dashboard API request error:", err);
+      const cached = getCachedDashboardData();
+      if (cached) return cached;
+      return {
+        authorized: false,
+        user: getTelegramUser() || mockUser,
+        dashboard: mockDashboardData(days),
+        isMock: true,
+        pin_exists: false,
+        error: err?.message || "Network error",
+      };
+    } finally {
+      _inFlightDashboardPromise = null;
+    }
+  };
+
+  _inFlightDashboardPromise = doFetch();
+  return _inFlightDashboardPromise;
 }
 
 export async function resetPin(): Promise<{
