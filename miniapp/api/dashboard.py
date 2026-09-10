@@ -24,6 +24,8 @@ try:
         remove_super_admin,
         explicit_group_map,
         kv_set,
+        kv_get,
+        kv_mget,
         kv_json_get,
         kv_json_mget,
         list_subscriptions,
@@ -100,6 +102,8 @@ except ImportError:
         remove_super_admin,
         explicit_group_map,
         kv_set,
+        kv_get,
+        kv_mget,
         kv_json_get,
         kv_json_mget,
         list_subscriptions,
@@ -208,8 +212,10 @@ def build_dashboard(user_id: int, days: int = 90, allowed_groups: list = None, k
             for k in totals:
                 totals[k] += row[k]
         if not title or title == str(gid) or title == "Group":
-            chat = get_chat(gid)
-            title = (chat or {}).get("title") or known_groups.get(str(gid)) or str(gid)
+            title = known_groups.get(str(gid)) or known_groups.get(gid)
+            if not title or title == str(gid) or title == "Group":
+                chat = get_chat(gid)
+                title = (chat or {}).get("title") or known_groups.get(str(gid)) or str(gid)
         if title and title != str(gid) and title != "Group":
             record_known_group(gid, title)
         groups.append({"id": gid, "title": title, "daily": daily})
@@ -755,15 +761,70 @@ class handler(BaseHTTPRequestHandler):
         tok = session or body.get("session") or create_session(uid)
         days = max(1, min(90, int(body.get("days") or 90)))
 
+        # 1. First fetch base system and user configuration keys in 1 fast roundtrip
+        base_keys = [
+            "config:allowed_groups",
+            "known_groups",
+            "config:known_groups",
+            "config:group_handlers",
+            "meta:known_users",
+            "config:domain_whitelist",
+            "config:whitelist_user_ids",
+            "config:super_admin_ids",
+            "config:plan_catalog",
+            "subs:index",
+            f"user_candidate_groups:{uid}",
+            f"settings:user:{uid}",
+            f"pin:{uid}",
+            f"totp:secret:{uid}",
+            f"pin:fail:{uid}",
+            f"pin:lock:{uid}",
+            "threat_events:recent",
+        ]
+        kv_mget(base_keys)
+
         # Cache shared group maps
         allowed_groups = get_allowed_groups()
         known_groups = get_known_groups()
-        group_ids = groups_for_user(uid, allowed_groups)
 
-        # Build dashboard summary
+        # 2. Gather group inviter & title cache keys for all allowed & known groups
+        all_candidate_gids = set(allowed_groups)
+        for g in known_groups:
+            if str(g).lstrip("-").isdigit():
+                all_candidate_gids.add(int(g))
+
+        group_meta_keys = []
+        for gid in all_candidate_gids:
+            group_meta_keys.extend([
+                f"cache:chat_title:{gid}",
+                f"group:inviter:{gid}",
+                f"cache:is_admin:{gid}:{uid}",
+                f"settings:group:{gid}",
+                f"whitelist:users:{gid}",
+                f"muted:users:{gid}",
+                f"whitelist:files:{gid}",
+            ])
+
+        group_ids = groups_for_user(uid, allowed_groups)
+        today = date.fromisoformat(local_date())
+        days_list = [(today - timedelta(days=offset)).isoformat() for offset in range(days - 1, -1, -1)]
+        for gid in group_ids:
+            for day in days_list:
+                group_meta_keys.append(f"report:{day}:{gid}")
+                group_meta_keys.append(f"threat_events:{day}:{gid}")
+
+        subs_raw = kv_get("subs:index") or ""
+        for s_uid in str(subs_raw).split(","):
+            if s_uid.strip():
+                group_meta_keys.append(f"sub:{s_uid.strip()}")
+
+        if group_meta_keys:
+            kv_mget(group_meta_keys)
+
+        # Build dashboard summary (instant in-memory lookup)
         dash = build_dashboard(uid, days=days, allowed_groups=allowed_groups, known_groups=known_groups)
 
-        # Threat Events
+        # Threat Events (instant in-memory lookup)
         raw_threats = get_threat_events(group_ids, days=days)
 
         # Apply role-based ID & group privacy rules
@@ -776,7 +837,7 @@ class handler(BaseHTTPRequestHandler):
                 item["group_id"] = None
             threat_events.append(item)
 
-        # Per-group settings, whitelisted users, muted users, and approved files
+        # Per-group settings, whitelisted users, muted users, and approved files (instant in-memory lookup)
         group_details = {}
         for gid in group_ids:
             group_details[str(gid)] = {

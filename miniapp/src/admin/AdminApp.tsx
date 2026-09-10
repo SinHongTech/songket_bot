@@ -21,7 +21,7 @@ import {
 import LogoMark from "@/shared/components/LogoMark";
 import { G, type Nav, type Lang } from "@/admin/palette";
 import { t as T, kh } from "@/admin/i18n";
-import { fetchDashboardData, setupPin, loginPin, resetPin, resetPinWithTotp, setSessionToken, openTelegramDirect, getTelegramUser, getTelegramWebApp, saveUserDatePreferences } from "@/admin/api";
+import { fetchDashboardData, getCachedDashboardData, setupPin, loginPin, resetPin, resetPinWithTotp, setSessionToken, openTelegramDirect, getTelegramUser, getTelegramWebApp, saveUserDatePreferences } from "@/admin/api";
 import { safeStorage } from "@/shared/storage";
 import type { DashboardApiResponse, ThreatEvent } from "@/admin/types";
 import { mockUser } from "@/admin/data";
@@ -497,11 +497,15 @@ export default function AdminApp() {
   // Helper date functions
   const getToday = () => new Date().toISOString().split("T")[0];
 
-  // Dashboard API state
-  const [loading, setLoading] = useState(true);
+  // Dashboard API state (with instant cache-first render)
+  const [apiData, setApiData] = useState<DashboardApiResponse | null>(() => {
+    return getCachedDashboardData();
+  });
+  const [loading, setLoading] = useState<boolean>(() => {
+    return !getCachedDashboardData();
+  });
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [apiData, setApiData] = useState<DashboardApiResponse | null>(null);
   const [manageUnlocked, setManageUnlocked] = useState(false);
 
   const getThirtyDaysAgo = () => {
@@ -648,7 +652,7 @@ export default function AdminApp() {
     setError(null);
 
     try {
-      const data = await fetchDashboardData(queryDays);
+      const data = await fetchDashboardData(queryDays, isRefresh);
       if (data && data.dashboard) {
         data.dashboard.days = queryDays;
       }
@@ -672,7 +676,8 @@ export default function AdminApp() {
       try { tg.expand(); } catch {}
     }
 
-    loadData(false, 90);
+    // Fast initial load (silent if cached data is already displayed)
+    loadData(false, 90, Boolean(apiDataRef.current));
 
     // Listen for late Telegram Desktop webview handshake
     const handleMsg = (e: MessageEvent) => {
@@ -688,25 +693,9 @@ export default function AdminApp() {
     };
     window.addEventListener("message", handleMsg);
 
-    // Auto-retry at 400ms, 1200ms, and 2500ms for Telegram Desktop webview readiness
-    const t1 = setTimeout(() => {
-      if (mounted) loadData(false, 90, true);
-    }, 400);
-
-    const t2 = setTimeout(() => {
-      if (mounted) loadData(false, 90, true);
-    }, 1200);
-
-    const t3 = setTimeout(() => {
-      if (mounted) loadData(false, 90, true);
-    }, 2500);
-
     return () => {
       mounted = false;
       window.removeEventListener("message", handleMsg);
-      clearTimeout(t1);
-      clearTimeout(t2);
-      clearTimeout(t3);
     };
   }, [loadData]);
 

@@ -92,7 +92,11 @@ REPORT_TIMEZONE = os.environ.get("REPORT_TIMEZONE", "Asia/Phnom_Penh")
 _mem: dict[str, tuple[float, object]] = {}
 
 
-def kv_get(key: str):
+def kv_get(key: str, max_age: float = 30.0):
+    item = _mem.get(key)
+    if item and (time.time() - item[0] < max_age):
+        return item[1]
+
     if REDIS_CONFIGURED:
         try:
             r = requests.get(
@@ -101,11 +105,12 @@ def kv_get(key: str):
                 timeout=5,
             )
             if r.status_code == 200:
-                return r.json().get("result")
+                val = r.json().get("result")
+                _mem[key] = (time.time(), val)
+                return val
         except Exception as exc:
             logger.warning("KV GET %s failed: %s", key, exc)
-    item = _mem.get(key)
-    if item and time.time() - item[0] < 7 * 86400:
+    if item:
         return item[1]
     return None
 
@@ -147,8 +152,8 @@ def kv_delete(key: str) -> bool:
     return True
 
 
-def kv_json_get(key: str):
-    value = kv_get(key)
+def kv_json_get(key: str, max_age: float = 30.0):
+    value = kv_get(key, max_age=max_age)
     if value is None:
         return None
     if isinstance(value, (dict, list)):
@@ -164,7 +169,7 @@ def kv_json_set(key: str, value, ttl: Optional[int] = None) -> bool:
     return kv_set(key, value, ttl)
 
 
-def kv_mget(keys: list[str]) -> list:
+def kv_mget(keys: list[str], max_age: float = 30.0) -> list:
     if not keys:
         return []
     results = [None] * len(keys)
@@ -174,7 +179,7 @@ def kv_mget(keys: list[str]) -> list:
     now = time.time()
     for idx, k in enumerate(keys):
         item = _mem.get(k)
-        if item and (now - item[0] < 7 * 86400):
+        if item and (now - item[0] < max_age):
             results[idx] = item[1]
         else:
             missing_indices.append(idx)
@@ -205,14 +210,14 @@ def kv_mget(keys: list[str]) -> list:
                             _mem[keys[c_idx]] = (now, val)
                 else:
                     for c_idx, k in zip(chunk_indices, chunk_keys):
-                        results[c_idx] = kv_get(k)
+                        results[c_idx] = kv_get(k, max_age=max_age)
         except Exception as exc:
             logger.warning("KV MGET failed: %s", exc)
             for c_idx, k in zip(missing_indices, missing_keys):
-                results[c_idx] = kv_get(k)
+                results[c_idx] = kv_get(k, max_age=max_age)
     else:
         for c_idx, k in zip(missing_indices, missing_keys):
-            results[c_idx] = kv_get(k)
+            results[c_idx] = kv_get(k, max_age=max_age)
 
     return results
 
@@ -1015,12 +1020,12 @@ def telegram_post(endpoint: str, payload: dict) -> dict:
 
 
 def get_chat(chat_id: int) -> Optional[dict]:
-    # 1. Try Redis cache
+    # 1. Try memory / Redis cache
     try:
         cached_title = kv_get(f"cache:chat_title:{chat_id}")
         if cached_title:
             return {"id": chat_id, "title": str(cached_title)}
-        known = kv_json_get("config:known_groups")
+        known = get_known_groups()
         if known and isinstance(known, dict) and str(chat_id) in known:
             return {"id": chat_id, "title": str(known[str(chat_id)])}
     except Exception:
@@ -1039,10 +1044,18 @@ def get_chat(chat_id: int) -> Optional[dict]:
 
 
 def is_group_admin(user_id: int, chat_id: int) -> bool:
+    cache_key = f"cache:is_admin:{chat_id}:{user_id}"
+    cached = kv_get(cache_key, max_age=300.0)
+    if cached is not None:
+        return cached == "1" or cached is True
+
     d = telegram_post("getChatMember", {"chat_id": chat_id, "user_id": user_id})
     if not d.get("ok"):
+        kv_set(cache_key, "0", ttl=300)
         return False
-    return d.get("result", {}).get("status") in {"creator", "administrator"}
+    is_adm = d.get("result", {}).get("status") in {"creator", "administrator"}
+    kv_set(cache_key, "1" if is_adm else "0", ttl=300)
+    return is_adm
 
 
 def groups_for_user(user_id: int, allowed_groups: set[int]) -> list[int]:
@@ -2472,7 +2485,6 @@ def get_candidate_groups_for_user(user_id: int) -> list[dict]:
     known = get_known_groups()
     user_active = set(groups_for_user(user_id, get_allowed_groups()))
     candidates = []
-    to_purge = []
     for gid_str, title in known.items():
         try:
             gid = int(gid_str)
@@ -2481,19 +2493,12 @@ def get_candidate_groups_for_user(user_id: int) -> list[dict]:
         if gid in user_active:
             continue
 
-        # Verify chat is still valid/accessible by bot
-        chat_info = get_chat(gid)
-        if not chat_info or not chat_info.get("title"):
-            to_purge.append(gid)
-            continue
-
-        resolved_title = chat_info.get("title") or title or f"Group {gid}"
+        resolved_title = title or f"Group {gid}"
         inviter = get_group_inviter(gid)
-        if inviter == user_id or is_group_admin(user_id, gid):
+        if inviter == user_id:
             candidates.append({"id": gid, "title": resolved_title})
-
-    for gid in to_purge:
-        unlink_group_completely(gid)
+        elif is_group_admin(user_id, gid):
+            candidates.append({"id": gid, "title": resolved_title})
 
     return candidates
 
