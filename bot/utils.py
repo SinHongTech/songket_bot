@@ -230,14 +230,22 @@ def mask_domain(domain: str) -> str:
     return domain.replace(".", "[.]")
 
 
-def resolve_redirect(url: str, max_redirects: int = None, timeout: int = None) -> str:
-    """Resolve a URL's redirect chain to its final destination without reading the body.
+KNOWN_SHORTENERS = {
+    "bit.ly", "tinyurl.com", "t.co", "cutt.ly", "is.gd", "rb.gy", "ow.ly",
+    "qr.net", "shorturl.at", "buff.ly", "rebrand.ly", "v.gd", "tiny.cc", "goo.gl",
+    "s.id", "t.ly", "cli.re", "bl.ink",
+}
 
-    SSRF guard: only http/https, and hosts resolving to private/reserved/loopback
-    addresses are never fetched.
-    """
+
+def is_shortener(url: str) -> bool:
+    dom = extract_domain(url).lower()
+    return dom in KNOWN_SHORTENERS or dom.startswith("lnkd.in") or dom.startswith("s.id")
+
+
+def resolve_redirect(url: str, max_redirects: int = None, timeout: int = None) -> str:
+    """Resolve a URL's redirect chain to its final destination without reading the body."""
     max_redirects = config.LINK_PREVIEW_MAX_REDIRECTS if max_redirects is None else max_redirects
-    timeout = config.LINK_PREVIEW_TIMEOUT if timeout is None else timeout
+    timeout = 1.0 if timeout is None else timeout
     current = url if url.startswith("http") else "https://" + url
     for _ in range(max_redirects + 1):
         parsed = urlparse(current)
@@ -246,23 +254,18 @@ def resolve_redirect(url: str, max_redirects: int = None, timeout: int = None) -
         if _blocked_host(parsed.hostname):
             return current
         try:
-            r = requests.get(
+            r = requests.head(
                 current,
                 timeout=timeout,
                 allow_redirects=False,
-                stream=True,
                 headers={"User-Agent": "Mozilla/5.0 (SongketBot)"},
             )
+            if r.status_code in (301, 302, 303, 307, 308) and r.headers.get("location"):
+                current = urljoin(current, r.headers["location"])
+                continue
+            return current
         except Exception:
             return current
-        try:
-            r.close()
-        except Exception:
-            pass
-        if r.status_code in (301, 302, 303, 307, 308) and r.headers.get("location"):
-            current = urljoin(current, r.headers["location"])
-            continue
-        return current
     return current
 
 
