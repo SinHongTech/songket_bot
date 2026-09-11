@@ -77,6 +77,7 @@ try:
         get_candidate_groups_for_user,
         get_user_daily_report_settings,
         set_user_daily_report_settings,
+        set_user_date_preferences,
         send_security_report_to_user_dm,
     )
     from api.totp import (
@@ -155,6 +156,7 @@ except ImportError:
         get_candidate_groups_for_user,
         get_user_daily_report_settings,
         set_user_daily_report_settings,
+        set_user_date_preferences,
         send_security_report_to_user_dm,
     )
     from totp import (
@@ -247,75 +249,7 @@ class handler(BaseHTTPRequestHandler):
 
             logger.info("[Dashboard API] POST incoming action='%s', initData length=%d, platform=%s", action or "fetch_dashboard", init_len, platform)
 
-            # ── 1. Unauthenticated Login Endpoints (PIN / TOTP) ──────────────
-            if action == "login_pin":
-                pin = str(body.get("pin", "")).strip()
-                target_uid = int(body.get("user_id") or 0)
-                
-                # Check target user or all candidate admin UIDs
-                candidate_uids = [target_uid] if target_uid else list(super_admin_ids()) + list(whitelist_ids())
-                matched_uid = None
-                locked_sec = 0
-
-                for candidate in candidate_uids:
-                    lock = pin_lock_seconds(candidate)
-                    if lock > 0:
-                        locked_sec = max(locked_sec, lock)
-                        continue
-                    if verify_pin(candidate, pin):
-                        matched_uid = candidate
-                        break
-
-                if matched_uid:
-                    reset_pin_fail(matched_uid)
-                    token = create_session(matched_uid)
-                    logger.info("[PIN] login_pin SUCCESS for uid=%d", matched_uid)
-                    matched_user = {"id": matched_uid}
-                    full_data = self._full_payload(matched_uid, matched_user, is_super_admin(matched_uid), body, session=token)
-                    full_data["ok"] = True
-                    full_data["session"] = token
-                    full_data["user_id"] = matched_uid
-                    return self._json(200, full_data)
-
-                rec_uid = candidate_uids[0] if candidate_uids else (next(iter(primary_admin_ids())) if primary_admin_ids() else 0)
-                fails = record_pin_fail(rec_uid)
-                curr_lock = pin_lock_seconds(rec_uid)
-                logger.warning("[PIN] login_pin INCORRECT (attempt=%s, locked=%ds)", fails.get("count", 0), curr_lock)
-                return self._json(
-                    200,
-                    {
-                        "ok": False,
-                        "locked": curr_lock,
-                        "attempts": fails.get("count", 0),
-                        "error": "Incorrect PIN",
-                    },
-                )
-
-            if action == "login_totp":
-                code = str(body.get("code", "")).strip()
-                candidate_uids = list(super_admin_ids()) + list(whitelist_ids())
-                matched_uid = None
-
-                for candidate in candidate_uids:
-                    if verify_user_totp_or_backup(candidate, code):
-                        matched_uid = candidate
-                        break
-
-                if matched_uid:
-                    reset_pin_fail(matched_uid)
-                    token = create_session(matched_uid)
-                    logger.info("[TOTP] login_totp SUCCESS for uid=%d", matched_uid)
-                    matched_user = {"id": matched_uid}
-                    full_data = self._full_payload(matched_uid, matched_user, is_super_admin(matched_uid), body, session=token)
-                    full_data["ok"] = True
-                    full_data["session"] = token
-                    full_data["user_id"] = matched_uid
-                    return self._json(200, full_data)
-
-                logger.warning("[TOTP] login_totp failed: invalid code")
-                return self._json(400, {"ok": False, "error": "Invalid 2FA code or backup code"})
-
-            # ── 2. Authenticate via Telegram HMAC, Unsafe User or PIN Session ─
+            # ── 1. Authenticate via Telegram HMAC, Unsafe User or PIN Session ─
             user, debug_str = verify_telegram_init_data(
                 init_raw,
                 raw_hash=raw_hash,
@@ -351,9 +285,10 @@ class handler(BaseHTTPRequestHandler):
             u_name = user.get("username", "")
             super_admin = is_super_admin(uid, u_name)
             is_admin = super_admin or uid in whitelist_ids() or str(u_name).lower().lstrip("@") in {"sin_hong", "sinhong"}
+            user_groups = groups_for_user(uid, get_allowed_groups())
             logger.info("[Dashboard API] User uid=%d username=@%s (super_admin=%s, is_admin=%s)", uid, u_name, super_admin, is_admin)
 
-            # ── PIN & TOTP Actions (Dedicated for Manage Tab) ───────────
+            # ── 2. PIN & TOTP Actions (Bound Strictly to Authenticated uid) ──
             if action == "check_pin":
                 exists = pin_exists(uid)
                 locked = pin_lock_seconds(uid)
@@ -391,6 +326,23 @@ class handler(BaseHTTPRequestHandler):
                 save_user_totp(uid, pending, backups)
                 logger.info("[TOTP] 2FA enabled for uid=%d", uid)
                 return self._json(200, {"ok": True, "totp_enabled": True, "backup_codes": backups})
+
+            if action == "login_totp":
+                code = str(body.get("code", "")).strip()
+                if not is_totp_enabled(uid):
+                    return self._json(400, {"ok": False, "error": "Google Authenticator (2FA) is not enabled on this account."})
+                if verify_user_totp_or_backup(uid, code):
+                    reset_pin_fail(uid)
+                    token = create_session(uid)
+                    logger.info("[TOTP] login_totp SUCCESS for uid=%d", uid)
+                    full_data = self._full_payload(uid, user or {"id": uid}, is_super_admin(uid), body, session=token)
+                    full_data["ok"] = True
+                    full_data["session"] = token
+                    full_data["user_id"] = uid
+                    return self._json(200, full_data)
+                fails = record_pin_fail(uid)
+                logger.warning("[TOTP] login_totp INCORRECT for uid=%d (attempt=%s)", uid, fails.get("count", 0))
+                return self._json(400, {"ok": False, "error": "Invalid 2FA code or backup code"})
 
             if action == "reset_pin_with_totp":
                 code = body.get("code", "")
@@ -442,6 +394,7 @@ class handler(BaseHTTPRequestHandler):
                 full_data = self._full_payload(uid, user or {"id": uid}, is_super_admin(uid), body, session=token)
                 full_data["ok"] = True
                 full_data["session"] = token
+                full_data["user_id"] = uid
                 return self._json(200, full_data)
 
             if action == "login_pin":
@@ -456,14 +409,16 @@ class handler(BaseHTTPRequestHandler):
                     full_data = self._full_payload(uid, user or {"id": uid}, is_super_admin(uid), body, session=token)
                     full_data["ok"] = True
                     full_data["session"] = token
+                    full_data["user_id"] = uid
                     return self._json(200, full_data)
                 fails = record_pin_fail(uid)
-                logger.warning("[PIN] login_pin INCORRECT for uid=%d (attempt=%s)", uid, fails.get("count", 0))
+                curr_lock = pin_lock_seconds(uid)
+                logger.warning("[PIN] login_pin INCORRECT for uid=%d (attempt=%s, locked=%ds)", uid, fails.get("count", 0), curr_lock)
                 return self._json(
                     200,
                     {
                         "ok": False,
-                        "locked": pin_lock_seconds(uid),
+                        "locked": curr_lock,
                         "attempts": fails.get("count", 0),
                         "error": "Incorrect PIN",
                     },
