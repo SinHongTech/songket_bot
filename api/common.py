@@ -20,6 +20,7 @@ import secrets
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -885,37 +886,73 @@ def verify_telegram_init_data(
             logger.info("[Auth] Telegram session verified: user_id=%s username=%s", user.get("id"), user.get("username"))
             return user, "OK"
 
-    # Fallback: Telegram native WebApp structure verification for all users (Laptop / Desktop / Mobile)
-    for cand in candidates:
-        cand_clean = cand.lstrip("#?").strip()
-        from urllib.parse import parse_qsl, unquote
-        for parse_fn in (
-            lambda s: parse_qsl(s, keep_blank_values=True),
-            lambda s: parse_qsl(unquote(s), keep_blank_values=True),
-        ):
+    # ── Strict Cryptographic Policy ──────────────────────────────────────────
+    # In production, ONLY valid HMAC-verified Telegram data or valid sessions are accepted.
+    # Unsafe fallback is strictly gated behind ALLOW_UNSAFE_TELEGRAM_AUTH=1 for local offline testing.
+    allow_unsafe = os.environ.get("ALLOW_UNSAFE_TELEGRAM_AUTH", "false").strip().lower() in {"1", "true", "yes"}
+    if allow_unsafe:
+        for cand in candidates:
+            cand_clean = cand.lstrip("#?").strip()
+            from urllib.parse import parse_qsl, unquote
+            for parse_fn in (
+                lambda s: parse_qsl(s, keep_blank_values=True),
+                lambda s: parse_qsl(unquote(s), keep_blank_values=True),
+            ):
+                try:
+                    data = dict(parse_fn(cand_clean))
+                    if "user" in data:
+                        u_obj = _safe_json_loads(data["user"])
+                        if isinstance(u_obj, dict) and u_obj.get("id"):
+                            uid = int(u_obj.get("id", 0) or 0)
+                            u_name = str(u_obj.get("username", "")).lower().lstrip("@")
+                            logger.warning("[Auth] Telegram session authenticated via DEV UNVERIFIED fallback for @%s (uid=%d)", u_name, uid)
+                            return u_obj, "OK (dev-unsafe)"
+                except Exception:
+                    pass
+
+        if unsafe_user and isinstance(unsafe_user, dict) and unsafe_user.get("id"):
             try:
-                data = dict(parse_fn(cand_clean))
-                if "user" in data:
-                    u_obj = _safe_json_loads(data["user"])
-                    if isinstance(u_obj, dict) and u_obj.get("id"):
-                        uid = int(u_obj.get("id", 0) or 0)
-                        u_name = str(u_obj.get("username", "")).lower().lstrip("@")
-                        logger.info("[Auth] Telegram session authenticated via client candidate user for @%s (uid=%d)", u_name, uid)
-                        return u_obj, "OK"
+                uid = int(unsafe_user.get("id", 0) or 0)
+                u_name = str(unsafe_user.get("username", "")).lower().lstrip("@")
+                logger.warning("[Auth] Telegram session authenticated via DEV unsafe_user for @%s (uid=%d)", u_name, uid)
+                return unsafe_user, "OK (dev-unsafe)"
             except Exception:
                 pass
 
-    if unsafe_user and isinstance(unsafe_user, dict) and unsafe_user.get("id"):
-        try:
-            uid = int(unsafe_user.get("id", 0) or 0)
-            u_name = str(unsafe_user.get("username", "")).lower().lstrip("@")
-            logger.info("[Auth] Telegram session authenticated via unsafe_user for @%s (uid=%d)", u_name, uid)
-            return unsafe_user, "OK"
-        except Exception:
-            pass
-
     logger.warning("[Auth] All candidates failed verification. Debug: %s", last_debug)
     return None, last_debug
+
+
+# ── Edge & API Rate Limiting ────────────────────────────────────────────────
+_ip_rate_limits: dict[str, list[float]] = {}
+_ip_rate_lock = threading.Lock()
+
+
+def check_rate_limit(key: str, limit: int = 60, window_seconds: int = 60) -> tuple[bool, int, int]:
+    """Sliding-window rate limiter per key (IP address, user ID, or endpoint).
+
+    Returns (allowed: bool, current_count: int, retry_after_seconds: int).
+    """
+    now = time.time()
+    with _ip_rate_lock:
+        # Periodic cleanup of stale keys if memory grows
+        if len(_ip_rate_limits) > 2000:
+            stale_keys = [k for k, ts_list in _ip_rate_limits.items() if not ts_list or (now - ts_list[-1]) > window_seconds]
+            for sk in stale_keys:
+                _ip_rate_limits.pop(sk, None)
+
+        timestamps = _ip_rate_limits.get(key, [])
+        timestamps = [ts for ts in timestamps if (now - ts) < window_seconds]
+
+        if len(timestamps) >= limit:
+            oldest = timestamps[0]
+            retry_after = max(1, int(window_seconds - (now - oldest)))
+            _ip_rate_limits[key] = timestamps
+            return False, len(timestamps), retry_after
+
+        timestamps.append(now)
+        _ip_rate_limits[key] = timestamps
+        return True, len(timestamps), 0
 
 
 def whitelist_ids() -> set[int]:
