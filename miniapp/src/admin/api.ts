@@ -353,6 +353,7 @@ export async function resetPin(): Promise<{
   error?: string;
   message?: string;
   totp_required?: boolean;
+  mfa_not_assigned?: boolean;
 }> {
   try {
     const response = await fetch("/api/dashboard", {
