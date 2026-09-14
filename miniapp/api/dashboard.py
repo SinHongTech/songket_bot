@@ -403,14 +403,27 @@ class handler(BaseHTTPRequestHandler):
                 return self._json(200, {"ok": True, "totp_enabled": False})
 
             if action == "reset_pin":
-                # Legacy open reset - only if TOTP is NOT enabled
-                if is_totp_enabled(uid):
-                    return self._json(400, {"ok": False, "totp_required": True, "error": "2FA is active. Please use your Google Authenticator code to reset."})
-                logger.info("[PIN] reset_pin requested for uid=%d", uid)
-                reset_user_pin(uid)
-                reset_pin_fail(uid)
-                logger.info("[PIN] reset_pin SUCCESS for uid=%d", uid)
-                return self._json(200, {"ok": True, "pin_exists": False, "message": "PIN reset. Please setup a new PIN."})
+                if not is_totp_enabled(uid):
+                    logger.warning("[PIN] reset_pin REJECTED for uid=%d: MFA/2FA not assigned", uid)
+                    return self._json(
+                        400,
+                        {
+                            "ok": False,
+                            "totp_required": False,
+                            "mfa_not_assigned": True,
+                            "error": "PIN reset is unavailable because Two-Factor Authentication (2FA) is not assigned on this account. Please log in with your PIN and assign 2FA in Settings, or contact the Super Admin.",
+                        },
+                    )
+                logger.info("[PIN] reset_pin requested for uid=%d (2FA active -> redirecting to TOTP verification)", uid)
+                return self._json(
+                    400,
+                    {
+                        "ok": False,
+                        "totp_required": True,
+                        "mfa_not_assigned": False,
+                        "error": "2FA is active. Please enter your 6-digit Google Authenticator code or backup code to reset your PIN.",
+                    },
+                )
 
             if action == "setup_pin":
                 pin_len = len(body.get("pin", ""))

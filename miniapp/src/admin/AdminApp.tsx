@@ -274,13 +274,20 @@ function PinGate({
         setConfirm("");
         setCurrentMode("setup");
         setInfo(isKm ? "កំណត់កូដសម្ងាត់ឡើងវិញជោគជ័យ! សូមបង្កើតកូដសម្ងាត់ ៦ ខ្ទង់ថ្មី។" : "PIN reset! Please create your new 6-digit PIN.");
+      } else if (res.mfa_not_assigned || res.totp_required === false) {
+        setShowTotpReset(false);
+        setErr(
+          isKm
+            ? "⚠️ មិនអាចកំណត់កូដសម្ងាត់ឡើងវិញបានទេ ដោយសារគណនីរបស់អ្នកមិនទាន់បានភ្ជាប់ 2FA (Google Authenticator)។ សូមបញ្ចូល PIN ដើមរបស់អ្នក ឬទាក់ទង Super Admin។"
+            : "⚠️ PIN reset is disabled because 2FA (Google Authenticator) is not assigned on this account. Please enter your existing PIN and assign 2FA in Settings, or contact the Super Admin."
+        );
       } else if (res.totp_required || res.error?.includes("2FA") || res.error?.includes("Authenticator")) {
         setShowTotpReset(true);
       } else {
-        setShowTotpReset(true);
+        setErr(res.error || (isKm ? "មិនអាចកំណត់ PIN ឡើងវិញបានទេ" : "Cannot reset PIN"));
       }
     } catch (e: any) {
-      setShowTotpReset(true);
+      setErr(e?.message || (isKm ? "មិនអាចកំណត់ PIN ឡើងវិញបានទេ" : "Cannot reset PIN"));
     } finally {
       setBusy(false);
     }
