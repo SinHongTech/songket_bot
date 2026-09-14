@@ -804,6 +804,12 @@ def verify_telegram_init_data(
                     calculated = hmac.new(secret_key, cs.encode(), hashlib.sha256).hexdigest()
                     if hmac.compare_digest(calculated, h_raw):
                         try:
+                            auth_date = int(raw_map.get("auth_date", "0") or 0)
+                            if auth_date > 100_000_000_000:
+                                auth_date = auth_date // 1000
+                            if auth_date <= 0 or (time.time() - auth_date > max_age_seconds):
+                                last_debug = f"auth_date expired: {auth_date}"
+                                continue
                             user = _safe_json_loads(raw_map.get("user", ""))
                             if isinstance(user, dict) and user.get("id"):
                                 logger.info("[Auth] Telegram session verified via raw map: user_id=%s", user.get("id"))
