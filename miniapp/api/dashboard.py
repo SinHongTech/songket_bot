@@ -79,6 +79,7 @@ try:
         set_user_daily_report_settings,
         set_user_date_preferences,
         send_security_report_to_user_dm,
+        check_rate_limit,
     )
     from api.totp import (
         generate_totp_secret,
@@ -158,6 +159,7 @@ except ImportError:
         set_user_daily_report_settings,
         set_user_date_preferences,
         send_security_report_to_user_dm,
+        check_rate_limit,
     )
     from totp import (
         generate_totp_secret,
@@ -229,13 +231,42 @@ class handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):  # noqa: A002
         pass
 
+    def _get_client_ip(self) -> str:
+        forwarded = self.headers.get("X-Forwarded-For", "")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
+        real_ip = self.headers.get("X-Real-IP", "")
+        if real_ip:
+            return real_ip.strip()
+        if hasattr(self, "client_address") and self.client_address:
+            return str(self.client_address[0])
+        return "127.0.0.1"
+
     def do_OPTIONS(self):  # noqa: N802
         self._respond(204, "")
 
     def do_GET(self):  # noqa: N802
+        client_ip = self._get_client_ip()
+        allowed, count, retry_after = check_rate_limit(f"ip:{client_ip}", limit=120, window_seconds=60)
+        if not allowed:
+            return self._json(
+                429,
+                {"ok": False, "error": f"Too many requests. Please retry in {retry_after}s.", "retry_after": retry_after},
+                headers={"Retry-After": str(retry_after)},
+            )
         self._json(200, {"ok": True, "service": "Telegram Security Mini App"})
 
     def do_POST(self):  # noqa: N802
+        client_ip = self._get_client_ip()
+        allowed, count, retry_after = check_rate_limit(f"ip:{client_ip}", limit=120, window_seconds=60)
+        if not allowed:
+            logger.warning("[RateLimit] Exceeded for IP %s (count=%d, retry_after=%ds)", client_ip, count, retry_after)
+            return self._json(
+                429,
+                {"ok": False, "error": f"Too many requests. Please retry in {retry_after}s.", "retry_after": retry_after},
+                headers={"Retry-After": str(retry_after)},
+            )
+
         try:
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length) or b"{}")
@@ -852,19 +883,33 @@ class handler(BaseHTTPRequestHandler):
         }
         return payload
 
-    def _json(self, status: int, obj: dict) -> None:
+    def _json(self, status: int, obj: dict, headers: dict = None) -> None:
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
         self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "SAMEORIGIN")
+        self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
+        if headers:
+            for k, v in headers.items():
+                self.send_header(k, str(v))
         self.end_headers()
         self.wfile.write(json.dumps(obj, ensure_ascii=False).encode())
 
-    def _respond(self, status: int, body: str) -> None:
+    def _respond(self, status: int, body: str, headers: dict = None) -> None:
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        self.send_header("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "SAMEORIGIN")
+        self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
+        if headers:
+            for k, v in headers.items():
+                self.send_header(k, str(v))
         self.end_headers()
         self.wfile.write(body.encode())
