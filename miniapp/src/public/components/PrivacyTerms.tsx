@@ -91,7 +91,7 @@ sections: [
   {
     heading: "9. Contact Us",
     content:
-      "If you have questions, concerns, or requests regarding this Privacy Policy or the information processed by Songket, please contact us at team@songket.app.",
+      "If you have questions, concerns, or requests regarding this Privacy Policy or the information processed by Songket, please contact us at Songketteam@gmail.com.",
   },
 ],
 
@@ -153,7 +153,7 @@ refundSections: [
     heading: "7. How to Request a Refund or Cancellation",
     content:
       "To submit a refund or cancellation request:\n\n" +
-      "1. Contact Songket through the official support channel or team@songket.app.\n" +
+      "1. Contact Songket through the official support channel or Songketteam@gmail.com.\n" +
       "2. Provide your Telegram Group ID, transaction reference or KHQR/Bakong transaction information, and proof of payment where available.\n" +
       "3. Clearly state whether you are requesting cancellation, statutory cooling-off withdrawal, or another type of refund.",
   },
@@ -398,7 +398,7 @@ terms: [
   {
     heading: "19. Contact",
     content:
-      "If you have questions, concerns, or requests regarding these Terms or Songket's services, please contact the Songket team at team@songket.app.",
+      "If you have questions, concerns, or requests regarding these Terms or Songket's services, please contact the Songket team at Songketteam@gmail.com.",
   },
   ],
 
@@ -492,7 +492,7 @@ const km = {
     {
       heading: "៩. ទំនាក់ទំនង",
       content:
-        "ប្រសិនបើអ្នកមានសំណួរ កង្វល់ ឬសំណើពាក់ព័ន្ធនឹងគោលការណ៍ឯកជនភាពនេះ ឬព័ត៌មានដែល Songket ដំណើរការ សូមទាក់ទងមកយើងតាមរយៈ team@songket.app។",
+        "ប្រសិនបើអ្នកមានសំណួរ កង្វល់ ឬសំណើពាក់ព័ន្ធនឹងគោលការណ៍ឯកជនភាពនេះ ឬព័ត៌មានដែល Songket ដំណើរការ សូមទាក់ទងមកយើងតាមរយៈ Songketteam@gmail.com។",
     },
   ],
 
@@ -559,7 +559,7 @@ const km = {
       heading: "៧. របៀបស្នើសុំសងប្រាក់វិញ ឬបោះបង់សមាជិកភាព",
       content:
         "ដើម្បីដាក់សំណើសងប្រាក់វិញ ឬបោះបង់សមាជិកភាព៖\n\n" +
-        "១. ទាក់ទង Songket តាមរយៈឆានែលគាំទ្រផ្លូវការ ឬ team@songket.app។\n" +
+        "១. ទាក់ទង Songket តាមរយៈឆានែលគាំទ្រផ្លូវការ ឬ Songketteam@gmail.com។\n" +
         "២. ផ្តល់ ID ក្រុម Telegram លេខយោងប្រតិបត្តិការ ឬព័ត៌មានប្រតិបត្តិការ KHQR/Bakong និងភស្តុតាងនៃការទូទាត់ ប្រសិនបើមាន។\n" +
         "៣. បញ្ជាក់ឱ្យច្បាស់ថា អ្នកកំពុងស្នើសុំការបោះបង់ ការដកខ្លួនតាមសិទ្ធិច្បាប់ ឬការសងប្រាក់វិញប្រភេទផ្សេងទៀត។",
     },
@@ -810,7 +810,7 @@ const km = {
     {
       heading: "១៩. ទំនាក់ទំនង",
       content:
-        "ប្រសិនបើអ្នកមានសំណួរ កង្វល់ ឬសំណើពាក់ព័ន្ធនឹងលក្ខខណ្ឌទាំងនេះ ឬសេវាកម្ម Songket សូមទាក់ទងក្រុមការងារ Songket តាមរយៈ team@songket.app។",
+        "ប្រសិនបើអ្នកមានសំណួរ កង្វល់ ឬសំណើពាក់ព័ន្ធនឹងលក្ខខណ្ឌទាំងនេះ ឬសេវាកម្ម Songket សូមទាក់ទងក្រុមការងារ Songket តាមរយៈ Songketteam@gmail.com។",
     },
   ],
 
@@ -1133,13 +1133,13 @@ return (
         >
           {t.contactEmail}{" "}
           <a
-            href="mailto:team@songket.app"
+            href="mailto:Songketteam@gmail.com"
             style={{
               color: "var(--gold)",
               textDecoration: "none",
             }}
           >
-            team@songket.app
+            Songketteam@gmail.com
           </a>
         </p>
       </div>

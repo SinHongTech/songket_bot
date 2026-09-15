@@ -1,4 +1,4 @@
-import { Mail, Send, Briefcase, Code, Palette, Lock, Monitor, ClipboardList, Megaphone, Users, Lightbulb, MapPin, ArrowUpRight } from "lucide-react";
+import { Mail, Send, Briefcase, Code, Palette, Lock, Monitor, ClipboardList, Megaphone, Users, Lightbulb, MapPin } from "lucide-react";
 import lika from "../assets/SaoSochealika.png";
 import gekleang from "../assets/MongGekleang.png";
 import smey from "../assets/KongLeakSmey.png";
@@ -6,9 +6,7 @@ import pich from "../assets/BetSreypich.jpg";
 import neath from "../assets/Chanmonyneath.jpg";
 import nuphea from "../assets/ThongNuphea.png";
 import hong from "../assets/SinHong.jpg";
-import panha from "../assets/panha.jpg"
-import { FaLinkedin } from "../assets/FaLinkedin";
-
+import panha from "../assets/panha.jpg";
 
 interface AboutProps {
   t: any;
@@ -26,7 +24,6 @@ const TEAM = [
     descKm: "កំណត់ទិសដៅរបស់ Songket និងដោះស្រាយបញ្ហាការបន្លំនៅកម្ពុជា។",
     icon: <Briefcase size={28} color="var(--gold)" />,
     img: lika,
-    linkedin: "https://linkedin.com/in/sao-sochealika-b41161369",
   },
   {
     num: "02",
@@ -37,7 +34,6 @@ const TEAM = [
     descKm: "បង្កើត Mini App និងផ្ទាំងគ្រប់គ្រងដែលអ្នកប្រើប្រាស់ឃើញ។",
     icon: <Code size={28} color="var(--gold)" />,
     img: gekleang,
-    linkedin: "https://www.linkedin.com/in/mong-gekleang-1849b5343/",
   },
   {
     num: "03",
@@ -48,7 +44,6 @@ const TEAM = [
     descKm: "រចនាចំណុចប្រទាក់ងាយស្រួលប្រើសម្រាប់អ្នកប្រើប្រាស់គ្រប់រូប។",
     icon: <Palette size={28} color="var(--gold)" />,
     img: smey,
-    linkedin: "https://www.linkedin.com/in/kong-leak-smey/",
   },
   {
     num: "04",
@@ -59,7 +54,6 @@ const TEAM = [
     descKm: "ស្រាវជ្រាវការគំរាមកំហែងថ្មី និងធ្វើបច្ចុប្បន្នភាពមូលដ្ឋានទិន្នន័យការការពារ។",
     icon: <Lock size={28} color="var(--gold)" />,
     img: pich,
-    linkedin: "https://www.linkedin.com/feed/",
   },
   {
     num: "05",
@@ -70,7 +64,6 @@ const TEAM = [
     descKm: "បង្កើតម៉ាស៊ីនស្កែន និងហេដ្ឋារចនាសម្ព័ន្ធស្នូលរបស់ Songket។",
     icon: <Monitor size={28} color="var(--gold)" />,
     img: hong,
-    linkedin: "https://www.linkedin.com/feed/",
   },
   {
     num: "06",
@@ -81,7 +74,6 @@ const TEAM = [
     descKm: "ធ្វើសមស្របការងារក្រុម និងធានាថា Songket ផ្តល់តម្លៃដល់អ្នកប្រើប្រាស់។",
     icon: <ClipboardList size={28} color="var(--gold)" />,
     img: panha,
-    linkedin: "https://www.linkedin.com/feed/",
   },
   {
     num: "07",
@@ -92,7 +84,6 @@ const TEAM = [
     descKm: "រីករាលដាល Songket ទៅកាន់ក្រុម Telegram ដែលត្រូវការការការពារ។",
     icon: <Megaphone size={28} color="var(--gold)" />,
     img: neath,
-    linkedin: "https://www.linkedin.com/in/po-chan-monyneath-78b8a7393?utm_source=share_via&utm_content=profile&utm_medium=member_ios",
   },
   {
     num: "08",
@@ -103,7 +94,6 @@ const TEAM = [
     descKm: "ជួយអ្នកប្រើប្រាស់ដំឡើង Songket និងឆ្លើយតបនឹងសំណួររបស់ពួកគេ។",
     icon: <Users size={28} color="var(--gold)" />,
     img: nuphea,
-    linkedin: "https://www.linkedin.com/in/thong-nuphea-b39216374/",
   },
 ];
 
@@ -186,17 +176,27 @@ export default function About({ isKm, bodyFont }: AboutProps) {
                   </div>
                 )}
 
-                {/* Number badge */}
+                {/* Gradient overlay for text contrast */}
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    background: "linear-gradient(to top, rgba(0,0,0,0.65) 0%, rgba(0,0,0,0) 40%)",
+                  }}
+                />
+
+                {/* Number badge, top-right */}
                 <span
                   className="mono"
                   style={{
                     position: "absolute",
                     top: 10,
-                    left: 10,
+                    right: 10,
                     fontSize: 10,
-                    color: "var(--muted)",
-                    background: "rgba(0,0,0,0.45)",
-                    padding: "2px 8px",
+                    fontWeight: 700,
+                    color: "var(--gold)",
+                    background: "rgba(0,0,0,0.6)",
+                    padding: "3px 8px",
                     borderRadius: 999,
                   }}
                 >
@@ -224,52 +224,12 @@ export default function About({ isKm, bodyFont }: AboutProps) {
 
               {/* Info section */}
               <div style={{ padding: "14px 16px 16px", background: "var(--surface)", flex: 1, display: "flex", flexDirection: "column" }}>
-                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text)", fontFamily: bodyFont, lineHeight: 1.3 }}>
-                    {m.name}
-                  </div>
-                  {m.linkedin && (
-                    <a
-                      href={m.linkedin}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{
-                        flexShrink: 0,
-                        width: 26,
-                        height: 26,
-                        borderRadius: "50%",
-                        background: "var(--surface2)",
-                        border: "1px solid var(--border)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                  <FaLinkedin size={13} color="var(--gold)" />                    </a>
-                  )}
+                <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text)", fontFamily: bodyFont, lineHeight: 1.3, marginBottom: 6 }}>
+                  {m.name}
                 </div>
                 <p style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.55, fontFamily: bodyFont, flex: 1 }}>
                   {isKm ? m.descKm : m.descEn}
                 </p>
-                {m.linkedin && (
-                  <a
-                    href={m.linkedin}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{
-                      marginTop: 10,
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 4,
-                      fontSize: 11,
-                      fontWeight: 600,
-                      color: "var(--gold)",
-                      textDecoration: "none",
-                    }}
-                  >
-                    LinkedIn <ArrowUpRight size={12} />
-                  </a>
-                )}
               </div>
             </div>
           ))}
@@ -294,7 +254,7 @@ export default function About({ isKm, bodyFont }: AboutProps) {
           <div style={{ display: "grid", gap: 6 }}>
             {[
               { icon: <Send size={11} color="var(--muted)" />, label: "@songket_beyda_bot" },
-              { icon: <Mail size={11} color="var(--muted)" />, label: "team@songket.app" },
+              { icon: <Mail size={11} color="var(--muted)" />, label: "Songketteam@gmail.com" },
             ].map((c) => (
               <div key={c.label} style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 {c.icon}

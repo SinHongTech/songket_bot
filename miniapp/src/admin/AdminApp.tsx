@@ -934,7 +934,23 @@ export default function AdminApp() {
   };
 
   const tg = getTelegramWebApp();
-  const user = apiData?.user || getTelegramUser() || tg?.initDataUnsafe?.user || mockUser;
+  const rawTgUser = getTelegramUser() || tg?.initDataUnsafe?.user;
+  const apiUser = apiData?.user;
+  const rawFirstName = rawTgUser?.first_name || (apiUser?.first_name && !apiUser.first_name.startsWith("Admin_") ? apiUser.first_name : "");
+  const rawLastName = rawTgUser?.last_name || (apiUser?.last_name && !apiUser.last_name.startsWith("Admin_") ? apiUser.last_name : "");
+  const rawUsername = rawTgUser?.username || (apiUser?.username && apiUser.username !== "admin" ? apiUser.username : "");
+  const rawName = [rawFirstName, rawLastName].filter(Boolean).join(" ").trim() || (apiUser?.name && !apiUser.name.startsWith("Admin_") && apiUser.name !== "Admin User" && apiUser.name !== "Admin" ? apiUser.name : "") || (rawUsername ? `@${rawUsername.replace(/^@/, "")}` : "");
+
+  const user = {
+    ...mockUser,
+    ...(apiUser || {}),
+    ...(rawTgUser || {}),
+    id: rawTgUser?.id || apiUser?.id || mockUser.id,
+    first_name: rawFirstName,
+    last_name: rawLastName,
+    username: rawUsername,
+    name: rawName,
+  };
   const isSuperAdmin = apiData?.is_super_admin ?? false;
 
   const NAV_ITEMS: { id: Nav; icon: React.ReactElement; label: string }[] = [
