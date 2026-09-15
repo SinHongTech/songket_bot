@@ -54,7 +54,7 @@ def kv_set(key: str, value, ttl: Optional[int] = None) -> bool:
                 f"{config.UPSTASH_REDIS_REST_URL}/set/{key}",
                 headers={"Authorization": f"Bearer {config.UPSTASH_REDIS_REST_TOKEN}"},
                 params=params,
-                data=raw,
+                data=raw.encode("utf-8") if isinstance(raw, str) else raw,
                 timeout=5,
             )
             return r.status_code == 200
@@ -290,6 +290,50 @@ def remove_group_muted_user(chat_id: int, user_id: int) -> bool:
     new_list = [u for u in users if u.get("user_id") != uid]
     kv_json_set(f"muted:users:{chat_id}", new_list)
     kv_set(f"strikes:{chat_id}:{uid}", "0")
+    return True
+
+
+# ── Group Banned Users ────────────────────────────────────────────────────────
+def get_group_banned_users(chat_id: int) -> list[dict]:
+    data = kv_json_get(f"banned:users:{chat_id}") or []
+    if isinstance(data, list):
+        seen = set()
+        res = []
+        for u in data:
+            if isinstance(u, dict) and u.get("user_id"):
+                uid = int(u["user_id"])
+                if uid not in seen:
+                    seen.add(uid)
+                    res.append(u)
+        return res
+    return []
+
+
+def add_group_banned_user(chat_id: int, user_id: int, username: str = "", name: str = "", reason: str = "") -> bool:
+    users = get_group_banned_users(chat_id)
+    uid = int(user_id)
+    for u in users:
+        if u.get("user_id") == uid:
+            if username:
+                u["username"] = username.lstrip("@")
+            if reason:
+                u["reason"] = reason
+            return kv_json_set(f"banned:users:{chat_id}", users)
+    users.append({
+        "user_id": uid,
+        "username": username.lstrip("@") if username else "",
+        "name": name or "",
+        "reason": reason or "Malicious activity / spam",
+        "banned_at": int(time.time()),
+    })
+    return kv_json_set(f"banned:users:{chat_id}", users)
+
+
+def remove_group_banned_user(chat_id: int, user_id: int) -> bool:
+    users = get_group_banned_users(chat_id)
+    uid = int(user_id)
+    new_list = [u for u in users if u.get("user_id") != uid]
+    kv_json_set(f"banned:users:{chat_id}", new_list)
     return True
 
 

@@ -1198,17 +1198,32 @@ export default function AdminApp() {
         />
       )}
 
-      <header style={{ padding: "10px 14px", borderBottom: `1px solid ${G.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: G.surface, flexShrink: 0, gap: 8, minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0, flexShrink: 1 }}>
+      <header
+        style={{
+          padding: "7px 10px",
+          borderBottom: `1px solid ${G.border}`,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          background: G.surface,
+          flexShrink: 0,
+          gap: 6,
+          width: "100%",
+          maxWidth: "100vw",
+          boxSizing: "border-box",
+          overflow: "hidden",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 0, flex: "1 1 auto", overflow: "hidden" }}>
           <Link
             to="/?home=1"
             state={{ fromAdmin: true }}
             style={{
               display: "inline-flex",
               alignItems: "center",
-              gap: 4,
-              padding: "2px 6px",
-              borderRadius: 7,
+              gap: 3,
+              padding: "2px 5px",
+              borderRadius: 6,
               border: `1px solid ${G.border}`,
               background: G.surface2,
               color: G.textSec,
@@ -1226,73 +1241,106 @@ export default function AdminApp() {
             }}
             title={lang === "km" ? "ទំព័រដើម (Landing Page)" : "Landing Page"}
           >
-            <ArrowLeft size={11} style={{ flexShrink: 0 }} />
-            <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.05, textAlign: "left" }}>
+            <ArrowLeft size={10} style={{ flexShrink: 0 }} />
+            <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.0, textAlign: "left" }}>
               {lang === "km" ? (
                 <>
-                  <span className={kh(lang)} style={{ fontSize: 8.5, fontWeight: 700 }}>ទំព័រ</span>
-                  <span className={kh(lang)} style={{ fontSize: 8.5, fontWeight: 700 }}>ដើម</span>
+                  <span className={kh(lang)} style={{ fontSize: 7.5, fontWeight: 700 }}>ទំព័រ</span>
+                  <span className={kh(lang)} style={{ fontSize: 7.5, fontWeight: 700 }}>ដើម</span>
                 </>
               ) : (
                 <>
-                  <span style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: "0.02em" }}>Landing</span>
-                  <span style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: "0.02em" }}>Page</span>
+                  <span style={{ fontSize: 7.5, fontWeight: 700, letterSpacing: "0.01em" }}>Landing</span>
+                  <span style={{ fontSize: 7.5, fontWeight: 700, letterSpacing: "0.01em" }}>Page</span>
                 </>
               )}
             </div>
           </Link>
-          <LogoMark size={30} />
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ fontWeight: 800, fontSize: 13, color: G.gold }}>SongKet</span>
-              <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: isMock ? "rgba(224,160,32,0.18)" : "rgba(34,197,94,0.15)", color: isMock ? G.warn : G.safe, fontWeight: 700, letterSpacing: "0.04em" }}>
+          <LogoMark size={26} />
+          <div style={{ display: "flex", flexDirection: "column", minWidth: 0, overflow: "hidden", flex: "1 1 auto" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
+              <span style={{ fontWeight: 800, fontSize: 12, color: G.gold, whiteSpace: "nowrap", flexShrink: 0 }}>SongKet</span>
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 3,
+                  fontSize: 8,
+                  fontWeight: 800,
+                  letterSpacing: "0.04em",
+                  padding: "1px 4.5px",
+                  borderRadius: 4,
+                  background: isMock ? "rgba(224,160,32,0.16)" : "rgba(34,197,94,0.16)",
+                  color: isMock ? G.warn : G.safe,
+                  border: `1px solid ${isMock ? "rgba(224,160,32,0.3)" : "rgba(34,197,94,0.3)"}`,
+                  whiteSpace: "nowrap",
+                  flexShrink: 0,
+                  lineHeight: 1.1,
+                }}
+              >
+                <span
+                  style={{
+                    width: 4,
+                    height: 4,
+                    borderRadius: "50%",
+                    background: isMock ? G.warn : G.safe,
+                    boxShadow: isMock ? "none" : `0 0 4px ${G.safe}`,
+                    display: "inline-block",
+                  }}
+                />
                 {isMock ? "PREVIEW" : "LIVE"}
               </span>
               {isMock && canShow2FA && (
                 <button
                   onClick={() => setTotpLoginOpen(true)}
                   style={{
-                    background: "rgba(212,167,44,0.18)",
+                    background: "rgba(212,167,44,0.16)",
                     border: `1px solid ${G.goldBorder}`,
                     color: G.gold,
-                    borderRadius: 6,
-                    padding: "2px 7px",
-                    fontSize: 10,
+                    borderRadius: 4,
+                    padding: "1px 4px",
+                    fontSize: 8.5,
                     fontWeight: 800,
                     cursor: "pointer",
-                    display: "flex",
+                    display: "inline-flex",
                     alignItems: "center",
-                    gap: 4,
+                    gap: 2,
+                    whiteSpace: "nowrap",
+                    flexShrink: 0,
+                    lineHeight: 1.1,
                   }}
                   title="Unlock Live with Google Authenticator"
                 >
-                  <KeyRound size={11} />
-                  <span>{lang === "km" ? "ចូលតាម 2FA" : "2FA Unlock"}</span>
+                  <KeyRound size={9} />
+                  <span>2FA</span>
                 </button>
               )}
             </div>
-            <div style={{ fontSize: 10, color: G.muted, letterSpacing: "0.06em", fontWeight: 600 }}>{currentLabel}</div>
+            <div style={{ fontSize: 9, color: G.muted, letterSpacing: "0.03em", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%" }}>
+              {currentLabel}
+            </div>
           </div>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
           <button
             onClick={() => loadData(true, 90)}
             style={{
               background: "transparent",
               border: `1px solid ${G.border}`,
               color: G.muted,
-              borderRadius: 8,
-              width: 32,
-              height: 32,
+              borderRadius: 7,
+              width: 28,
+              height: 28,
               cursor: "pointer",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
+              flexShrink: 0,
             }}
             title={tx.refresh}
           >
-            <RefreshCw size={13} className={refreshing || loading ? "spin-animation" : ""} />
+            <RefreshCw size={12} className={refreshing || loading ? "spin-animation" : ""} />
           </button>
 
           <button
@@ -1303,32 +1351,33 @@ export default function AdminApp() {
               background: showNotifications ? "rgba(212,167,44,0.12)" : "transparent",
               border: `1px solid ${showNotifications ? G.goldBorder : G.border}`,
               color: showNotifications ? G.gold : G.textSec,
-              borderRadius: 8,
-              width: 32,
-              height: 32,
+              borderRadius: 7,
+              width: 28,
+              height: 28,
               cursor: "pointer",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               position: "relative",
+              flexShrink: 0,
             }}
             title={lang === "km" ? "ជូនដំណឹង" : "Notifications"}
           >
-            <Bell size={14} />
+            <Bell size={13} />
             {threatCount > 0 && (
               <span
                 style={{
                   position: "absolute",
-                  top: -4,
-                  right: -4,
+                  top: -3,
+                  right: -3,
                   background: G.danger,
                   color: "#fff",
-                  fontSize: 9,
+                  fontSize: 8,
                   fontWeight: 800,
                   borderRadius: 10,
-                  minWidth: 16,
-                  height: 16,
-                  padding: "0 3px",
+                  minWidth: 14,
+                  height: 14,
+                  padding: "0 2.5px",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -1347,17 +1396,18 @@ export default function AdminApp() {
                 background: "transparent",
                 border: `1px solid ${G.border}`,
                 color: G.danger,
-                borderRadius: 8,
-                width: 32,
-                height: 32,
+                borderRadius: 7,
+                width: 28,
+                height: 28,
                 cursor: "pointer",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
+                flexShrink: 0,
               }}
               title={tx.logout}
             >
-              <LogOut size={14} />
+              <LogOut size={13} />
             </button>
           )}
 

@@ -24,6 +24,7 @@ class TelegramAPI:
         if not token:
             logger.critical("TelegramAPI initialized without BOT_TOKEN")
         self.token = token
+        self.use_local = use_local
         if use_local:
             self.api_base = f"{config.TELEGRAM_LOCAL_API_URL}/bot{token}"
             self.file_base = f"{config.TELEGRAM_LOCAL_API_URL}/file/bot{token}"
@@ -206,34 +207,50 @@ class TelegramAPI:
         return self._post("deleteMessage", {"chat_id": chat_id, "message_id": message_id}).get("ok", False)
 
     # ── files ────────────────────────────────────────────────────────────
-    def get_file_path(self, file_id: str) -> Optional[str]:
-        data = self._get("getFile", params={"file_id": file_id}, timeout=15)
+    def get_file_path(self, file_id: str, timeout: int = 45) -> Optional[str]:
+        data = self._get("getFile", params={"file_id": file_id}, timeout=timeout)
         logger.info("getFile response for %s: %s", file_id, data)
         if data.get("ok"):
             file_path = data["result"].get("file_path")
             logger.info("Extracted file_path for %s: %s", file_id, file_path)
             return file_path
+
+        # If local API failed or timed out, attempt public Telegram API fallback
+        if self.use_local and self.token:
+            try:
+                logger.info("Retrying getFile against public Telegram API for %s", file_id)
+                public_res = requests.get(
+                    f"https://api.telegram.org/bot{self.token}/getFile",
+                    params={"file_id": file_id},
+                    timeout=timeout,
+                )
+                p_data = public_res.json()
+                if p_data.get("ok"):
+                    p_path = p_data["result"].get("file_path")
+                    logger.info("Extracted public file_path for %s: %s", file_id, p_path)
+                    return p_path
+            except Exception as p_exc:
+                logger.warning("Public getFile fallback failed for %s: %s", file_id, p_exc)
+
         return None
 
-    def download_file(self, file_id: str, timeout: int = 30) -> Optional[bytes]:
-        file_path = self.get_file_path(file_id)
+    def download_file(self, file_id: str, timeout: int = 60) -> Optional[bytes]:
+        file_path = self.get_file_path(file_id, timeout=timeout)
         if not file_path:
             return None
 
-        if config.USE_LOCAL_BOT_API and file_path.startswith("/"):
+        if self.use_local and file_path.startswith("/"):
             try:
                 with open(file_path, "rb") as f:
                     return f.read()
             except Exception as exc:
                 logger.error("File read from disk error: %s", exc)
-                return None
 
         try:
             r = self.session.get(
                 f"{self.file_base}/{file_path}",
                 timeout=timeout,
             )
-
             if r.status_code == 200:
                 return r.content
 
@@ -242,9 +259,21 @@ class TelegramAPI:
                 r.status_code,
                 file_path,
             )
-
         except Exception as exc:
-            logger.error("File download error: %s", exc)
+            logger.error("File download error from %s: %s", self.file_base, exc)
+
+        # If local server download failed, try downloading from official public Telegram API
+        if self.use_local and self.token and not file_path.startswith("/"):
+            try:
+                logger.info("Retrying download from public Telegram file endpoint for %s", file_path)
+                pub_r = requests.get(
+                    f"https://api.telegram.org/file/bot{self.token}/{file_path}",
+                    timeout=timeout,
+                )
+                if pub_r.status_code == 200:
+                    return pub_r.content
+            except Exception as pub_exc:
+                logger.warning("Public file download fallback failed for %s: %s", file_path, pub_exc)
 
         return None
 
@@ -324,6 +353,9 @@ class TelegramAPI:
 
     def ban_chat_member(self, chat_id: int, user_id: int) -> bool:
         return self._post("banChatMember", {"chat_id": chat_id, "user_id": user_id}).get("ok", False)
+
+    def unban_chat_member(self, chat_id: int, user_id: int, only_if_banned: bool = False) -> bool:
+        return self._post("unbanChatMember", {"chat_id": chat_id, "user_id": user_id, "only_if_banned": only_if_banned}).get("ok", False)
 
     def set_chat_menu_button(self, button_type: str = "commands", text: str = "Menu", web_app_url: str = "") -> dict:
         if button_type == "web_app" and web_app_url:

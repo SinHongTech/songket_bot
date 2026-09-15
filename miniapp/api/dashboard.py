@@ -62,6 +62,9 @@ try:
         get_group_muted_users,
         add_group_muted_user,
         remove_group_muted_user,
+        get_group_banned_users,
+        add_group_banned_user,
+        remove_group_banned_user,
         get_group_whitelisted_files,
         add_group_whitelisted_file,
         remove_group_whitelisted_file,
@@ -142,6 +145,9 @@ except ImportError:
         get_group_muted_users,
         add_group_muted_user,
         remove_group_muted_user,
+        get_group_banned_users,
+        add_group_banned_user,
+        remove_group_banned_user,
         get_group_whitelisted_files,
         add_group_whitelisted_file,
         remove_group_whitelisted_file,
@@ -738,7 +744,24 @@ class handler(BaseHTTPRequestHandler):
                 if not gid or not target_uid or not (super_admin or gid in user_groups):
                     return self._json(403, {"ok": False, "error": "Unauthorized"})
                 ok = remove_group_muted_user(gid, target_uid)
-                return self._json(200, {"ok": ok, "muted_users": get_group_muted_users(gid)})
+                return self._json(200, {
+                    "ok": ok,
+                    "muted_users": get_group_muted_users(gid),
+                    "banned_users": get_group_banned_users(gid),
+                })
+
+            # Action: Unban User in Group
+            if body.get("action") == "unban_group_user":
+                gid = int(body.get("group_id", 0))
+                target_uid = int(body.get("target_user_id", 0))
+                if not gid or not target_uid or not (super_admin or gid in user_groups):
+                    return self._json(403, {"ok": False, "error": "Unauthorized"})
+                ok = remove_group_banned_user(gid, target_uid)
+                return self._json(200, {
+                    "ok": ok,
+                    "muted_users": get_group_muted_users(gid),
+                    "banned_users": get_group_banned_users(gid),
+                })
 
             # Action: Add File to Group Whitelist
             if body.get("action") == "add_group_whitelist_file":
@@ -910,6 +933,7 @@ class handler(BaseHTTPRequestHandler):
                 "settings": get_group_settings(gid),
                 "whitelisted_users": get_group_whitelisted_users(gid),
                 "muted_users": get_group_muted_users(gid),
+                "banned_users": get_group_banned_users(gid),
                 "whitelisted_files": get_group_whitelisted_files(gid),
             }
 
