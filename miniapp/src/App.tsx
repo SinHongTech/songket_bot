@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { createBrowserRouter, createHashRouter, RouterProvider } from "react-router";
+import { createBrowserRouter, createHashRouter, RouterProvider, useLocation } from "react-router";
 import PublicApp from "./public/PublicApp";
 import AdminApp from "./admin/AdminApp";
 import LogoSplash from "./public/components/LogoSplash";
@@ -38,8 +38,9 @@ function RootErrorBoundary() {
 }
 
 function AppGateway() {
-  const search = typeof window !== "undefined" ? window.location.search || "" : "";
-  const forceHome = search.includes("home=1") || search.includes("preview=1");
+  const location = useLocation();
+  const search = location.search || "";
+  const forceHome = search.includes("home=1") || search.includes("preview=1") || Boolean((location.state as any)?.fromAdmin);
 
   const [checking, setChecking] = useState<boolean>(() => {
     if (forceHome) return false;
@@ -119,6 +120,7 @@ function AppGateway() {
 
 const routes = [
   { path: "/", Component: AppGateway, errorElement: <RootErrorBoundary /> },
+  { path: "/landing", Component: PublicApp, errorElement: <RootErrorBoundary /> },
   { path: "/dashboard", Component: AdminApp, errorElement: <RootErrorBoundary /> },
   { path: "/splash", Component: LogoSplash, errorElement: <RootErrorBoundary /> },
   { path: "/privacy-terms", Component: PrivacyTermsPage, errorElement: <RootErrorBoundary /> },

@@ -953,8 +953,27 @@ export default function AdminApp({ initialData }: { initialData?: DashboardApiRe
 
       <header style={{ padding: "12px 16px", borderBottom: `1px solid ${G.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: G.surface, flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <Link to="/?home=1" state={{ fromAdmin: true }} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 7, border: `1px solid ${G.border}`, color: G.muted, textDecoration: "none" }} title="Landing Page">
+          <Link
+            to="/landing"
+            state={{ fromAdmin: true }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              padding: "5px 9px",
+              borderRadius: 8,
+              border: `1px solid ${G.border}`,
+              background: "rgba(212,167,44,0.06)",
+              color: G.gold,
+              textDecoration: "none",
+              fontSize: 11,
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+            title={tx.landingPage || "Landing Page"}
+          >
             <ArrowLeft size={13} />
+            <span className={kh(lang)} style={{ fontSize: 11 }}>{tx.landingPage || "Landing Page"}</span>
           </Link>
           <LogoMark size={34} />
           <div>
