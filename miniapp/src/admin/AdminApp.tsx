@@ -489,7 +489,7 @@ function PinGate({
   );
 }
 
-export default function AdminApp() {
+export default function AdminApp({ initialData }: { initialData?: DashboardApiResponse } = {}) {
   const [nav, setNav] = useState<Nav>("dashboard");
   const [dark, setDark] = useState<boolean>(() => {
     const v = safeStorage.getItem("songket.admin.dark") || safeStorage.getItem("songket.dark");
@@ -504,12 +504,12 @@ export default function AdminApp() {
   // Helper date functions
   const getToday = () => new Date().toISOString().split("T")[0];
 
-  // Dashboard API state (with instant cache-first render)
+  // Dashboard API state (with instant cache-first render or pre-fetched initialData)
   const [apiData, setApiData] = useState<DashboardApiResponse | null>(() => {
-    return getCachedDashboardData();
+    return initialData || getCachedDashboardData();
   });
   const [loading, setLoading] = useState<boolean>(() => {
-    return !getCachedDashboardData();
+    return !initialData && !getCachedDashboardData();
   });
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -676,6 +676,13 @@ export default function AdminApp() {
   }, []);
 
   useEffect(() => {
+    if (initialData) {
+      setApiData(initialData);
+      setLoading(false);
+    }
+  }, [initialData]);
+
+  useEffect(() => {
     let mounted = true;
     const tg = getTelegramWebApp();
     if (tg) {
@@ -683,8 +690,10 @@ export default function AdminApp() {
       try { tg.expand(); } catch {}
     }
 
-    // Fast initial load (silent if cached data is already displayed)
-    loadData(false, 90, Boolean(apiDataRef.current));
+    // Fast initial load (silent if cached or pre-fetched initial data is already displayed)
+    if (!initialData) {
+      loadData(false, 90, Boolean(apiDataRef.current));
+    }
 
     // Progressive retry timers for Telegram Desktop & Web late handshake
     const t1 = setTimeout(() => {
@@ -719,7 +728,7 @@ export default function AdminApp() {
       clearTimeout(t2);
       window.removeEventListener("message", handleMsg);
     };
-  }, [loadData]);
+  }, [loadData, initialData]);
 
   // Periodic silent background auto-sync every 30 seconds when tab is active
   useEffect(() => {
