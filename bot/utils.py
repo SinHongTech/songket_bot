@@ -147,26 +147,30 @@ def extract_urls(text: str) -> list[str]:
     return result
 
 
-def is_whitelisted(url: str) -> bool:
-    domain = extract_domain(url)
+def is_whitelisted(url: str, chat_id: Optional[int] = None, user_id: Optional[int] = None) -> bool:
+    try:
+        from bot.redis_client import is_domain_whitelisted
+        return is_domain_whitelisted(url, chat_id=chat_id, user_id=user_id)
+    except Exception:
+        domain = extract_domain(url)
 
-    for s in URL_SHORTENERS:
-        if domain == s or domain.endswith("." + s):
+        for s in URL_SHORTENERS:
+            if domain == s or domain.endswith("." + s):
+                return False
+
+        for tld in SUSPICIOUS_TLDS:
+            if domain.endswith(tld):
+                return False
+
+        if _IPV4_RE.match(domain):
             return False
 
-    for tld in SUSPICIOUS_TLDS:
-        if domain.endswith(tld):
-            return False
+        for trusted in WHITELIST_DOMAINS:
+            trusted = trusted.lower()
+            if domain == trusted or domain.endswith("." + trusted):
+                return True
 
-    if _IPV4_RE.match(domain):
         return False
-
-    for trusted in WHITELIST_DOMAINS:
-        trusted = trusted.lower()
-        if domain == trusted or domain.endswith("." + trusted):
-            return True
-
-    return False
 
 
 def is_high_risk_file(filename: str) -> bool:

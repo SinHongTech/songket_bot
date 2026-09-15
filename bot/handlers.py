@@ -713,7 +713,7 @@ def _handle_personal_scan(api: TelegramAPI, chat_id: int, message: dict, user_id
     scanned = 0
 
     for url in urls:
-        if is_whitelisted(url):
+        if is_whitelisted(url, user_id=user_id):
             continue
         domain = extract_domain(url)
         final_url = resolve_redirect(url)
@@ -724,7 +724,7 @@ def _handle_personal_scan(api: TelegramAPI, chat_id: int, message: dict, user_id
                 target_label += f" (QR code inside {filename})"
         else:
             target_label = f"{domain} (QR code inside {filename})" if (has_file and filename) else domain
-        results.append(("link", target_label, vt_scan_url(url)))
+        results.append(("link", target_label, vt_scan_url(url, user_id=user_id)))
         scanned += 1
 
     if has_file and doc_decision:
@@ -2440,10 +2440,12 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
             if not (is_super_admin(user_id) or user_id in _get_admin_chat_ids(gid) or api.is_group_admin(user_id, gid)):
                 api.answer_callback_query(query_id, text="❌ Admin only / សម្រាប់តែ Admin ក្រុមប៉ុណ្ណោះ", show_alert=True)
                 return
-            add_domain_whitelist(domain_to_add)
+            from bot.redis_client import get_owner_user_id_for_group
+            target_owner = get_owner_user_id_for_group(gid) or user_id
+            add_domain_whitelist(domain_to_add, user_id=target_owner)
             api.answer_callback_query(
                 query_id,
-                text=f"🛡️ Domain '{domain_to_add}' added to trusted whitelist! Future links will be permitted.",
+                text=f"🛡️ Domain '{domain_to_add}' added to trusted whitelist for your groups!",
                 show_alert=True,
             )
             if chat_id < 0:
@@ -2869,7 +2871,9 @@ def _handle_inline_query(api: TelegramAPI, inline_query: dict) -> None:
         return
 
     # Scan target URL
-    scan_res = vt_scan_url(target_url)
+    from_user = inline_query.get("from") or {}
+    q_user_id = from_user.get("id")
+    scan_res = vt_scan_url(target_url, user_id=q_user_id)
     is_safe = not scan_res.get("malicious", False)
     verdict = scan_res.get("threat_type") or scan_res.get("verdict") or ("Safe" if is_safe else "Malicious Link")
     icon = "✅" if is_safe else "🚨"
@@ -3040,7 +3044,7 @@ def process_update(api: TelegramAPI, update: dict) -> None:
         if qu not in urls:
             urls.append(qu)
 
-    has_scannable_url = any(not is_whitelisted(u) for u in urls)
+    has_scannable_url = any(not is_whitelisted(u, chat_id=chat_id) for u in urls)
     if not has_scannable_url and not has_file:
         return
 
@@ -3071,12 +3075,12 @@ def process_update(api: TelegramAPI, update: dict) -> None:
     for url in urls:
         domain = extract_domain(url)
 
-        if is_whitelisted(url):
+        if is_whitelisted(url, chat_id=chat_id):
             logger.info("Whitelisted | domain=%s", domain)
             continue
 
         logger.info("Scanning URL | domain=%s | user=%s", domain, user_display)
-        result = vt_scan_url(url)
+        result = vt_scan_url(url, chat_id=chat_id)
 
         if "error" in result:
             logger.error("URL scan error | domain=%s | %s", domain, result["error"])

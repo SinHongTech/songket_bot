@@ -1187,35 +1187,111 @@ DEFAULT_DOMAIN_WHITELIST = [
 ]
 
 
-def get_domain_whitelist() -> list[str]:
+def get_owner_user_id_for_group(chat_id: int) -> Optional[int]:
+    """Find the user ID who owns or manages this group."""
+    try:
+        cid = int(chat_id)
+    except (TypeError, ValueError):
+        return None
+
+    # 1. Direct inviter record
+    inviter = get_group_inviter(cid)
+    if inviter:
+        return inviter
+
+    # 2. Check explicit group map / handlers
+    gh = kv_json_get("config:group_handlers")
+    if isinstance(gh, dict):
+        for uid_str, gids in gh.items():
+            if isinstance(gids, list) and cid in [int(g) for g in gids if str(g).lstrip("-").isdigit()]:
+                try:
+                    return int(uid_str)
+                except (TypeError, ValueError):
+                    pass
+
+    egm = kv_json_get("config:explicit_group_map")
+    if isinstance(egm, dict):
+        for uid_str, gids in egm.items():
+            if isinstance(gids, list) and cid in [int(g) for g in gids if str(g).lstrip("-").isdigit()]:
+                try:
+                    return int(uid_str)
+                except (TypeError, ValueError):
+                    pass
+
+    return None
+
+
+def get_domain_whitelist(user_id: Optional[int] = None) -> list[str]:
+    """Return whitelisted domains for a specific user, or the default whitelist."""
+    if user_id:
+        data = kv_json_get(f"whitelist:domains:{user_id}")
+        if data is None:
+            data = kv_json_get(f"config:domain_whitelist:{user_id}")
+        if isinstance(data, list):
+            return [str(d).strip().lower() for d in data if str(d).strip()]
+        if isinstance(data, str) and data.strip():
+            try:
+                parsed = json.loads(data)
+                if isinstance(parsed, list):
+                    return [str(d).strip().lower() for d in parsed if str(d).strip()]
+            except Exception:
+                return [d.strip().lower() for d in data.split(",") if d.strip()]
+        # If user hasn't customized their domain whitelist yet, return default
+        return list(DEFAULT_DOMAIN_WHITELIST)
+
+    # Fallback / global
     data = kv_json_get("whitelist:domains")
+    if data is None:
+        data = kv_json_get("config:domain_whitelist")
     if isinstance(data, list):
         return [str(d).strip().lower() for d in data if str(d).strip()]
+    if isinstance(data, str) and data.strip():
+        try:
+            parsed = json.loads(data)
+            if isinstance(parsed, list):
+                return [str(d).strip().lower() for d in parsed if str(d).strip()]
+        except Exception:
+            return [d.strip().lower() for d in data.split(",") if d.strip()]
     return list(DEFAULT_DOMAIN_WHITELIST)
 
 
-def save_domain_whitelist(domains: list[str]) -> bool:
+def get_domain_whitelist_for_group(chat_id: int) -> list[str]:
+    """Return the domain whitelist for the owner of this group, or the default whitelist."""
+    owner_uid = get_owner_user_id_for_group(chat_id)
+    if owner_uid:
+        return get_domain_whitelist(user_id=owner_uid)
+    return get_domain_whitelist()
+
+
+def save_domain_whitelist(domains: list[str], user_id: Optional[int] = None) -> bool:
+    """Save whitelisted domains for a specific user or globally."""
     clean = list(dict.fromkeys(str(d).strip().lower() for d in domains if str(d).strip()))
-    return kv_json_set("whitelist:domains", clean)
+    if user_id:
+        ok1 = kv_json_set(f"whitelist:domains:{user_id}", clean)
+        ok2 = kv_json_set(f"config:domain_whitelist:{user_id}", clean)
+        return ok1 or ok2
+    ok1 = kv_json_set("whitelist:domains", clean)
+    ok2 = kv_json_set("config:domain_whitelist", clean)
+    return ok1 or ok2
 
 
-def add_domain_whitelist(domain: str) -> bool:
+def add_domain_whitelist(domain: str, user_id: Optional[int] = None) -> bool:
     clean = domain.strip().lower()
     if not clean:
         return False
-    current = get_domain_whitelist()
+    current = get_domain_whitelist(user_id=user_id)
     if clean not in current:
         current.append(clean)
-        return save_domain_whitelist(current)
+        return save_domain_whitelist(current, user_id=user_id)
     return True
 
 
-def remove_domain_whitelist(domain: str) -> bool:
+def remove_domain_whitelist(domain: str, user_id: Optional[int] = None) -> bool:
     clean = domain.strip().lower()
-    current = get_domain_whitelist()
+    current = get_domain_whitelist(user_id=user_id)
     if clean in current:
         current.remove(clean)
-        return save_domain_whitelist(current)
+        return save_domain_whitelist(current, user_id=user_id)
     return True
 
 

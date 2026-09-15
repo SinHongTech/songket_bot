@@ -698,16 +698,70 @@ DEFAULT_TRUSTED_DOMAINS = [
 ]
 
 
-def get_domain_whitelist() -> list[str]:
-    """Return all whitelisted domains from Redis."""
-    raw = kv_get("config:domain_whitelist")
+def get_owner_user_id_for_group(chat_id: int) -> Optional[int]:
+    """Find the user ID who owns or manages this group."""
+    try:
+        cid = int(chat_id)
+    except (TypeError, ValueError):
+        return None
+
+    # 1. Direct inviter record
+    inviter = get_group_inviter(cid)
+    if inviter:
+        return inviter
+
+    # 2. Check explicit group map / handlers
+    gh = kv_json_get("config:group_handlers")
+    if isinstance(gh, dict):
+        for uid_str, gids in gh.items():
+            if isinstance(gids, list) and cid in [int(g) for g in gids if str(g).lstrip("-").isdigit()]:
+                try:
+                    return int(uid_str)
+                except (TypeError, ValueError):
+                    pass
+
+    egm = kv_json_get("config:explicit_group_map")
+    if isinstance(egm, dict):
+        for uid_str, gids in egm.items():
+            if isinstance(gids, list) and cid in [int(g) for g in gids if str(g).lstrip("-").isdigit()]:
+                try:
+                    return int(uid_str)
+                except (TypeError, ValueError):
+                    pass
+
+    return None
+
+
+def get_domain_whitelist(user_id: Optional[int] = None) -> list[str]:
+    """Return all whitelisted domains from Redis for a specific user, or default."""
+    if user_id:
+        raw = kv_get(f"whitelist:domains:{user_id}")
+        if not raw:
+            raw = kv_get(f"config:domain_whitelist:{user_id}")
+        if not raw:
+            return list(DEFAULT_TRUSTED_DOMAINS)
+        try:
+            if isinstance(raw, str):
+                data = json.loads(raw)
+                if isinstance(data, list):
+                    return [str(d).strip().lower() for d in data if str(d).strip()]
+                return [d.strip().lower() for d in raw.split(",") if d.strip()]
+            if isinstance(raw, list):
+                return [str(d).strip().lower() for d in raw if str(d).strip()]
+        except Exception:
+            pass
+        return list(DEFAULT_TRUSTED_DOMAINS)
+
+    raw = kv_get("whitelist:domains")
+    if not raw:
+        raw = kv_get("config:domain_whitelist")
     if not raw:
         return list(DEFAULT_TRUSTED_DOMAINS)
     try:
         if isinstance(raw, str):
             data = json.loads(raw)
             if isinstance(data, list):
-                return data
+                return [str(d).strip().lower() for d in data if str(d).strip()]
             return [d.strip().lower() for d in raw.split(",") if d.strip()]
         if isinstance(raw, list):
             return [str(d).strip().lower() for d in raw if str(d).strip()]
@@ -716,34 +770,48 @@ def get_domain_whitelist() -> list[str]:
     return list(DEFAULT_TRUSTED_DOMAINS)
 
 
-def save_domain_whitelist(domains: list[str]) -> bool:
-    """Save full domain whitelist to Redis."""
+def get_domain_whitelist_for_group(chat_id: int) -> list[str]:
+    """Return the domain whitelist for the owner of this group, or default."""
+    owner_uid = get_owner_user_id_for_group(chat_id)
+    if owner_uid:
+        return get_domain_whitelist(user_id=owner_uid)
+    return get_domain_whitelist()
+
+
+def save_domain_whitelist(domains: list[str], user_id: Optional[int] = None) -> bool:
+    """Save full domain whitelist to Redis for a specific user or globally."""
     clean = sorted(list(dict.fromkeys(str(d).strip().lower() for d in domains if str(d).strip())))
-    return kv_set("config:domain_whitelist", json.dumps(clean))
+    if user_id:
+        ok1 = kv_set(f"whitelist:domains:{user_id}", json.dumps(clean))
+        ok2 = kv_set(f"config:domain_whitelist:{user_id}", json.dumps(clean))
+        return ok1 or ok2
+    ok1 = kv_set("whitelist:domains", json.dumps(clean))
+    ok2 = kv_set("config:domain_whitelist", json.dumps(clean))
+    return ok1 or ok2
 
 
-def add_domain_whitelist(domain: str) -> bool:
+def add_domain_whitelist(domain: str, user_id: Optional[int] = None) -> bool:
     clean = domain.strip().lower()
     if not clean:
         return False
-    current = get_domain_whitelist()
+    current = get_domain_whitelist(user_id=user_id)
     if clean not in current:
         current.append(clean)
-        return save_domain_whitelist(current)
+        return save_domain_whitelist(current, user_id=user_id)
     return True
 
 
-def remove_domain_whitelist(domain: str) -> bool:
+def remove_domain_whitelist(domain: str, user_id: Optional[int] = None) -> bool:
     clean = domain.strip().lower()
-    current = get_domain_whitelist()
+    current = get_domain_whitelist(user_id=user_id)
     if clean in current:
         current.remove(clean)
-        return save_domain_whitelist(current)
+        return save_domain_whitelist(current, user_id=user_id)
     return True
 
 
-def is_domain_whitelisted(url_or_domain: str) -> bool:
-    """Check if a URL or domain is in the trusted domain whitelist."""
+def is_domain_whitelisted(url_or_domain: str, chat_id: Optional[int] = None, user_id: Optional[int] = None) -> bool:
+    """Check if a URL or domain is in the trusted domain whitelist for this user/group."""
     from bot.utils import extract_domain, URL_SHORTENERS
     domain = extract_domain(url_or_domain).lower()
     if not domain:
@@ -751,7 +819,14 @@ def is_domain_whitelisted(url_or_domain: str) -> bool:
     # Shortener & redirect services cannot be whitelisted as trusted domains
     if domain in URL_SHORTENERS or any(domain.endswith(f".{s}") for s in URL_SHORTENERS):
         return False
-    whitelist = get_domain_whitelist()
+
+    if user_id:
+        whitelist = get_domain_whitelist(user_id=user_id)
+    elif chat_id:
+        whitelist = get_domain_whitelist_for_group(chat_id)
+    else:
+        whitelist = get_domain_whitelist()
+
     for wl in whitelist:
         wl_clean = wl.lower()
         if domain == wl_clean or domain.endswith(f".{wl_clean}"):

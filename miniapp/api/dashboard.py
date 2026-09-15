@@ -681,13 +681,13 @@ class handler(BaseHTTPRequestHandler):
                 ok = set_subscription(target, plan, expiry)
                 return self._json(200, {"ok": ok, "subscriptions": list_subscriptions()})
 
-            # Action: Save Trusted Domain Whitelist (Any authorized admin)
+            # Action: Save Trusted Domain Whitelist (For this user / their groups)
             if body.get("action") == "save_domain_whitelist":
                 if not is_admin:
                     return self._json(403, {"ok": False, "error": "Unauthorized"})
                 domains = body.get("domains", [])
-                ok = save_domain_whitelist(domains)
-                return self._json(200, {"ok": ok, "domain_whitelist": get_domain_whitelist()})
+                ok = save_domain_whitelist(domains, user_id=uid)
+                return self._json(200, {"ok": ok, "domain_whitelist": get_domain_whitelist(user_id=uid)})
 
             # Action: Revoke a plan (reset to free) (Super Admin only)
             if body.get("action") == "remove_plan":
@@ -831,6 +831,9 @@ class handler(BaseHTTPRequestHandler):
             "config:known_groups",
             "config:group_handlers",
             "meta:known_users",
+            f"whitelist:domains:{uid}",
+            f"config:domain_whitelist:{uid}",
+            "whitelist:domains",
             "config:domain_whitelist",
             "config:whitelist_user_ids",
             "config:super_admin_ids",
@@ -948,7 +951,7 @@ class handler(BaseHTTPRequestHandler):
             "candidate_groups": get_candidate_groups_for_user(uid),
             "user_settings": get_user_daily_report_settings(uid),
             "threat_events": threat_events,
-            "domain_whitelist": get_domain_whitelist(),
+            "domain_whitelist": get_domain_whitelist(user_id=uid),
             "group_details": group_details,
             "known_users": known_users,
             "known_groups": known_groups,
