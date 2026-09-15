@@ -59,12 +59,15 @@ try:
         get_group_whitelisted_users,
         add_group_whitelisted_user,
         remove_group_whitelisted_user,
+        is_user_whitelisted_in_group,
         get_group_muted_users,
         add_group_muted_user,
         remove_group_muted_user,
         get_group_banned_users,
         add_group_banned_user,
         remove_group_banned_user,
+        resolve_user_id,
+        resolve_user_info,
         get_group_whitelisted_files,
         add_group_whitelisted_file,
         remove_group_whitelisted_file,
@@ -142,12 +145,15 @@ except ImportError:
         get_group_whitelisted_users,
         add_group_whitelisted_user,
         remove_group_whitelisted_user,
+        is_user_whitelisted_in_group,
         get_group_muted_users,
         add_group_muted_user,
         remove_group_muted_user,
         get_group_banned_users,
         add_group_banned_user,
         remove_group_banned_user,
+        resolve_user_id,
+        resolve_user_info,
         get_group_whitelisted_files,
         add_group_whitelisted_file,
         remove_group_whitelisted_file,
@@ -718,11 +724,19 @@ class handler(BaseHTTPRequestHandler):
             # Action: Add User to Group Whitelist
             if body.get("action") == "add_group_whitelist_user":
                 gid = int(body.get("group_id", 0))
-                target_uid = int(body.get("target_user_id", 0))
-                if not gid or not target_uid or not (super_admin or gid in user_groups):
+                raw_uid = body.get("target_user_id")
+                target_uid = 0
+                if raw_uid:
+                    try:
+                        target_uid = int(raw_uid)
+                    except (ValueError, TypeError):
+                        pass
+                u_name = str(body.get("username", "")).lstrip("@").strip()
+                d_name = str(body.get("name", "")).strip()
+                if not target_uid and u_name:
+                    target_uid = resolve_user_id(gid, u_name)
+                if not gid or (not target_uid and not u_name) or not (super_admin or gid in user_groups):
                     return self._json(403, {"ok": False, "error": "Unauthorized"})
-                u_name = str(body.get("username", "")).lstrip("@")
-                d_name = str(body.get("name", ""))
                 ok = add_group_whitelisted_user(gid, target_uid, username=u_name, name=d_name)
                 if target_uid and u_name:
                     record_known_user(target_uid, u_name, d_name)
@@ -731,19 +745,35 @@ class handler(BaseHTTPRequestHandler):
             # Action: Remove User from Group Whitelist
             if body.get("action") == "remove_group_whitelist_user":
                 gid = int(body.get("group_id", 0))
-                target_uid = int(body.get("target_user_id", 0))
-                if not gid or not target_uid or not (super_admin or gid in user_groups):
+                raw_uid = body.get("target_user_id")
+                target_uid = 0
+                if raw_uid:
+                    try:
+                        target_uid = int(raw_uid)
+                    except (ValueError, TypeError):
+                        pass
+                u_name = str(body.get("username", "")).lstrip("@").strip()
+                if not gid or (not target_uid and not u_name) or not (super_admin or gid in user_groups):
                     return self._json(403, {"ok": False, "error": "Unauthorized"})
-                ok = remove_group_whitelisted_user(gid, target_uid)
+                ok = remove_group_whitelisted_user(gid, target_uid, username=u_name)
                 return self._json(200, {"ok": ok, "whitelisted_users": get_group_whitelisted_users(gid)})
 
             # Action: Unmute User in Group
             if body.get("action") == "unmute_group_user":
                 gid = int(body.get("group_id", 0))
-                target_uid = int(body.get("target_user_id", 0))
-                if not gid or not target_uid or not (super_admin or gid in user_groups):
+                raw_uid = body.get("target_user_id")
+                target_uid = 0
+                if raw_uid:
+                    try:
+                        target_uid = int(raw_uid)
+                    except (ValueError, TypeError):
+                        pass
+                u_name = str(body.get("username", "")).lstrip("@").strip()
+                if not target_uid and u_name:
+                    target_uid = resolve_user_id(gid, u_name)
+                if not gid or (not target_uid and not u_name) or not (super_admin or gid in user_groups):
                     return self._json(403, {"ok": False, "error": "Unauthorized"})
-                ok = remove_group_muted_user(gid, target_uid)
+                ok = remove_group_muted_user(gid, target_uid, username=u_name)
                 return self._json(200, {
                     "ok": ok,
                     "muted_users": get_group_muted_users(gid),
@@ -753,10 +783,19 @@ class handler(BaseHTTPRequestHandler):
             # Action: Unban User in Group
             if body.get("action") == "unban_group_user":
                 gid = int(body.get("group_id", 0))
-                target_uid = int(body.get("target_user_id", 0))
-                if not gid or not target_uid or not (super_admin or gid in user_groups):
+                raw_uid = body.get("target_user_id")
+                target_uid = 0
+                if raw_uid:
+                    try:
+                        target_uid = int(raw_uid)
+                    except (ValueError, TypeError):
+                        pass
+                u_name = str(body.get("username", "")).lstrip("@").strip()
+                if not target_uid and u_name:
+                    target_uid = resolve_user_id(gid, u_name)
+                if not gid or (not target_uid and not u_name) or not (super_admin or gid in user_groups):
                     return self._json(403, {"ok": False, "error": "Unauthorized"})
-                ok = remove_group_banned_user(gid, target_uid)
+                ok = remove_group_banned_user(gid, target_uid, username=u_name)
                 return self._json(200, {
                     "ok": ok,
                     "muted_users": get_group_muted_users(gid),

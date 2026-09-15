@@ -650,27 +650,30 @@ export async function addGroupWhitelistUser(groupId: number, targetUserId: numbe
   });
 }
 
-export async function removeGroupWhitelistUser(groupId: number, targetUserId: number) {
+export async function removeGroupWhitelistUser(groupId: number, targetUserId: number, username?: string) {
   return postAction({
     action: "remove_group_whitelist_user",
     group_id: groupId,
     target_user_id: targetUserId,
+    username,
   });
 }
 
-export async function unmuteGroupUser(groupId: number, targetUserId: number) {
+export async function unmuteGroupUser(groupId: number, targetUserId: number, username?: string) {
   return postAction({
     action: "unmute_group_user",
     group_id: groupId,
     target_user_id: targetUserId,
+    username,
   });
 }
 
-export async function unbanGroupUser(groupId: number, targetUserId: number) {
+export async function unbanGroupUser(groupId: number, targetUserId: number, username?: string) {
   return postAction({
     action: "unban_group_user",
     group_id: groupId,
     target_user_id: targetUserId,
+    username,
   });
 }
 
