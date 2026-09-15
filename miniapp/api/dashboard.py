@@ -317,13 +317,7 @@ class handler(BaseHTTPRequestHandler):
                     401,
                     {
                         "authorized": False,
-                        "error": f"Auth failed: {debug_str}",
-                        "debug": {
-                            "platform": platform,
-                            "initData_len": init_len,
-                            "has_raw_hash": bool(raw_hash),
-                            "has_unsafe_user": bool(unsafe_user),
-                        },
+                        "error": "Authentication required. Please launch this MiniApp from Telegram with an authorized administrator account.",
                     },
                 )
 
