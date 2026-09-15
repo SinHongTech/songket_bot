@@ -966,7 +966,7 @@ export default function AdminApp() {
   const dashboard = apiData?.dashboard || null;
   const isMock = apiData?.isMock ?? (!apiData?.authorized);
   const isDbAdmin = Boolean(apiData?.is_admin || apiData?.is_super_admin || (apiData?.authorized && !isMock));
-  const canShow2FA = Boolean(apiData?.totp_enabled || (isDbAdmin && (apiData?.pin_exists || isMock)));
+  const canShow2FA = Boolean(apiData?.totp_enabled || isDbAdmin);
 
   // Real Threat Events from backend (clean real alerts only)
   const rawThreatEvents = apiData?.threat_events || [];

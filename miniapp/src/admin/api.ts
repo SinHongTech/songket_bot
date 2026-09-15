@@ -67,47 +67,20 @@ export function getTelegramWebApp() {
 export function getInitData(): string {
   const tg = getTelegramWebApp();
   if (tg?.initData) {
-    let data = tg.initData;
-    while (data.includes("%3D") || data.includes("%26") || data.includes("%7B") || data.includes("%22")) {
-      try {
-        const next = decodeURIComponent(data);
-        if (next === data) break;
-        data = next;
-      } catch {
-        break;
-      }
-    }
-    _cachedInitData = data;
+    _cachedInitData = tg.initData;
     try {
-      safeStorage.setItem("songket_init_data", data);
+      safeStorage.setItem("songket_init_data", tg.initData);
     } catch {}
-    return data;
+    return tg.initData;
   }
 
   if (typeof window !== "undefined") {
-    // 1. Fallback from cached decoded session
-    try {
-      let saved = safeStorage.getItem("songket_init_data");
-      if (saved && (saved.includes("hash=") || saved.includes("user="))) {
-        while (saved.includes("%3D") || saved.includes("%26") || saved.includes("%7B") || saved.includes("%22")) {
-          try {
-            const next = decodeURIComponent(saved);
-            if (next === saved) break;
-            saved = next;
-          } catch {
-            break;
-          }
-        }
-        _cachedInitData = saved;
-        return saved;
-      }
-    } catch {}
-
-    // 2. Fallback from raw URL hash / search / boot storage
+    // 1. Fallback from raw URL hash / search / boot storage
     const candidates = [
       window.location.hash,
       window.location.search,
       safeStorage.getItem("songket_init_raw") || "",
+      safeStorage.getItem("songket_init_data") || "",
     ];
 
     for (const rawCandidate of candidates) {
@@ -115,40 +88,36 @@ export function getInitData(): string {
       const clean = rawCandidate.startsWith("#") || rawCandidate.startsWith("?") ? rawCandidate.slice(1) : rawCandidate;
       if (clean.includes("tgWebAppData=")) {
         const params = new URLSearchParams(clean);
-        let rawVal = params.get("tgWebAppData");
+        const rawVal = params.get("tgWebAppData");
         if (rawVal) {
-          while (rawVal.includes("%3D") || rawVal.includes("%26") || rawVal.includes("%7B") || rawVal.includes("%22")) {
-            try {
-              const next = decodeURIComponent(rawVal);
-              if (next === rawVal) break;
-              rawVal = next;
-            } catch {
-              break;
-            }
-          }
           _cachedInitData = rawVal;
           try {
             safeStorage.setItem("songket_init_data", rawVal);
           } catch {}
           return rawVal;
         }
-      }
-      if (clean.includes("hash=") && (clean.includes("user=") || clean.includes("query_id=") || clean.includes("auth_date="))) {
-        let cleanVal = clean;
-        while (cleanVal.includes("%3D") || cleanVal.includes("%26")) {
-          try {
-            const next = decodeURIComponent(cleanVal);
-            if (next === cleanVal) break;
-            cleanVal = next;
-          } catch {
-            break;
+        const idx = clean.indexOf("tgWebAppData=");
+        if (idx !== -1) {
+          let sub = clean.slice(idx + "tgWebAppData=".length);
+          const nextWrapper = sub.search(/&tgWebApp[A-Z]/i);
+          if (nextWrapper !== -1) {
+            sub = sub.slice(0, nextWrapper);
+          }
+          if (sub.includes("hash=")) {
+            _cachedInitData = sub;
+            try {
+              safeStorage.setItem("songket_init_data", sub);
+            } catch {}
+            return sub;
           }
         }
-        _cachedInitData = cleanVal;
+      }
+      if (clean.includes("hash=") && (clean.includes("user=") || clean.includes("query_id=") || clean.includes("auth_date="))) {
+        _cachedInitData = clean;
         try {
-          safeStorage.setItem("songket_init_data", cleanVal);
+          safeStorage.setItem("songket_init_data", clean);
         } catch {}
-        return cleanVal;
+        return clean;
       }
     }
   }
@@ -256,18 +225,24 @@ export function getCachedDashboardData(): DashboardApiResponse | null {
 
 export function getAuthPayload(extra: Record<string, unknown> = {}) {
   const tg = getTelegramWebApp();
-  const initData = getInitData();
+  const rawInitData = tg?.initData || "";
+  const initData = rawInitData || getInitData();
   const rawHash = typeof window !== "undefined" ? window.location.hash : "";
   const rawSearch = typeof window !== "undefined" ? window.location.search : "";
   const initDataUnsafe = tg?.initDataUnsafe || null;
   const platform = (tg as any)?.platform || "";
   const version = (tg as any)?.version || "";
+  const tgUser = getTelegramUser();
+  const userId = initDataUnsafe?.user?.id || tgUser?.id || 0;
 
   return {
     initData: initData || "",
+    rawInitData,
     rawHash,
     rawSearch,
     initDataUnsafe,
+    user_id: userId,
+    user: initDataUnsafe?.user || tgUser || undefined,
     platform,
     version,
     session: getSessionToken(),
@@ -339,11 +314,14 @@ export async function fetchDashboardData(days: number = 90, force: boolean = fal
         }
         return {
           authorized: false,
-          user: data.user || getTelegramUser() || mockUser,
+          user: data?.user || getTelegramUser() || mockUser,
           dashboard: mockDashboardData(days),
           isMock: true,
-          pin_exists: data.pin_exists ?? false,
-          error: data.error,
+          pin_exists: data?.pin_exists ?? false,
+          totp_enabled: data?.totp_enabled ?? false,
+          is_admin: data?.is_admin ?? false,
+          is_super_admin: data?.is_super_admin ?? false,
+          error: data?.error,
         };
       }
 
@@ -359,6 +337,9 @@ export async function fetchDashboardData(days: number = 90, force: boolean = fal
           dashboard: mockDashboardData(days),
           isMock: true,
           pin_exists: data?.pin_exists ?? false,
+          totp_enabled: data?.totp_enabled ?? false,
+          is_admin: data?.is_admin ?? false,
+          is_super_admin: data?.is_super_admin ?? false,
           error: data?.error || "Unauthorized",
         };
       }
@@ -374,6 +355,9 @@ export async function fetchDashboardData(days: number = 90, force: boolean = fal
         dashboard: mockDashboardData(days),
         isMock: true,
         pin_exists: false,
+        totp_enabled: false,
+        is_admin: false,
+        is_super_admin: false,
         error: err?.message || "Network error",
       };
     } finally {

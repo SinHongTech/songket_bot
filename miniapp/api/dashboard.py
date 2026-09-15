@@ -313,12 +313,17 @@ class handler(BaseHTTPRequestHandler):
                     uid_candidate = int(body.get("user_id"))
                 except (TypeError, ValueError):
                     pass
+            if not uid_candidate and body.get("user") and isinstance(body.get("user"), dict) and body.get("user").get("id"):
+                try:
+                    uid_candidate = int(body["user"]["id"])
+                except (TypeError, ValueError):
+                    pass
 
             is_db_admin = False
             totp_active = False
             pin_active = False
             if uid_candidate:
-                is_db_admin = uid_candidate in super_admin_ids() or uid_candidate in whitelist_ids()
+                is_db_admin = uid_candidate in super_admin_ids() or uid_candidate in whitelist_ids() or uid_candidate in primary_admin_ids()
                 if is_db_admin:
                     totp_active = is_totp_enabled(uid_candidate)
                     pin_active = pin_exists(uid_candidate)
@@ -346,6 +351,7 @@ class handler(BaseHTTPRequestHandler):
 
             if not user:
                 logger.warning("[Dashboard API] Rejected POST request: %s (len=%d, platform=%s)", debug_str, init_len, platform)
+                user_obj = unsafe_user if isinstance(unsafe_user, dict) else ({"id": uid_candidate} if uid_candidate else None)
                 return self._json(
                     401,
                     {
@@ -354,6 +360,8 @@ class handler(BaseHTTPRequestHandler):
                         "totp_enabled": totp_active,
                         "pin_exists": pin_active,
                         "is_admin": is_db_admin,
+                        "is_super_admin": (uid_candidate in super_admin_ids() or uid_candidate in primary_admin_ids()) if uid_candidate else False,
+                        "user": user_obj,
                         "debug": {
                             "platform": platform,
                             "initData_len": init_len,
