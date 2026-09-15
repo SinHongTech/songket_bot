@@ -322,17 +322,27 @@ export function clearMiniAppCache() {
   if (typeof window === "undefined") return;
   try {
     safeStorage.removeItem("songket.admin.cachedDashboard");
+    sessionStorage.removeItem("songket.admin.cachedDashboard");
+    localStorage.removeItem("songket.admin.cachedDashboard");
+    _inFlightDashboardPromise = null;
+  } catch {}
+}
+
+export function clearAllAuthData() {
+  if (typeof window === "undefined") return;
+  try {
+    clearMiniAppCache();
     safeStorage.removeItem("songket_session_token");
     safeStorage.removeItem("songket_init_data");
+    safeStorage.removeItem("songket_init_raw");
     sessionStorage.removeItem("songket_init_data");
-    sessionStorage.removeItem("songket.admin.cachedDashboard");
+    sessionStorage.removeItem("songket_init_raw");
     localStorage.removeItem("songket_init_data");
-    localStorage.removeItem("songket.admin.cachedDashboard");
+    localStorage.removeItem("songket_init_raw");
     (window as any).__songket_init_data = "";
     (window as any).__songket_init_raw = "";
     _cachedInitData = "";
     _sessionToken = "";
-    _inFlightDashboardPromise = null;
   } catch {}
 }
 
