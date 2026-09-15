@@ -123,6 +123,8 @@ export interface UserSettings {
 export interface DashboardApiResponse {
   authorized: boolean;
   is_super_admin?: boolean;
+  is_admin?: boolean;
+  totp_enabled?: boolean;
   user?: TelegramUser;
   dashboard?: DashboardData;
   candidate_groups?: CandidateGroup[];

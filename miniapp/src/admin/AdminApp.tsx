@@ -949,6 +949,8 @@ export default function AdminApp() {
   const currentLabel = NAV_ITEMS.find(n => n.id === nav)?.label ?? "";
   const dashboard = apiData?.dashboard || null;
   const isMock = apiData?.isMock ?? (!apiData?.authorized);
+  const isDbAdmin = Boolean(apiData?.is_admin || apiData?.is_super_admin || (apiData?.authorized && !isMock));
+  const canShow2FA = Boolean(apiData?.totp_enabled || (isDbAdmin && (apiData?.pin_exists || isMock)));
 
   // Real Threat Events from backend (clean real alerts only)
   const rawThreatEvents = apiData?.threat_events || [];
@@ -1066,32 +1068,34 @@ export default function AdminApp() {
           <div style={{ fontSize: 13, color: G.textSec, lineHeight: 1.6, marginBottom: 20 }}>
             <span className={kh(lang)}>
               {lang === "km"
-                ? "ផ្ទាំងគ្រប់គ្រងប្រព័ន្ធត្រូវបានការពារ។ សូមប្រើប្រាស់ Google Authenticator (2FA) ដើម្បីចូលផ្ទាល់ ឬទាក់ទងមកកាន់ @Sin_Hong។"
-                : "System configuration is restricted to authorized administrators. Unlock with Google Authenticator (2FA) or contact @Sin_Hong."}
+                ? "ផ្ទាំងគ្រប់គ្រងប្រព័ន្ធត្រូវបានការពារ។ សូមទាក់ទងមកកាន់ @Sin_Hong ដើម្បីស្នើសុំសិទ្ធិគ្រប់គ្រង។"
+                : "System configuration is restricted to authorized administrators. Please contact @Sin_Hong to request access."}
             </span>
           </div>
-          <button
-            onClick={() => setTotpLoginOpen(true)}
-            style={{
-              width: "100%",
-              background: G.gold,
-              color: "#1a1200",
-              border: "none",
-              borderRadius: 10,
-              padding: "13px 0",
-              fontWeight: 800,
-              cursor: "pointer",
-              fontSize: 14,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 8,
-              marginBottom: 10,
-            }}
-          >
-            <KeyRound size={16} />
-            <span className={kh(lang)}>{lang === "km" ? "🔑 ចូលដោយប្រើ 2FA / TOTP" : "🔑 Unlock Live Access via 2FA"}</span>
-          </button>
+          {canShow2FA && (
+            <button
+              onClick={() => setTotpLoginOpen(true)}
+              style={{
+                width: "100%",
+                background: G.gold,
+                color: "#1a1200",
+                border: "none",
+                borderRadius: 10,
+                padding: "13px 0",
+                fontWeight: 800,
+                cursor: "pointer",
+                fontSize: 14,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+                marginBottom: 10,
+              }}
+            >
+              <KeyRound size={16} />
+              <span className={kh(lang)}>{lang === "km" ? "🔑 ចូលដោយប្រើ 2FA / TOTP" : "🔑 Unlock Live Access via 2FA"}</span>
+            </button>
+          )}
           <button
             onClick={() => openTelegramDirect("Sin_Hong")}
             style={{
@@ -1119,7 +1123,7 @@ export default function AdminApp() {
         mode={apiData?.pin_exists ? "login" : "setup"}
         locked={apiData?.locked || 0}
         lang={lang}
-        onOpenTotpLogin={() => setTotpLoginOpen(true)}
+        onOpenTotpLogin={canShow2FA ? () => setTotpLoginOpen(true) : undefined}
         onSuccess={(res) => {
           setManageUnlocked(true);
           if (res && (res.config || res.dashboard || res.authorized)) {
@@ -1157,6 +1161,7 @@ export default function AdminApp() {
         onLogout={handleLogout}
         onRefresh={() => loadData(true, 90)}
         isMock={isMock}
+        canShow2FA={canShow2FA}
       />
     ),
   };
@@ -1189,7 +1194,7 @@ export default function AdminApp() {
               <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: isMock ? "rgba(224,160,32,0.18)" : "rgba(34,197,94,0.15)", color: isMock ? G.warn : G.safe, fontWeight: 700, letterSpacing: "0.04em" }}>
                 {isMock ? "PREVIEW" : "LIVE"}
               </span>
-              {isMock && (
+              {isMock && canShow2FA && (
                 <button
                   onClick={() => setTotpLoginOpen(true)}
                   style={{
