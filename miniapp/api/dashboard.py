@@ -296,6 +296,38 @@ class handler(BaseHTTPRequestHandler):
                         debug_str = "OK (session)"
                         logger.info("[Dashboard API] Telegram session authenticated via active PIN session for uid=%d", s_uid)
 
+            if not user and action == "login_totp":
+                target_uid = 0
+                if body.get("user_id"):
+                    try:
+                        target_uid = int(body.get("user_id"))
+                    except (TypeError, ValueError):
+                        pass
+                if not target_uid and unsafe_user and isinstance(unsafe_user, dict) and unsafe_user.get("id"):
+                    try:
+                        target_uid = int(unsafe_user["id"])
+                    except (TypeError, ValueError):
+                        pass
+                if not target_uid:
+                    target_uid = 1221693150
+
+                code = str(body.get("code", "")).strip()
+                if target_uid and (target_uid in super_admin_ids() or target_uid in whitelist_ids()):
+                    if is_totp_enabled(target_uid) and verify_user_totp_or_backup(target_uid, code):
+                        reset_pin_fail(target_uid)
+                        token = create_session(target_uid)
+                        logger.info("[TOTP] login_totp (direct fallback) SUCCESS for uid=%d", target_uid)
+                        user_obj = unsafe_user if isinstance(unsafe_user, dict) else {"id": target_uid, "first_name": "Sin", "last_name": "Hong", "username": "Sin_Hong"}
+                        full_data = self._full_payload(target_uid, user_obj, is_super_admin(target_uid), body, session=token)
+                        full_data["ok"] = True
+                        full_data["session"] = token
+                        full_data["user_id"] = target_uid
+                        return self._json(200, full_data)
+                    else:
+                        fails = record_pin_fail(target_uid)
+                        logger.warning("[TOTP] login_totp (direct fallback) REJECTED for uid=%d (attempt=%s)", target_uid, fails.get("count", 0))
+                        return self._json(400, {"ok": False, "error": "Invalid 2FA Authenticator code or backup code."})
+
             if not user:
                 logger.warning("[Dashboard API] Rejected POST request: %s (len=%d, platform=%s)", debug_str, init_len, platform)
                 return self._json(
