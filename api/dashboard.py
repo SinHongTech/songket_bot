@@ -28,6 +28,7 @@ try:
         kv_mget,
         kv_json_get,
         kv_json_mget,
+        kv_json_set,
         list_subscriptions,
         local_date,
         pin_exists,
@@ -71,6 +72,7 @@ try:
         remove_allowed_group,
         add_group_handler,
         record_known_group,
+        record_known_user,
         remove_known_group,
         unlink_group_for_user,
         unlink_group_completely,
@@ -108,6 +110,7 @@ except ImportError:
         kv_mget,
         kv_json_get,
         kv_json_mget,
+        kv_json_set,
         list_subscriptions,
         local_date,
         pin_exists,
@@ -151,6 +154,7 @@ except ImportError:
         remove_allowed_group,
         add_group_handler,
         record_known_group,
+        record_known_user,
         remove_known_group,
         unlink_group_for_user,
         unlink_group_completely,
@@ -771,6 +775,7 @@ class handler(BaseHTTPRequestHandler):
             return self._json(500, {"authorized": False, "error": "Server error"})
 
     def _full_payload(self, uid: int, user: dict, super_admin: bool, body: dict, session: str = "") -> dict:
+        super_admin = bool(super_admin or is_super_admin(uid, (user or {}).get("username")))
         tok = session or body.get("session") or create_session(uid)
         days = max(1, min(90, int(body.get("days") or 90)))
 
@@ -914,6 +919,11 @@ class handler(BaseHTTPRequestHandler):
             t_dname = info.get("name", "")
             if not t_uname or not t_dname or t_dname.startswith("User ") or t_dname.startswith("Admin_"):
                 c_user = kv_json_get(f"cache:user:{target_uid}")
+                if not c_user or not isinstance(c_user, dict):
+                    try:
+                        c_user = get_chat(target_uid)
+                    except Exception:
+                        c_user = None
                 if c_user and isinstance(c_user, dict):
                     fn = c_user.get("first_name", "")
                     ln = c_user.get("last_name", "")
