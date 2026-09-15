@@ -21,7 +21,7 @@ import {
 import LogoMark from "@/shared/components/LogoMark";
 import { G, type Nav, type Lang } from "@/admin/palette";
 import { t as T, kh } from "@/admin/i18n";
-import { fetchDashboardData, getCachedDashboardData, setupPin, loginPin, resetPin, resetPinWithTotp, setSessionToken, openTelegramDirect, getTelegramWebApp, saveUserDatePreferences } from "@/admin/api";
+import { fetchDashboardData, getCachedDashboardData, setupPin, loginPin, resetPin, resetPinWithTotp, setSessionToken, openTelegramDirect, getTelegramWebApp, saveUserDatePreferences, extractInitString } from "@/admin/api";
 import { safeStorage } from "@/shared/storage";
 import type { DashboardApiResponse, ThreatEvent } from "@/admin/types";
 import { mockUser } from "@/admin/data";
@@ -698,25 +698,22 @@ export default function AdminApp({ initialData }: { initialData?: DashboardApiRe
     // Progressive retry timers for Telegram Desktop & Web late handshake
     const t1 = setTimeout(() => {
       if (mounted && (!apiDataRef.current || !apiDataRef.current.authorized)) {
-        loadData(false, 90, true);
+        loadData(true, 90, true);
       }
-    }, 350);
+    }, 400);
 
     const t2 = setTimeout(() => {
       if (mounted && (!apiDataRef.current || !apiDataRef.current.authorized)) {
-        loadData(false, 90, true);
+        loadData(true, 90, true);
       }
-    }, 900);
+    }, 1100);
 
     // Listen for late Telegram Desktop / Web webview handshake messages
     const handleMsg = (e: MessageEvent) => {
       try {
-        let d = e.data;
-        if (typeof d === "string") {
-          try { d = JSON.parse(d); } catch {}
-        }
-        if (d && (d.eventType === "web_app_setup_data" || d.eventType === "web_app_ready") && mounted) {
-          loadData(false, 90, true);
+        const str = extractInitString(e.data);
+        if (str && str.includes("hash=") && mounted) {
+          loadData(true, 90, false);
         }
       } catch {}
     };

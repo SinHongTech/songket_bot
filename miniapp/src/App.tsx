@@ -5,7 +5,7 @@ import AdminApp from "./admin/AdminApp";
 import LogoSplash from "./public/components/LogoSplash";
 import PrivacyTerms from "./public/components/PrivacyTerms";
 import { safeStorage } from "./shared/storage";
-import { fetchDashboardData, getCachedDashboardData, getTelegramWebApp } from "./admin/api";
+import { fetchDashboardData, getCachedDashboardData, getTelegramWebApp, extractInitString } from "./admin/api";
 import type { DashboardApiResponse } from "./admin/types";
 
 function PrivacyTermsPage() {
@@ -68,9 +68,9 @@ function AppGateway() {
       try { tg.expand(); } catch {}
     }
 
-    async function checkRoleAndAuth() {
+    async function checkRoleAndAuth(forceRefresh = false) {
       try {
-        const data = await fetchDashboardData(90, false);
+        const data = await fetchDashboardData(90, forceRefresh);
         if (isMounted) {
           if (data && data.authorized) {
             setAuthData(data);
@@ -87,10 +87,22 @@ function AppGateway() {
       }
     }
 
-    checkRoleAndAuth();
+    checkRoleAndAuth(false);
+
+    // Listen for late-arriving Telegram Desktop / Web handshake
+    const handleMsg = (e: MessageEvent) => {
+      try {
+        const str = extractInitString(e.data);
+        if (str && str.includes("hash=") && isMounted) {
+          checkRoleAndAuth(true);
+        }
+      } catch {}
+    };
+    window.addEventListener("message", handleMsg);
 
     return () => {
       isMounted = false;
+      window.removeEventListener("message", handleMsg);
     };
   }, [forceHome]);
 
