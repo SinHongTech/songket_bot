@@ -871,17 +871,28 @@ class handler(BaseHTTPRequestHandler):
         cached_u = kv_json_get(f"cache:user:{uid}") or {}
 
         first_name = user.get("first_name", "")
-        if (not first_name or str(first_name).startswith("Admin_")) and (cached_u.get("first_name") or known_info.get("name")):
-            first_name = cached_u.get("first_name") or known_info.get("name", "")
-
-        last_name = user.get("last_name") or cached_u.get("last_name", "")
+        last_name = user.get("last_name", "")
         u_name = user.get("username") or cached_u.get("username") or known_info.get("username", "")
         if (not u_name or u_name == "admin") and (cached_u.get("username") or known_info.get("username")):
             u_name = cached_u.get("username") or known_info.get("username", "")
 
-        full_name = f"{first_name} {last_name}".strip()
-        if not full_name or full_name.startswith("Admin_"):
-            full_name = known_info.get("name") or (f"@{u_name}" if u_name else f"Admin_{uid}")
+        known_name = known_info.get("name", "")
+        if known_name:
+            full_name = known_name
+            if " " in known_name:
+                parts = known_name.split(" ", 1)
+                first_name = parts[0]
+                last_name = parts[1]
+            elif not first_name:
+                first_name = known_name
+        else:
+            if (not first_name or str(first_name).startswith("Admin_")) and cached_u.get("first_name"):
+                first_name = cached_u.get("first_name")
+            if not last_name and cached_u.get("last_name"):
+                last_name = cached_u.get("last_name")
+            full_name = f"{first_name} {last_name}".strip()
+            if not full_name or full_name.startswith("Admin_"):
+                full_name = f"@{u_name}" if u_name else f"Admin_{uid}"
 
         if not first_name and full_name:
             parts = full_name.split(" ", 1)
