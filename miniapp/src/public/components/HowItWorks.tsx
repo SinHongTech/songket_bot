@@ -776,7 +776,8 @@ export default function HowItWorks({ t, isKm, bodyFont, dark }: HowItWorksProps)
   };
 
   return (
-    <section id="how" style={{ paddingBottom: 40 }}>
+    <section id="how" style={{ paddingBottom: 40, position: "relative" }}>
+      <span id="how-it-works" style={{ position: "absolute", top: 0 }} />
       {/* Section heading */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 22 }}>
         <span style={{ width: 3, height: 18, background: "var(--gold)", borderRadius: 2, flexShrink: 0 }} />

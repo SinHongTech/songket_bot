@@ -119,7 +119,7 @@ export default function About({ isKm, bodyFont }: AboutProps) {
         </p>
       </div>
 
-      <div style={{ marginBottom: 28 }}>
+      <div id="team" style={{ marginBottom: 28 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
           <Code size={16} color="var(--gold)" />
           <p style={{ fontSize: 14, fontWeight: 700, fontFamily: bodyFont }}>{isKm ? "ក្រុមការងាររបស់យើង" : "Who We Are"}</p>
@@ -246,7 +246,7 @@ export default function About({ isKm, bodyFont }: AboutProps) {
             {isKm ? "ភ្នំពេញ\nកម្ពុជា 🇰🇭" : "Phnom Penh,\nCambodia 🇰🇭"}
           </p>
         </div>
-        <div style={{ borderRadius: 12, padding: "16px", background: "var(--surface)", border: "1px solid var(--border)" }}>
+        <div id="contact" style={{ borderRadius: 12, padding: "16px", background: "var(--surface)", border: "1px solid var(--border)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 10 }}>
             <Mail size={14} color="var(--gold)" />
             <p style={{ fontSize: 13, fontWeight: 700, fontFamily: bodyFont }}>{isKm ? "ទំនាក់ទំនង" : "Contact"}</p>

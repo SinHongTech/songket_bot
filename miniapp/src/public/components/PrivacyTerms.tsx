@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { Link } from "react-router";
 import { ArrowLeft } from "lucide-react";
 
 interface PrivacyTermsProps {
@@ -850,8 +851,12 @@ return (
       }}
     >
       {/* Back */}
-      <a
-        href="/"
+      <Link
+        to={{
+          pathname: "/",
+          search: typeof window !== "undefined" ? window.location.search : "",
+          hash: typeof window !== "undefined" ? window.location.hash : "",
+        }}
         style={{
           display: "inline-flex",
           alignItems: "center",
@@ -864,7 +869,7 @@ return (
         }}
       >
         <ArrowLeft size={16} /> {t.back}
-      </a>
+      </Link>
 
       {/* ================= PRIVACY POLICY ================= */}
       <section id="privacy" style={{ marginBottom: 48 }}>

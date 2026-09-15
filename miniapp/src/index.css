@@ -49,6 +49,10 @@ input[type="number"] {
   appearance: textfield;
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 html, body, #root {
   height: 100%;
   background: var(--bg);
