@@ -478,9 +478,9 @@ function ContentBlockThreats({ isKm }: { isKm: boolean }) {
 
 function ContentDashboard({ isKm }: { isKm: boolean }) {
   const iconBtn: React.CSSProperties = {
-    width:8,
-    height: 8,
-    borderRadius: 9,
+    width: 24,
+    height: 24,
+    borderRadius: 6,
     border: "1px solid #2e2400",
     background: "#1a1400",
     display: "flex",
@@ -533,45 +533,48 @@ function ContentDashboard({ isKm }: { isKm: boolean }) {
       {/* ── Top bar ── */}
       <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 18 }}>
         <div style={iconBtn}>
-          <ChevronLeft size={17} color="#c8b980" />
+          <ChevronLeft size={13} color="#c8b980" />
         </div>
 
-        <div style={{ width: 34, height: 34, borderRadius: 9, overflow: "hidden", flexShrink: 0, background: "#1a1400" }}>
+        <div style={{ width: 26, height: 26, borderRadius: 7, overflow: "hidden", flexShrink: 0, background: "#1a1400" }}>
           <img src={logoImg} alt="Songket" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
         </div>
 
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ fontSize: 12, fontWeight: 700, color: "#D4A72C" }}>SongKet</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: "#D4A72C" }}>SongKet</span>
             <span
               style={{
-                fontSize: 5,
+                fontSize: 7.5,
                 fontWeight: 700,
                 color: "#7cd992",
                 background: "rgba(42,170,90,0.15)",
                 border: "1px solid rgba(42,170,90,0.3)",
-                borderRadius: 5,
-                padding: "1px 6px",
+                borderRadius: 4,
+                padding: "1px 5px",
+                lineHeight: 1.1,
               }}
             >
               {isKm ? "កំពុងដំណើរការ" : "LIVE"}
             </span>
           </div>
-          <div style={{ fontSize: 8, color: "#7a6830" }}>{isKm ? "អ្នកគ្រប់គ្រង · ទំព័រដើម" : "Admin · HOME"}</div>
+          <div style={{ fontSize: 8, color: "#7a6830", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {isKm ? "អ្នកគ្រប់គ្រង · ទំព័រដើម" : "Admin · HOME"}
+          </div>
         </div>
 
         <div style={iconBtn}>
-          <RefreshCw size={20} color="#c8b980" />
+          <RefreshCw size={12} color="#c8b980" />
         </div>
         <div style={iconBtn}>
-          <LogOut size={20} color="#c8b980" />
+          <LogOut size={12} color="#c8b980" />
         </div>
         <div
           style={{
-            padding: "5px 9px",
-            borderRadius: 9,
+            padding: "4px 7px",
+            borderRadius: 6,
             background: "#D4A72C",
-            fontSize: 6,
+            fontSize: 8,
             fontWeight: 700,
             color: "#1a1400",
             whiteSpace: "nowrap",
