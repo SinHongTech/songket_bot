@@ -19,6 +19,7 @@ interface AccountViewProps {
   onLogout: () => void;
   onRefresh?: () => void;
   isMock?: boolean;
+  canShow2FA?: boolean;
 }
 
 export default function AccountView({
@@ -32,6 +33,7 @@ export default function AccountView({
   onLogout,
   onRefresh,
   isMock = false,
+  canShow2FA = false,
 }: AccountViewProps) {
   const tx = T(lang);
   const [previewAlertOpen, setPreviewAlertOpen] = useState(false);
@@ -302,95 +304,97 @@ export default function AccountView({
         </div>
       </div>
 
-      {/* 2FA Security Card */}
-      <div style={{ background: G.surface, border: `1px solid ${totpEnabled ? "rgba(34,197,94,0.4)" : G.border}`, borderRadius: 14, padding: "18px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 10 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <ShieldCheck size={20} color={totpEnabled ? G.safe : G.muted} />
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: G.text }}>
-                <span className={kh(lang)}>{isKm ? "ផ្ទៀងផ្ទាត់ ២ ជាន់ (2FA)" : "Two-Factor Auth (2FA)"}</span>
-              </div>
-              <div style={{ fontSize: 11, color: G.muted, marginTop: 2 }}>
-                <span className={kh(lang)}>{isKm ? "Google Authenticator / RFC 6238" : "Google Authenticator / 1Password"}</span>
+      {/* 2FA Security Card - Only rendered for database authorized admins */}
+      {(!isMock || canShow2FA) && (
+        <div style={{ background: G.surface, border: `1px solid ${totpEnabled ? "rgba(34,197,94,0.4)" : G.border}`, borderRadius: 14, padding: "18px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <ShieldCheck size={20} color={totpEnabled ? G.safe : G.muted} />
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: G.text }}>
+                  <span className={kh(lang)}>{isKm ? "ផ្ទៀងផ្ទាត់ ២ ជាន់ (2FA)" : "Two-Factor Auth (2FA)"}</span>
+                </div>
+                <div style={{ fontSize: 11, color: G.muted, marginTop: 2 }}>
+                  <span className={kh(lang)}>{isKm ? "Google Authenticator / RFC 6238" : "Google Authenticator / 1Password"}</span>
+                </div>
               </div>
             </div>
+            <span
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                padding: "3px 8px",
+                borderRadius: 6,
+                background: totpEnabled ? "rgba(34,197,94,0.15)" : G.surface2,
+                color: totpEnabled ? G.safe : G.muted,
+                border: `1px solid ${totpEnabled ? G.safe : G.border}`,
+              }}
+            >
+              {totpEnabled ? (isKm ? "🟢 បានភ្ជាប់" : "🟢 Enabled") : (isKm ? "⚪ មិនទាន់ភ្ជាប់" : "⚪ Disabled")}
+            </span>
           </div>
-          <span
-            style={{
-              fontSize: 10,
-              fontWeight: 700,
-              padding: "3px 8px",
-              borderRadius: 6,
-              background: totpEnabled ? "rgba(34,197,94,0.15)" : G.surface2,
-              color: totpEnabled ? G.safe : G.muted,
-              border: `1px solid ${totpEnabled ? G.safe : G.border}`,
-            }}
-          >
-            {totpEnabled ? (isKm ? "🟢 បានភ្ជាប់" : "🟢 Enabled") : (isKm ? "⚪ មិនទាន់ភ្ជាប់" : "⚪ Disabled")}
-          </span>
+
+          <p style={{ fontSize: 12, color: G.textSec, lineHeight: 1.5, margin: "0 0 14px" }}>
+            <span className={kh(lang)}>
+              {isKm
+                ? "ការពារការកំណត់ PIN ឡើងវិញ និងសុវត្ថិភាពផ្ទាំងគ្រប់គ្រងដោយប្រើកូដ ៦ ខ្ទង់ពីទូរស័ព្ទដៃរបស់អ្នក។"
+                : "Protect your PIN resets and admin panel with live 6-digit rolling codes from your physical phone."}
+            </span>
+          </p>
+
+          {totpEnabled ? (
+            <button
+              onClick={() => {
+                if (isMock) {
+                  setPreviewAlertOpen(true);
+                  return;
+                }
+                setTotpModalMode("disable");
+                setTotpModalOpen(true);
+              }}
+              style={{
+                background: "transparent",
+                border: `1px solid ${G.danger}`,
+                color: G.danger,
+                borderRadius: 8,
+                padding: "7px 14px",
+                fontSize: 11,
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              <span className={kh(lang)}>{isKm ? "បិទដំណើរការ 2FA" : "Disable 2FA"}</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => {
+                if (isMock) {
+                  setPreviewAlertOpen(true);
+                  return;
+                }
+                setTotpModalMode("setup");
+                setTotpModalOpen(true);
+              }}
+              style={{
+                background: G.gold,
+                color: "#1a1200",
+                border: "none",
+                borderRadius: 8,
+                padding: "8px 16px",
+                fontSize: 12,
+                fontWeight: 800,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              <KeyRound size={13} />
+              <span className={kh(lang)}>{isKm ? "+ ភ្ជាប់ Google Authenticator" : "+ Enable Google Authenticator"}</span>
+            </button>
+          )}
         </div>
-
-        <p style={{ fontSize: 12, color: G.textSec, lineHeight: 1.5, margin: "0 0 14px" }}>
-          <span className={kh(lang)}>
-            {isKm
-              ? "ការពារការកំណត់ PIN ឡើងវិញ និងសុវត្ថិភាពផ្ទាំងគ្រប់គ្រងដោយប្រើកូដ ៦ ខ្ទង់ពីទូរស័ព្ទដៃរបស់អ្នក។"
-              : "Protect your PIN resets and admin panel with live 6-digit rolling codes from your physical phone."}
-          </span>
-        </p>
-
-        {totpEnabled ? (
-          <button
-            onClick={() => {
-              if (isMock) {
-                setPreviewAlertOpen(true);
-                return;
-              }
-              setTotpModalMode("disable");
-              setTotpModalOpen(true);
-            }}
-            style={{
-              background: "transparent",
-              border: `1px solid ${G.danger}`,
-              color: G.danger,
-              borderRadius: 8,
-              padding: "7px 14px",
-              fontSize: 11,
-              fontWeight: 700,
-              cursor: "pointer",
-            }}
-          >
-            <span className={kh(lang)}>{isKm ? "បិទដំណើរការ 2FA" : "Disable 2FA"}</span>
-          </button>
-        ) : (
-          <button
-            onClick={() => {
-              if (isMock) {
-                setPreviewAlertOpen(true);
-                return;
-              }
-              setTotpModalMode("setup");
-              setTotpModalOpen(true);
-            }}
-            style={{
-              background: G.gold,
-              color: "#1a1200",
-              border: "none",
-              borderRadius: 8,
-              padding: "8px 16px",
-              fontSize: 12,
-              fontWeight: 800,
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-            }}
-          >
-            <KeyRound size={13} />
-            <span className={kh(lang)}>{isKm ? "+ ភ្ជាប់ Google Authenticator" : "+ Enable Google Authenticator"}</span>
-          </button>
-        )}
-      </div>
+      )}
 
       {previewAlertOpen && (
         <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>

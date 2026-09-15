@@ -296,28 +296,37 @@ class handler(BaseHTTPRequestHandler):
                         debug_str = "OK (session)"
                         logger.info("[Dashboard API] Telegram session authenticated via active PIN session for uid=%d", s_uid)
 
-            if not user and action == "login_totp":
-                target_uid = 0
-                if body.get("user_id"):
-                    try:
-                        target_uid = int(body.get("user_id"))
-                    except (TypeError, ValueError):
-                        pass
-                if not target_uid and unsafe_user and isinstance(unsafe_user, dict) and unsafe_user.get("id"):
-                    try:
-                        target_uid = int(unsafe_user["id"])
-                    except (TypeError, ValueError):
-                        pass
-                if not target_uid:
-                    target_uid = 1221693150
+            # Candidate user resolution from request context
+            uid_candidate = 0
+            if unsafe_user and isinstance(unsafe_user, dict) and unsafe_user.get("id"):
+                try:
+                    uid_candidate = int(unsafe_user["id"])
+                except (TypeError, ValueError):
+                    pass
+            if not uid_candidate and body.get("user_id"):
+                try:
+                    uid_candidate = int(body.get("user_id"))
+                except (TypeError, ValueError):
+                    pass
 
+            is_db_admin = False
+            totp_active = False
+            pin_active = False
+            if uid_candidate:
+                is_db_admin = uid_candidate in super_admin_ids() or uid_candidate in whitelist_ids()
+                if is_db_admin:
+                    totp_active = is_totp_enabled(uid_candidate)
+                    pin_active = pin_exists(uid_candidate)
+
+            if not user and action == "login_totp":
+                target_uid = uid_candidate
                 code = str(body.get("code", "")).strip()
-                if target_uid and (target_uid in super_admin_ids() or target_uid in whitelist_ids()):
-                    if is_totp_enabled(target_uid) and verify_user_totp_or_backup(target_uid, code):
+                if target_uid and is_db_admin:
+                    if totp_active and verify_user_totp_or_backup(target_uid, code):
                         reset_pin_fail(target_uid)
                         token = create_session(target_uid)
-                        logger.info("[TOTP] login_totp (direct fallback) SUCCESS for uid=%d", target_uid)
-                        user_obj = unsafe_user if isinstance(unsafe_user, dict) else {"id": target_uid, "first_name": "Sin", "last_name": "Hong", "username": "Sin_Hong"}
+                        logger.info("[TOTP] login_totp (database verification) SUCCESS for uid=%d", target_uid)
+                        user_obj = unsafe_user if isinstance(unsafe_user, dict) else {"id": target_uid}
                         full_data = self._full_payload(target_uid, user_obj, is_super_admin(target_uid), body, session=token)
                         full_data["ok"] = True
                         full_data["session"] = token
@@ -325,8 +334,10 @@ class handler(BaseHTTPRequestHandler):
                         return self._json(200, full_data)
                     else:
                         fails = record_pin_fail(target_uid)
-                        logger.warning("[TOTP] login_totp (direct fallback) REJECTED for uid=%d (attempt=%s)", target_uid, fails.get("count", 0))
+                        logger.warning("[TOTP] login_totp (database verification) REJECTED for uid=%d (attempt=%s)", target_uid, fails.get("count", 0))
                         return self._json(400, {"ok": False, "error": "Invalid 2FA Authenticator code or backup code."})
+                else:
+                    return self._json(403, {"ok": False, "error": "Unauthorized user"})
 
             if not user:
                 logger.warning("[Dashboard API] Rejected POST request: %s (len=%d, platform=%s)", debug_str, init_len, platform)
@@ -335,6 +346,9 @@ class handler(BaseHTTPRequestHandler):
                     {
                         "authorized": False,
                         "error": f"Auth failed: {debug_str}",
+                        "totp_enabled": totp_active,
+                        "pin_exists": pin_active,
+                        "is_admin": is_db_admin,
                         "debug": {
                             "platform": platform,
                             "initData_len": init_len,
