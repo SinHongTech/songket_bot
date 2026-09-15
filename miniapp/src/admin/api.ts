@@ -317,12 +317,40 @@ export function getCachedDashboardData(): DashboardApiResponse | null {
     const saved = safeStorage.getItem("songket.admin.cachedDashboard");
     if (saved) {
       const parsed = JSON.parse(saved);
-      if (parsed && typeof parsed === "object" && parsed.dashboard) {
+      if (parsed && typeof parsed === "object" && parsed.authorized === true && !parsed.isMock && parsed.dashboard) {
         return parsed;
       }
     }
   } catch {}
   return null;
+}
+
+export function clearMiniAppCache() {
+  if (typeof window === "undefined") return;
+  try {
+    safeStorage.removeItem("songket.admin.cachedDashboard");
+    safeStorage.removeItem("songket_session_token");
+    safeStorage.removeItem("songket_init_data");
+    sessionStorage.removeItem("songket_init_data");
+    sessionStorage.removeItem("songket.admin.cachedDashboard");
+    localStorage.removeItem("songket_init_data");
+    localStorage.removeItem("songket.admin.cachedDashboard");
+    (window as any).__songket_init_data = "";
+    (window as any).__songket_init_raw = "";
+    _cachedInitData = "";
+    _sessionToken = "";
+    _inFlightDashboardPromise = null;
+  } catch {}
+}
+
+export async function refreshDashboardWithFreshAuth(days: number = 90): Promise<DashboardApiResponse> {
+  clearMiniAppCache();
+  const tg = getTelegramWebApp();
+  if (tg) {
+    try { tg.ready(); } catch {}
+    try { tg.expand(); } catch {}
+  }
+  return fetchDashboardData(days, true);
 }
 
 export function getAuthPayload(extra: Record<string, unknown> = {}) {
@@ -397,11 +425,18 @@ export async function fetchDashboardData(days: number = 90, force: boolean = fal
         body: JSON.stringify(payload),
       });
 
-      if (response.ok) {
-        const data: DashboardApiResponse = await response.json();
-        if (data && data.authorized) {
-          if ((data as any).session) {
-            setSessionToken((data as any).session);
+      const text = await response.text();
+      let data: any = null;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        console.warn("[MiniApp] Server returned non-JSON response:", text.slice(0, 150));
+      }
+
+      if (response.ok && data && typeof data === "object") {
+        if (data.authorized) {
+          if (data.session) {
+            setSessionToken(data.session);
           }
           try {
             safeStorage.setItem("songket.admin.cachedDashboard", JSON.stringify(data));
@@ -419,10 +454,6 @@ export async function fetchDashboardData(days: number = 90, force: boolean = fal
       }
 
       if (response.status === 401) {
-        let data: any = null;
-        try {
-          data = await response.json();
-        } catch {}
         console.warn("[MiniApp] fetchDashboardData 401 Unauthorized:", data);
         return {
           authorized: false,
@@ -434,11 +465,11 @@ export async function fetchDashboardData(days: number = 90, force: boolean = fal
         };
       }
 
-      throw new Error(`Failed to fetch dashboard data (HTTP ${response.status})`);
+      throw new Error(data?.error || `Failed to fetch dashboard data (HTTP ${response.status})`);
     } catch (err: any) {
       console.warn("[MiniApp] Dashboard API request error:", err);
       const cached = getCachedDashboardData();
-      if (cached) return cached;
+      if (cached && cached.authorized) return cached;
       return {
         authorized: false,
         user: getTelegramUser() || mockUser,
