@@ -1481,9 +1481,9 @@ def _format_user_entry_name(u: dict) -> str:
             name = k_info.get("name")
     if uname:
         return f"@{uname.lstrip('@')}"
-    if name and not name.startswith("User "):
+    if name and not name.startswith("User ") and not name.startswith("Admin_") and not name.startswith("Admin ("):
         return name
-    return f"User {uid}" if uid else "Member"
+    return "Member"
 
 
 def _build_group_users_view(api: TelegramAPI, group_id: int) -> tuple[str, dict]:

@@ -221,12 +221,12 @@ export default function ManageView({
     if (subscriptions) setSubs(subscriptions);
   }, [subscriptions]);
 
-  // ── Helper: Format User Display based on Super Admin vs Regular Admin ──────
+  // ── Helper: Format User Display (Privacy Standard: NEVER show numeric ID) ──
   function formatUser(
     userId: number | string,
     fallbackUsername?: string,
     fallbackName?: string,
-    showId: boolean = false
+    _showId: boolean = false
   ): { title: string; subtitle?: string } {
     const idStr = String(userId || "").trim();
     const hasValidId = idStr && idStr !== "0";
@@ -236,33 +236,6 @@ export default function ManageView({
     const dname = rawDname && !rawDname.startsWith("User ") && !rawDname.startsWith("Admin_") && !rawDname.startsWith("Admin (") ? rawDname : "";
     const cleanUname = uname ? (uname.startsWith("@") ? uname : `@${uname}`) : "";
 
-    // For Super Admin view: show Name (@username) with ID in ()
-    if (showId && hasValidId) {
-      if (dname && cleanUname) {
-        return {
-          title: `${dname} (${cleanUname})`,
-          subtitle: `ID: (${idStr})`,
-        };
-      }
-      if (dname) {
-        return {
-          title: dname,
-          subtitle: `ID: (${idStr})`,
-        };
-      }
-      if (cleanUname) {
-        return {
-          title: cleanUname,
-          subtitle: `ID: (${idStr})`,
-        };
-      }
-      return {
-        title: `User (${idStr})`,
-        subtitle: `ID: (${idStr})`,
-      };
-    }
-
-    // For Regular Admin view or when no valid ID yet
     if (dname && cleanUname) {
       return {
         title: `${dname} (${cleanUname})`,
@@ -274,9 +247,11 @@ export default function ManageView({
       };
     }
     if (dname) {
-      return { title: dname };
+      return {
+        title: dname,
+      };
     }
-    return { title: hasValidId ? `User (${idStr})` : "User" };
+    return { title: isKm ? "សមាជិក (Member)" : "Member" };
   }
 
   function getGroupDisplay(gid: number, showId: boolean = false): { title: string; subtitle?: string } {
@@ -544,11 +519,21 @@ export default function ManageView({
 
   // ── Super Admin System Operations (TOTP Protected) ──────────────────────
   function handleAddSuperAdminClick() {
-    const trimmed = newSuperAdminId.trim();
-    if (!trimmed) return;
-    const num = parseInt(trimmed, 10);
+    const raw = newSuperAdminId.trim();
+    if (!raw) return;
+    let num = 0;
+    if (/^\d+$/.test(raw)) {
+      num = parseInt(raw, 10);
+    } else if (knownUsers) {
+      const match = Object.entries(knownUsers).find(
+        ([, v]) => v.username?.toLowerCase() === raw.toLowerCase().replace(/^@/, "")
+      );
+      if (match) {
+        num = parseInt(match[0], 10);
+      }
+    }
     if (isNaN(num) || num <= 0) {
-      setErrorMsg(isKm ? "សូមបញ្ចូលលេខសម្គាល់ Telegram ID ត្រឹមត្រូវ" : "Enter a valid Telegram User ID");
+      setErrorMsg(isKm ? "សូមបញ្ចូល Telegram ID ឬ @Username ត្រឹមត្រូវ" : "Enter a valid User ID or @Username");
       return;
     }
     if (superAdminIds.includes(num)) {
@@ -593,17 +578,17 @@ export default function ManageView({
           if (res.config?.whitelist_user_ids) {
             setWhitelist(res.config.whitelist_user_ids);
           } else {
-            setWhitelist((prev) => (prev.includes(totpActionModal.targetId) ? prev : [...prev, totpActionModal.targetId]));
+            setWhitelist((prev) => [...prev.filter((x) => x !== totpActionModal.targetId), totpActionModal.targetId]);
           }
-          setNewSuperAdminId("");
           setTotpActionModal(null);
+          setNewSuperAdminId("");
           setSavedToast(true);
           setTimeout(() => setSavedToast(false), 3000);
           onRefresh();
         } else {
           setTotpActionErr(res.error || (isKm ? "កូដ Authenticator មិនត្រឹមត្រូវ" : "Invalid 2FA code"));
         }
-      } else {
+      } else if (totpActionModal.type === "remove") {
         const res = await removeSuperAdmin(totpActionModal.targetId, cleanCode);
         if (res.ok) {
           if (res.config?.super_admin_ids) {
@@ -627,10 +612,23 @@ export default function ManageView({
   }
 
   function handleAddWhitelist() {
-    const trimmed = newUserId.trim();
-    if (!trimmed) return;
-    const num = parseInt(trimmed, 10);
-    if (isNaN(num)) return;
+    const raw = newUserId.trim();
+    if (!raw) return;
+    let num = 0;
+    if (/^\d+$/.test(raw)) {
+      num = parseInt(raw, 10);
+    } else if (knownUsers) {
+      const match = Object.entries(knownUsers).find(
+        ([, v]) => v.username?.toLowerCase() === raw.toLowerCase().replace(/^@/, "")
+      );
+      if (match) {
+        num = parseInt(match[0], 10);
+      }
+    }
+    if (!num) {
+      setErrorMsg(isKm ? "សូមបញ្ចូល Telegram ID ឬ @Username ត្រឹមត្រូវ" : "Enter a valid User ID or @Username");
+      return;
+    }
     if (!whitelist.includes(num)) {
       setWhitelist((prev) => [...prev, num]);
     }
@@ -1823,14 +1821,13 @@ export default function ManageView({
               <div style={{ flex: 1, minWidth: 0 }}>
                 <input
                   value={newSuperAdminId}
-                  onChange={(e) => setNewSuperAdminId(e.target.value.replace(/\D/g, ""))}
+                  onChange={(e) => setNewSuperAdminId(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && newSuperAdminId.trim()) {
                       handleAddSuperAdminClick();
                     }
                   }}
-                  placeholder={isKm ? "លេខសម្គាល់ Telegram (Telegram User ID)" : "Super Admin Telegram ID"}
-                  inputMode="numeric"
+                  placeholder={isKm ? "User ID ឬ @Username" : "User ID or @Username"}
                   style={inputStyle}
                 />
               </div>
@@ -1916,9 +1913,8 @@ export default function ManageView({
               <div style={{ flex: 1, minWidth: 0 }}>
                 <input
                   value={newUserId}
-                  onChange={(e) => setNewUserId(e.target.value.replace(/\D/g, ""))}
-                  placeholder={tx.addUserPlaceholder}
-                  inputMode="numeric"
+                  onChange={(e) => setNewUserId(e.target.value)}
+                  placeholder={isKm ? "User ID ឬ @Username" : "User ID or @Username"}
                   style={inputStyle}
                 />
               </div>
