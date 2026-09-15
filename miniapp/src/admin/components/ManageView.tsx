@@ -221,47 +221,21 @@ export default function ManageView({
     if (subscriptions) setSubs(subscriptions);
   }, [subscriptions]);
 
-  // ── Helper: Format User Display based on Super Admin vs Regular Admin ──────
+  // ── Helper: Format User Display (Privacy Standard: NEVER show numeric ID) ──
   function formatUser(
     userId: number | string,
     fallbackUsername?: string,
     fallbackName?: string,
-    showId: boolean = false
+    _showId: boolean = false
   ): { title: string; subtitle?: string } {
     const idStr = String(userId || "").trim();
-    const info = knownUsers?.[idStr];
+    const hasValidId = idStr && idStr !== "0";
+    const info = hasValidId ? knownUsers?.[idStr] : undefined;
     const uname = fallbackUsername || info?.username || "";
     const rawDname = fallbackName || info?.name || "";
     const dname = rawDname && !rawDname.startsWith("User ") && !rawDname.startsWith("Admin_") && !rawDname.startsWith("Admin (") ? rawDname : "";
     const cleanUname = uname ? (uname.startsWith("@") ? uname : `@${uname}`) : "";
 
-    // For Super Admin view: show Name (@username) with ID in ()
-    if (showId && idStr) {
-      if (dname && cleanUname) {
-        return {
-          title: `${dname} (${cleanUname})`,
-          subtitle: `ID: (${idStr})`,
-        };
-      }
-      if (dname) {
-        return {
-          title: dname,
-          subtitle: `ID: (${idStr})`,
-        };
-      }
-      if (cleanUname) {
-        return {
-          title: cleanUname,
-          subtitle: `ID: (${idStr})`,
-        };
-      }
-      return {
-        title: `User (${idStr})`,
-        subtitle: `ID: (${idStr})`,
-      };
-    }
-
-    // For Regular Admin view: Privacy standard (NEVER show numeric ID)
     if (dname && cleanUname) {
       return {
         title: `${dname} (${cleanUname})`,
@@ -273,9 +247,11 @@ export default function ManageView({
       };
     }
     if (dname) {
-      return { title: dname };
+      return {
+        title: dname,
+      };
     }
-    return { title: "User" };
+    return { title: isKm ? "សមាជិក (Member)" : "Member" };
   }
 
   function getGroupDisplay(gid: number, showId: boolean = false): { title: string; subtitle?: string } {
@@ -379,26 +355,38 @@ export default function ManageView({
   async function handleAddGroupUser() {
     const raw = newGroupUser.trim();
     if (!raw) return;
-    let targetUid = parseInt(raw.replace(/[^\d]/g, ""), 10);
-    let targetUname = raw.startsWith("@") ? raw.slice(1) : "";
 
-    if (isNaN(targetUid) && knownUsers) {
+    let targetUid = 0;
+    let targetUname = "";
+
+    if (/^\d+$/.test(raw)) {
+      targetUid = parseInt(raw, 10);
+    } else {
+      targetUname = raw.replace(/^@/, "").trim();
+    }
+
+    // Try to resolve targetUid from knownUsers if it was a username
+    if (!targetUid && targetUname && knownUsers) {
       const match = Object.entries(knownUsers).find(
-        ([, v]) => v.username?.toLowerCase() === raw.toLowerCase().replace(/^@/, "")
+        ([, v]) => v.username?.toLowerCase() === targetUname.toLowerCase()
       );
       if (match) {
         targetUid = parseInt(match[0], 10);
-        targetUname = match[1].username || "";
       }
     }
 
-    if (isNaN(targetUid) || !targetUid) {
+    if (!targetUid && !targetUname) {
       setErrorMsg(isKm ? "សូមបញ្ចូល User ID ឬ Telegram Username ត្រឹមត្រូវ" : "Enter a valid User ID or Username");
       return;
     }
 
     // Deduplication check
-    if (groupWlUsers.some((u) => u.user_id === targetUid)) {
+    const alreadyIn = groupWlUsers.some(
+      (u) =>
+        (targetUid > 0 && u.user_id === targetUid) ||
+        (targetUname && u.username && u.username.toLowerCase() === targetUname.toLowerCase())
+    );
+    if (alreadyIn) {
       triggerGroupToast(isKm ? "អ្នកប្រើប្រាស់នេះមានក្នុងបញ្ជីរួចហើយ" : "User already in whitelist");
       setNewGroupUser("");
       setNewGroupUserName("");
@@ -411,7 +399,14 @@ export default function ManageView({
       name: newGroupUserName.trim() || undefined,
       added_at: Math.floor(Date.now() / 1000),
     };
-    setGroupWlUsers((prev) => [...prev.filter((u) => u.user_id !== targetUid), optimistic]);
+    setGroupWlUsers((prev) => [
+      ...prev.filter(
+        (u) =>
+          !(targetUid > 0 && u.user_id === targetUid) &&
+          !(targetUname && u.username && u.username.toLowerCase() === targetUname.toLowerCase())
+      ),
+      optimistic,
+    ]);
     setNewGroupUser("");
     setNewGroupUserName("");
 
@@ -424,10 +419,16 @@ export default function ManageView({
     }
   }
 
-  async function handleRemoveGroupUser(uid: number) {
-    setGroupWlUsers((prev) => prev.filter((u) => u.user_id !== uid));
+  async function handleRemoveGroupUser(uid: number, username?: string) {
+    setGroupWlUsers((prev) =>
+      prev.filter(
+        (u) =>
+          !(uid > 0 && u.user_id === uid) &&
+          !(username && u.username && u.username.toLowerCase() === username.toLowerCase())
+      )
+    );
     try {
-      await removeGroupWhitelistUser(selectedGid, uid);
+      await removeGroupWhitelistUser(selectedGid, uid, username);
       triggerGroupToast(isKm ? "បានលុបចេញពីបញ្ជីស" : "User removed from whitelist");
       onRefresh();
     } catch (e: any) {
@@ -436,10 +437,16 @@ export default function ManageView({
   }
 
   // ── Group Muted Users Operations (Unmute) ─────────────────────────────────
-  async function handleUnmuteGroupUser(uid: number) {
-    setGroupMutedUsers((prev) => prev.filter((u) => u.user_id !== uid));
+  async function handleUnmuteGroupUser(uid: number, username?: string) {
+    setGroupMutedUsers((prev) =>
+      prev.filter(
+        (u) =>
+          !(uid > 0 && u.user_id === uid) &&
+          !(username && u.username && u.username.toLowerCase() === username.toLowerCase())
+      )
+    );
     try {
-      await unmuteGroupUser(selectedGid, uid);
+      await unmuteGroupUser(selectedGid, uid, username);
       triggerGroupToast(isKm ? "បានបើកសិទ្ធិផ្ញើសារ (Unmuted)" : "User unmuted successfully");
       onRefresh();
     } catch (e: any) {
@@ -448,10 +455,16 @@ export default function ManageView({
   }
 
   // ── Group Banned Users Operations (Unban) ──────────────────────────────────
-  async function handleUnbanGroupUser(uid: number) {
-    setGroupBannedUsers((prev) => prev.filter((u) => u.user_id !== uid));
+  async function handleUnbanGroupUser(uid: number, username?: string) {
+    setGroupBannedUsers((prev) =>
+      prev.filter(
+        (u) =>
+          !(uid > 0 && u.user_id === uid) &&
+          !(username && u.username && u.username.toLowerCase() === username.toLowerCase())
+      )
+    );
     try {
-      await unbanGroupUser(selectedGid, uid);
+      await unbanGroupUser(selectedGid, uid, username);
       triggerGroupToast(isKm ? "បានដកការ Ban (Unbanned)" : "User unbanned successfully");
       onRefresh();
     } catch (e: any) {
@@ -506,11 +519,21 @@ export default function ManageView({
 
   // ── Super Admin System Operations (TOTP Protected) ──────────────────────
   function handleAddSuperAdminClick() {
-    const trimmed = newSuperAdminId.trim();
-    if (!trimmed) return;
-    const num = parseInt(trimmed, 10);
+    const raw = newSuperAdminId.trim();
+    if (!raw) return;
+    let num = 0;
+    if (/^\d+$/.test(raw)) {
+      num = parseInt(raw, 10);
+    } else if (knownUsers) {
+      const match = Object.entries(knownUsers).find(
+        ([, v]) => v.username?.toLowerCase() === raw.toLowerCase().replace(/^@/, "")
+      );
+      if (match) {
+        num = parseInt(match[0], 10);
+      }
+    }
     if (isNaN(num) || num <= 0) {
-      setErrorMsg(isKm ? "សូមបញ្ចូលលេខសម្គាល់ Telegram ID ត្រឹមត្រូវ" : "Enter a valid Telegram User ID");
+      setErrorMsg(isKm ? "សូមបញ្ចូល Telegram ID ឬ @Username ត្រឹមត្រូវ" : "Enter a valid User ID or @Username");
       return;
     }
     if (superAdminIds.includes(num)) {
@@ -555,17 +578,17 @@ export default function ManageView({
           if (res.config?.whitelist_user_ids) {
             setWhitelist(res.config.whitelist_user_ids);
           } else {
-            setWhitelist((prev) => (prev.includes(totpActionModal.targetId) ? prev : [...prev, totpActionModal.targetId]));
+            setWhitelist((prev) => [...prev.filter((x) => x !== totpActionModal.targetId), totpActionModal.targetId]);
           }
-          setNewSuperAdminId("");
           setTotpActionModal(null);
+          setNewSuperAdminId("");
           setSavedToast(true);
           setTimeout(() => setSavedToast(false), 3000);
           onRefresh();
         } else {
           setTotpActionErr(res.error || (isKm ? "កូដ Authenticator មិនត្រឹមត្រូវ" : "Invalid 2FA code"));
         }
-      } else {
+      } else if (totpActionModal.type === "remove") {
         const res = await removeSuperAdmin(totpActionModal.targetId, cleanCode);
         if (res.ok) {
           if (res.config?.super_admin_ids) {
@@ -589,10 +612,23 @@ export default function ManageView({
   }
 
   function handleAddWhitelist() {
-    const trimmed = newUserId.trim();
-    if (!trimmed) return;
-    const num = parseInt(trimmed, 10);
-    if (isNaN(num)) return;
+    const raw = newUserId.trim();
+    if (!raw) return;
+    let num = 0;
+    if (/^\d+$/.test(raw)) {
+      num = parseInt(raw, 10);
+    } else if (knownUsers) {
+      const match = Object.entries(knownUsers).find(
+        ([, v]) => v.username?.toLowerCase() === raw.toLowerCase().replace(/^@/, "")
+      );
+      if (match) {
+        num = parseInt(match[0], 10);
+      }
+    }
+    if (!num) {
+      setErrorMsg(isKm ? "សូមបញ្ចូល Telegram ID ឬ @Username ត្រឹមត្រូវ" : "Enter a valid User ID or @Username");
+      return;
+    }
     if (!whitelist.includes(num)) {
       setWhitelist((prev) => [...prev, num]);
     }
@@ -1365,11 +1401,11 @@ export default function ManageView({
                   {isKm ? "មិនទាន់មានសមាជិកក្នុងបញ្ជីសឡើយ" : "No whitelisted members in this group."}
                 </div>
               ) : (
-                groupWlUsers.map((u) => {
+                groupWlUsers.map((u, idx) => {
                   const formatted = formatUser(u.user_id, u.username, u.name, isSuperAdmin);
                   return (
                     <div
-                      key={u.user_id}
+                      key={u.user_id ? String(u.user_id) : (u.username || `wl_${idx}`)}
                       style={{
                         display: "flex",
                         alignItems: "center",
@@ -1389,7 +1425,7 @@ export default function ManageView({
                         )}
                       </div>
                       <button
-                        onClick={() => handleRemoveGroupUser(u.user_id)}
+                        onClick={() => handleRemoveGroupUser(u.user_id, u.username)}
                         style={{ background: "transparent", border: "none", color: G.danger, cursor: "pointer", padding: 4 }}
                         title={tx.remove}
                       >
@@ -1471,11 +1507,11 @@ export default function ManageView({
                   {isKm ? "គ្មានសមាជិកដែលត្រូវ Mute ឡើយ" : "No muted members in this group."}
                 </div>
               ) : (
-                groupMutedUsers.map((u) => {
+                groupMutedUsers.map((u, idx) => {
                   const formatted = formatUser(u.user_id, u.username, u.name, isSuperAdmin);
                   return (
                     <div
-                      key={u.user_id}
+                      key={u.user_id ? String(u.user_id) : (u.username || `muted_${idx}`)}
                       style={{
                         display: "flex",
                         alignItems: "center",
@@ -1498,7 +1534,7 @@ export default function ManageView({
                         </div>
                       </div>
                       <button
-                        onClick={() => handleUnmuteGroupUser(u.user_id)}
+                        onClick={() => handleUnmuteGroupUser(u.user_id, u.username)}
                         style={{
                           background: "rgba(42,170,90,0.15)",
                           border: `1px solid ${G.safe}`,
@@ -1551,11 +1587,11 @@ export default function ManageView({
                   {isKm ? "គ្មានសមាជិកដែលត្រូវ Ban ឡើយ" : "No banned members in this group."}
                 </div>
               ) : (
-                groupBannedUsers.map((u) => {
+                groupBannedUsers.map((u, idx) => {
                   const formatted = formatUser(u.user_id, u.username, u.name, isSuperAdmin);
                   return (
                     <div
-                      key={u.user_id}
+                      key={u.user_id ? String(u.user_id) : (u.username || `banned_${idx}`)}
                       style={{
                         display: "flex",
                         alignItems: "center",
@@ -1578,7 +1614,7 @@ export default function ManageView({
                         </div>
                       </div>
                       <button
-                        onClick={() => handleUnbanGroupUser(u.user_id)}
+                        onClick={() => handleUnbanGroupUser(u.user_id, u.username)}
                         style={{
                           background: "rgba(42,170,90,0.15)",
                           border: `1px solid ${G.safe}`,
@@ -1785,14 +1821,13 @@ export default function ManageView({
               <div style={{ flex: 1, minWidth: 0 }}>
                 <input
                   value={newSuperAdminId}
-                  onChange={(e) => setNewSuperAdminId(e.target.value.replace(/\D/g, ""))}
+                  onChange={(e) => setNewSuperAdminId(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && newSuperAdminId.trim()) {
                       handleAddSuperAdminClick();
                     }
                   }}
-                  placeholder={isKm ? "លេខសម្គាល់ Telegram (Telegram User ID)" : "Super Admin Telegram ID"}
-                  inputMode="numeric"
+                  placeholder={isKm ? "User ID ឬ @Username" : "User ID or @Username"}
                   style={inputStyle}
                 />
               </div>
@@ -1878,9 +1913,8 @@ export default function ManageView({
               <div style={{ flex: 1, minWidth: 0 }}>
                 <input
                   value={newUserId}
-                  onChange={(e) => setNewUserId(e.target.value.replace(/\D/g, ""))}
-                  placeholder={tx.addUserPlaceholder}
-                  inputMode="numeric"
+                  onChange={(e) => setNewUserId(e.target.value)}
+                  placeholder={isKm ? "User ID ឬ @Username" : "User ID or @Username"}
                   style={inputStyle}
                 />
               </div>

@@ -50,6 +50,7 @@ from bot.redis_client import (
     increment_daily_scan_usage,
     increment_scan_usage,
     is_file_whitelisted,
+    is_user_whitelisted_in_group,
     kv_delete,
     kv_get,
     kv_set,
@@ -67,6 +68,8 @@ from bot.redis_client import (
     remove_group_muted_user,
     remove_group_whitelisted_file,
     remove_group_whitelisted_user,
+    resolve_user_id,
+    resolve_user_info,
     set_group_lang,
     set_group_settings,
     set_pending,
@@ -398,9 +401,11 @@ def classify_verdict(malicious: int, suspicious: int) -> str:
 
 def apply_strike(api: TelegramAPI, chat_id: int, user_id: int, user_display: str, chat_title: str = "") -> int:
     """Increment a user's strike count; mute when a threshold is reached (doc section 3)."""
-    # Group creator/administrators and super admins cannot and should not be restricted
-    if is_super_admin(user_id) or api.is_group_admin(user_id, chat_id):
-        logger.info("Skipping strike restriction for chat owner / admin %s in chat %s", user_display, chat_title or chat_id)
+    user_info = get_known_users().get(str(user_id), {})
+    uname = user_info.get("username", "") or (user_display.lstrip("@") if user_display.startswith("@") else "")
+    # Group creator/administrators, super admins, and whitelisted users cannot and should not be restricted
+    if is_super_admin(user_id) or user_id in whitelist_user_ids() or is_user_whitelisted_in_group(chat_id, user_id, uname) or api.is_group_admin(user_id, chat_id):
+        logger.info("Skipping strike restriction for chat owner / admin / whitelisted user %s in chat %s", user_display, chat_title or chat_id)
         return 0
 
     strikes = add_strike(chat_id, user_id)
@@ -411,12 +416,18 @@ def apply_strike(api: TelegramAPI, chat_id: int, user_id: int, user_display: str
             chat_id, user_id, can_send_messages=False, until_date=int(time.time()) + duration
         )
         if ok:
-            add_group_muted_user(chat_id, user_id, user_display, strikes=strikes)
+            user_info = get_known_users().get(str(user_id), {})
+            uname = user_info.get("username", "")
+            dname = user_info.get("name", "") or user_display
+            if not uname and user_display.startswith("@"):
+                uname = user_display.lstrip("@")
+            add_group_muted_user(chat_id, user_id, username=uname, name=dname, strikes=strikes)
+            clean_display = f"@{uname}" if uname else (dname or user_display)
             api.send_message(
                 chat_id,
-                f"📢 <b>{user_display}</b> is restricted for {hours}h due to {strikes} threat violations.",
+                f"📢 <b>{clean_display}</b> is restricted for {hours}h due to {strikes} threat violations.",
             )
-            _send_mute_alert_to_admin(api, chat_id, chat_title, user_id, user_display, hours, strikes)
+            _send_mute_alert_to_admin(api, chat_id, chat_title, user_id, clean_display, hours, strikes)
         else:
             logger.warning("Could not restrict user %s in chat %s (may be chat creator/admin)", user_display, chat_title or chat_id)
     return strikes
@@ -1459,6 +1470,22 @@ def _build_group_settings_view(api: TelegramAPI, group_id: int) -> tuple[str, di
     return text, {"inline_keyboard": keyboard}
 
 
+def _format_user_entry_name(u: dict) -> str:
+    uname = u.get("username")
+    name = u.get("name")
+    uid = u.get("user_id")
+    if not uname and uid:
+        k_info = get_known_users().get(str(uid), {})
+        uname = k_info.get("username")
+        if not name:
+            name = k_info.get("name")
+    if uname:
+        return f"@{uname.lstrip('@')}"
+    if name and not name.startswith("User ") and not name.startswith("Admin_") and not name.startswith("Admin ("):
+        return name
+    return "Member"
+
+
 def _build_group_users_view(api: TelegramAPI, group_id: int) -> tuple[str, dict]:
     real_gid, chat = _resolve_chat_id_and_info(api, group_id)
     title = (chat or {}).get("title") or "ក្រុម (Group)"
@@ -1476,7 +1503,7 @@ def _build_group_users_view(api: TelegramAPI, group_id: int) -> tuple[str, dict]
         lines.append("<i>គ្មានអ្នកប្រើប្រាស់ក្នុងបញ្ជីស (No whitelisted users)</i>")
     else:
         for idx, u in enumerate(wl_users, 1):
-            uname = f"@{u['username']}" if u.get("username") else u.get("name") or "User"
+            uname = _format_user_entry_name(u)
             lines.append(f"{idx}. {esc(uname)}")
 
     lines.append(f"\n🔇 <b>Muted Users (អ្នកត្រូវ Mute):</b>")
@@ -1484,7 +1511,7 @@ def _build_group_users_view(api: TelegramAPI, group_id: int) -> tuple[str, dict]
         lines.append("<i>គ្មានសមាជិកដែលត្រូវ Mute ឡើយ (No muted members)</i>")
     else:
         for idx, u in enumerate(muted_users, 1):
-            uname = f"@{u['username']}" if u.get("username") else u.get("name") or "User"
+            uname = _format_user_entry_name(u)
             strikes = u.get("strikes", 3)
             lines.append(f"{idx}. {esc(uname)} · Strikes: {strikes}")
 
@@ -1493,7 +1520,7 @@ def _build_group_users_view(api: TelegramAPI, group_id: int) -> tuple[str, dict]
         lines.append("<i>គ្មានសមាជិកដែលត្រូវ Ban ឡើយ (No banned members)</i>")
     else:
         for idx, u in enumerate(banned_users, 1):
-            uname = f"@{u['username']}" if u.get("username") else u.get("name") or "User"
+            uname = _format_user_entry_name(u)
             reason = u.get("reason", "Malicious activity")
             lines.append(f"{idx}. {esc(uname)} · {esc(reason)}")
 
@@ -1501,7 +1528,7 @@ def _build_group_users_view(api: TelegramAPI, group_id: int) -> tuple[str, dict]
     # Action buttons for muted users
     for u in muted_users[:5]:
         uid = u.get("user_id")
-        uname = f"@{u['username']}" if u.get("username") else str(uid)
+        uname = _format_user_entry_name(u)
         keyboard.append([
             {"text": f"🔊 Unmute {uname}", "callback_data": f"unmute:{group_id}:{uid}"}
         ])
@@ -1509,7 +1536,7 @@ def _build_group_users_view(api: TelegramAPI, group_id: int) -> tuple[str, dict]
     # Action buttons for banned users
     for u in banned_users[:5]:
         uid = u.get("user_id")
-        uname = f"@{u['username']}" if u.get("username") else str(uid)
+        uname = _format_user_entry_name(u)
         keyboard.append([
             {"text": f"🔓 Unban {uname}", "callback_data": f"unban:{group_id}:{uid}"}
         ])
@@ -1517,7 +1544,7 @@ def _build_group_users_view(api: TelegramAPI, group_id: int) -> tuple[str, dict]
     # Action buttons to remove whitelisted users
     for u in wl_users[:5]:
         uid = u.get("user_id")
-        uname = f"@{u['username']}" if u.get("username") else str(uid)
+        uname = _format_user_entry_name(u)
         keyboard.append([
             {"text": f"❌ Remove Whitelist {uname}", "callback_data": f"adm_rm_wl_user:{group_id}:{uid}"}
         ])
@@ -1999,10 +2026,14 @@ def _send_daily_report_settings_message(
 
 def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
     user_id = (message.get("from") or {}).get("id", 0)
+    sender = message.get("from") or {}
     text = (message.get("text") or "").strip()
     command = text.split()[0].split("@", 1)[0] if text else ""
     whitelisted = user_id in whitelist_user_ids() or is_super_admin(user_id)
     lang = get_user_lang(user_id)
+
+    if user_id:
+        record_known_user(user_id, sender.get("username", ""), get_user_display(sender))
 
     # 1. Telegram Native Chat Shared event (when user selects a group via request_chat button)
     chat_shared = message.get("chat_shared")
@@ -2166,6 +2197,86 @@ def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
             )
             return
 
+        # Admin Moderation Commands in Private DM
+        if command in {"/unban", "/unkick", "/unmute", "/whitelist", "/wl", "/unwhitelist", "/rmwhitelist", "/rmwl", "/ban", "/kick", "/mute"}:
+            if not whitelisted:
+                api.send_message(chat_id, UNAUTHORIZED_TEXT, reply_markup=menu_kb)
+                return
+            managed_groups = get_managed_groups_for_user(api, user_id)
+            if not managed_groups:
+                api.send_message(chat_id, "❌ មិនទាន់មានក្រុមដែលលោកអ្នកគ្រប់គ្រងនៅឡើយទេ (No managed groups).", reply_markup=menu_kb)
+                return
+            args = text.split()[1:] if len(text.split()) > 1 else []
+            if not args:
+                api.send_message(
+                    chat_id,
+                    f"ℹ️ <b>របៀបប្រើ (Usage):</b>\n<code>{command} @username</code> ឬ <code>{command} user_id</code>",
+                    reply_markup=menu_kb,
+                )
+                return
+            target_identifier = args[0].strip()
+            results = []
+            for grp in managed_groups:
+                gid = grp["id"]
+                g_title = grp.get("title") or str(gid)
+                target_uid, target_uname, target_dname = resolve_user_info(gid, target_identifier)
+                clean_target_display = f"@{target_uname}" if target_uname else (target_dname or target_identifier)
+                if command in {"/unban", "/unkick"}:
+                    if target_uid:
+                        api.unban_chat_member(gid, target_uid)
+                        remove_group_banned_user(gid, target_uid)
+                        remove_group_muted_user(gid, target_uid)
+                    elif target_uname:
+                        remove_group_banned_user(gid, username=target_uname)
+                        remove_group_muted_user(gid, username=target_uname)
+                    results.append(f"• <b>{esc(g_title)}:</b> 🔓 {clean_target_display} unbanned/unkicked")
+                elif command == "/unmute":
+                    if target_uid:
+                        api.unrestrict_chat_member(gid, target_uid)
+                        remove_group_muted_user(gid, target_uid)
+                    elif target_uname:
+                        remove_group_muted_user(gid, username=target_uname)
+                    results.append(f"• <b>{esc(g_title)}:</b> 🔊 {clean_target_display} unmuted")
+                elif command in {"/whitelist", "/wl"}:
+                    add_group_whitelisted_user(gid, target_uid, username=target_uname, name=target_dname)
+                    if target_uid:
+                        api.unrestrict_chat_member(gid, target_uid)
+                        api.unban_chat_member(gid, target_uid)
+                    results.append(f"• <b>{esc(g_title)}:</b> 🛡️ {clean_target_display} added to whitelist")
+                elif command in {"/unwhitelist", "/rmwhitelist", "/rmwl"}:
+                    remove_group_whitelisted_user(gid, target_uid, username=target_uname)
+                    results.append(f"• <b>{esc(g_title)}:</b> ❌ {clean_target_display} removed from whitelist")
+                elif command == "/ban":
+                    if target_uid:
+                        api.ban_chat_member(gid, target_uid)
+                        add_group_banned_user(gid, target_uid, username=target_uname, name=target_dname, reason="Banned by admin via private command")
+                        remove_group_muted_user(gid, target_uid)
+                        results.append(f"• <b>{esc(g_title)}:</b> 🔨 {clean_target_display} banned")
+                    else:
+                        results.append(f"• <b>{esc(g_title)}:</b> ⚠️ {clean_target_display} not found")
+                elif command == "/kick":
+                    if target_uid:
+                        api.ban_chat_member(gid, target_uid)
+                        api.unban_chat_member(gid, target_uid)
+                        remove_group_muted_user(gid, target_uid)
+                        results.append(f"• <b>{esc(g_title)}:</b> 👢 {clean_target_display} kicked")
+                    else:
+                        results.append(f"• <b>{esc(g_title)}:</b> ⚠️ {clean_target_display} not found")
+                elif command == "/mute":
+                    hours = 24
+                    if len(args) > 1 and args[1].isdigit():
+                        hours = max(1, min(720, int(args[1])))
+                    until_date = int(time.time()) + hours * 3600
+                    if target_uid:
+                        api.restrict_chat_member(gid, target_uid, can_send_messages=False, until_date=until_date)
+                        add_group_muted_user(gid, target_uid, username=target_uname, name=target_dname, strikes=1)
+                        results.append(f"• <b>{esc(g_title)}:</b> 🔇 {clean_target_display} muted ({hours}h)")
+                    else:
+                        results.append(f"• <b>{esc(g_title)}:</b> ⚠️ {clean_target_display} not found")
+            summary_msg = f"⚙️ <b>Admin Action Summary:</b>\n" + "\n".join(results)
+            api.send_message(chat_id, summary_msg, reply_markup=menu_kb)
+            return
+
     # Personal scanning — any link, photo, sticker, or file sent privately
     content = (message.get("text") or "") + " " + (message.get("caption") or "")
     if extract_urls(content) or message.get("photo") or message.get("sticker") or (message.get("document") or {}).get("file_id"):
@@ -2194,17 +2305,18 @@ def _handle_group_commands(api: TelegramAPI, chat_id: int, message: dict, sender
 
     command_part = text.split()[0].lower().split("@", 1)[0]
     args = text.split()[1:] if len(text.split()) > 1 else []
+    reply = message.get("reply_to_message") or {}
+    reply_user = reply.get("from") or {}
+    reply_user_id = reply_user.get("id", 0)
 
     if command_part == "/whois":
         target_id = sender_id
-        reply = message.get("reply_to_message")
-        if reply and (reply.get("from") or {}).get("id"):
-            target_id = reply["from"]["id"]
+        if reply_user_id:
+            target_id = reply_user_id
         elif args:
-            try:
-                target_id = int(args[0].lstrip("@"))
-            except ValueError:
-                pass
+            resolved_uid, _, _ = resolve_user_info(chat_id, args[0])
+            if resolved_uid:
+                target_id = resolved_uid
         if not (is_super_admin(sender_id) or api.is_group_admin(sender_id, chat_id) or target_id == sender_id):
             return True
         settings = get_group_settings(chat_id)
@@ -2218,6 +2330,140 @@ def _handle_group_commands(api: TelegramAPI, chat_id: int, message: dict, sender
             f"🆔 ID: <code>{target_id}</code>\n"
             f"⚖️ Strikes: {strikes}",
         )
+        return True
+
+    # Check admin privileges for in-group moderation commands
+    is_admin = is_super_admin(sender_id) or api.is_group_admin(sender_id, chat_id)
+    if not is_admin:
+        return False
+
+    # Resolve target user from reply or argument
+    target_uid = 0
+    target_uname = ""
+    target_dname = ""
+
+    if reply_user_id:
+        target_uid = reply_user_id
+        target_uname = reply_user.get("username", "")
+        target_dname = get_user_display(reply_user)
+        record_known_user(target_uid, target_uname, target_dname)
+    elif args:
+        target_uid, target_uname, target_dname = resolve_user_info(chat_id, args[0])
+        if not target_uname and args[0].startswith("@"):
+            target_uname = args[0].lstrip("@")
+    else:
+        if command_part in {"/unban", "/unkick", "/unmute", "/whitelist", "/wl", "/unwhitelist", "/rmwhitelist", "/ban", "/kick", "/mute"}:
+            api.send_message(
+                chat_id,
+                f"ℹ️ <b>របៀបប្រើ (Usage):</b>\n"
+                f"• ឆ្លើយតបសារ (Reply) ទៅកាន់សមាជិក រួចវាយ <code>{command_part}</code>\n"
+                f"• ឬវាយ <code>{command_part} @username</code>",
+            )
+            return True
+
+    clean_target_display = f"@{target_uname}" if target_uname else (target_dname or (f"<code>{target_uid}</code>" if target_uid else "User"))
+
+    # /unban or /unkick
+    if command_part in {"/unban", "/unkick"}:
+        if target_uid:
+            api.unban_chat_member(chat_id, target_uid)
+            remove_group_banned_user(chat_id, target_uid)
+            remove_group_muted_user(chat_id, target_uid)
+        elif target_uname:
+            remove_group_banned_user(chat_id, username=target_uname)
+            remove_group_muted_user(chat_id, username=target_uname)
+        api.send_message(
+            chat_id,
+            f"🔓 <b>Admin Action:</b> {clean_target_display} has been unbanned/unkicked and can now join or chat in this group.",
+        )
+        return True
+
+    # /unmute
+    if command_part == "/unmute":
+        if target_uid:
+            api.unrestrict_chat_member(chat_id, target_uid)
+            remove_group_muted_user(chat_id, target_uid)
+        elif target_uname:
+            remove_group_muted_user(chat_id, username=target_uname)
+        api.send_message(
+            chat_id,
+            f"🔊 <b>Admin Action:</b> {clean_target_display} has been unmuted. Message permissions restored.",
+        )
+        return True
+
+    # /whitelist or /wl
+    if command_part in {"/whitelist", "/wl"}:
+        add_group_whitelisted_user(chat_id, target_uid, username=target_uname, name=target_dname)
+        if target_uid:
+            api.unrestrict_chat_member(chat_id, target_uid)
+            api.unban_chat_member(chat_id, target_uid)
+        api.send_message(
+            chat_id,
+            f"🛡️ <b>Admin Action:</b> {clean_target_display} added to trusted whitelist for this group. All restrictions lifted!",
+        )
+        return True
+
+    # /unwhitelist or /rmwhitelist or /rmwl
+    if command_part in {"/unwhitelist", "/rmwhitelist", "/rmwl"}:
+        remove_group_whitelisted_user(chat_id, target_uid, username=target_uname)
+        api.send_message(
+            chat_id,
+            f"❌ <b>Admin Action:</b> {clean_target_display} removed from whitelist.",
+        )
+        return True
+
+    # /ban
+    if command_part == "/ban":
+        if target_uid and (is_super_admin(target_uid) or api.is_group_admin(target_uid, chat_id)):
+            api.send_message(chat_id, "⚠️ Cannot ban group owner or administrator.")
+            return True
+        if target_uid:
+            api.ban_chat_member(chat_id, target_uid)
+            add_group_banned_user(chat_id, target_uid, username=target_uname, name=target_dname, reason="Banned by admin via /ban")
+            remove_group_muted_user(chat_id, target_uid)
+            api.send_message(
+                chat_id,
+                f"🔨 <b>Admin Action:</b> {clean_target_display} was banned from group by admin.",
+            )
+        else:
+            api.send_message(chat_id, f"⚠️ User {clean_target_display} not found or has not interacted with the bot yet.")
+        return True
+
+    # /kick
+    if command_part == "/kick":
+        if target_uid and (is_super_admin(target_uid) or api.is_group_admin(target_uid, chat_id)):
+            api.send_message(chat_id, "⚠️ Cannot kick group owner or administrator.")
+            return True
+        if target_uid:
+            api.ban_chat_member(chat_id, target_uid)
+            api.unban_chat_member(chat_id, target_uid)
+            remove_group_muted_user(chat_id, target_uid)
+            api.send_message(
+                chat_id,
+                f"👢 <b>Admin Action:</b> {clean_target_display} was kicked from group by admin.",
+            )
+        else:
+            api.send_message(chat_id, f"⚠️ User {clean_target_display} not found or has not interacted with the bot yet.")
+        return True
+
+    # /mute
+    if command_part == "/mute":
+        if target_uid and (is_super_admin(target_uid) or api.is_group_admin(target_uid, chat_id)):
+            api.send_message(chat_id, "⚠️ Cannot mute group owner or administrator.")
+            return True
+        hours = 24
+        if len(args) > 1 and args[1].isdigit():
+            hours = max(1, min(720, int(args[1])))
+        until_date = int(time.time()) + hours * 3600
+        if target_uid:
+            api.restrict_chat_member(chat_id, target_uid, can_send_messages=False, until_date=until_date)
+            add_group_muted_user(chat_id, target_uid, username=target_uname, name=target_dname, strikes=1)
+            api.send_message(
+                chat_id,
+                f"🔇 <b>Admin Action:</b> {clean_target_display} has been muted for {hours} hour(s).",
+            )
+        else:
+            api.send_message(chat_id, f"⚠️ User {clean_target_display} not found or has not interacted with the bot yet.")
         return True
 
     return False
@@ -2401,7 +2647,7 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
     # 0.65 1-Click Group Admin Inline Actions (Unmute / Unban / Kick / Ban / Mute / Whitelist)
     if data.startswith("unmute:"):
         parts = data.split(":")
-        if len(parts) == 3:
+        if len(parts) >= 3:
             gid = int(parts[1])
             target_uid = int(parts[2])
             if not (is_super_admin(user_id) or user_id in _get_admin_chat_ids(gid) or api.is_group_admin(user_id, gid)):
@@ -2412,11 +2658,13 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
                 api.answer_callback_query(query_id, text="🔊 User is chat owner/admin (already has full permissions) / ម្ចាស់ក្រុម/Admin មានសិទ្ធិពេញលេញស្រាប់!", show_alert=True)
                 return
             unmuted = api.unrestrict_chat_member(gid, target_uid)
+            u_info = get_known_users().get(str(target_uid), {})
+            uname = f"@{u_info['username']}" if u_info.get("username") else (u_info.get("name") or str(target_uid))
             if unmuted:
-                api.answer_callback_query(query_id, text="🔊 User unmuted / បានបើកសិទ្ធិផ្ញើសារឡើងវិញ!", show_alert=True)
-                api.send_message(gid, "🔊 <b>Admin Action:</b> Member has been unmuted by admin.")
+                api.answer_callback_query(query_id, text=f"🔊 {uname} unmuted / បានបើកសិទ្ធិផ្ញើសារឡើងវិញ!", show_alert=True)
+                api.send_message(gid, f"🔊 <b>Admin Action:</b> {uname} has been unmuted by admin.")
                 if chat_id > 0:
-                    api.send_message(chat_id, "🔊 Member unmuted in group successfully.")
+                    api.send_message(chat_id, f"🔊 {uname} unmuted in group successfully.")
             else:
                 api.answer_callback_query(query_id, text="⚠️ Failed to unmute member. Check bot admin permissions.", show_alert=True)
             if msg_id and chat_id:
@@ -2430,19 +2678,22 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
 
     if data.startswith("unban:"):
         parts = data.split(":")
-        if len(parts) == 3:
+        if len(parts) >= 3:
             gid = int(parts[1])
             target_uid = int(parts[2])
             if not (is_super_admin(user_id) or user_id in _get_admin_chat_ids(gid) or api.is_group_admin(user_id, gid)):
                 api.answer_callback_query(query_id, text="❌ Admin only / សម្រាប់តែ Admin ក្រុមប៉ុណ្ណោះ", show_alert=True)
                 return
             remove_group_banned_user(gid, target_uid)
+            remove_group_muted_user(gid, target_uid)
             unbanned = api.unban_chat_member(gid, target_uid)
+            u_info = get_known_users().get(str(target_uid), {})
+            uname = f"@{u_info['username']}" if u_info.get("username") else (u_info.get("name") or str(target_uid))
             if unbanned:
-                api.answer_callback_query(query_id, text="🔓 User unbanned / បានដកការ Ban ជោគជ័យ!", show_alert=True)
-                api.send_message(gid, "🔓 <b>Admin Action:</b> Member was unbanned by admin.")
+                api.answer_callback_query(query_id, text=f"🔓 {uname} unbanned / បានដកការ Ban ជោគជ័យ!", show_alert=True)
+                api.send_message(gid, f"🔓 <b>Admin Action:</b> {uname} was unbanned by admin.")
                 if chat_id > 0:
-                    api.send_message(chat_id, "🔓 Member unbanned in group successfully.")
+                    api.send_message(chat_id, f"🔓 {uname} unbanned in group successfully.")
             else:
                 api.answer_callback_query(query_id, text="⚠️ Failed to unban member. Check bot admin permissions.", show_alert=True)
             if msg_id and chat_id:
@@ -2456,7 +2707,7 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
 
     if data.startswith("kick:"):
         parts = data.split(":")
-        if len(parts) == 3:
+        if len(parts) >= 3:
             gid = int(parts[1])
             target_uid = int(parts[2])
             if not (is_super_admin(user_id) or user_id in _get_admin_chat_ids(gid) or api.is_group_admin(user_id, gid)):
@@ -2468,11 +2719,13 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
             api.ban_chat_member(gid, target_uid)
             kicked = api.unban_chat_member(gid, target_uid)
             remove_group_muted_user(gid, target_uid)
+            u_info = get_known_users().get(str(target_uid), {})
+            uname = f"@{u_info['username']}" if u_info.get("username") else (u_info.get("name") or str(target_uid))
             if kicked:
-                api.answer_callback_query(query_id, text="👢 User kicked / បានទាត់អ្នកប្រើប្រាស់ចេញពីក្រុម!", show_alert=True)
-                api.send_message(gid, "👢 <b>Admin Action:</b> Member was removed from group by admin.")
+                api.answer_callback_query(query_id, text=f"👢 {uname} kicked / បានទាត់អ្នកប្រើប្រាស់ចេញពីក្រុម!", show_alert=True)
+                api.send_message(gid, f"👢 <b>Admin Action:</b> {uname} was removed from group by admin.")
                 if chat_id > 0:
-                    api.send_message(chat_id, "👢 Member removed from group.")
+                    api.send_message(chat_id, f"👢 {uname} removed from group.")
             else:
                 api.answer_callback_query(query_id, text="⚠️ Failed to kick member. Check bot admin permissions.", show_alert=True)
             if msg_id and chat_id:
@@ -2486,7 +2739,7 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
 
     if data.startswith("ban:"):
         parts = data.split(":")
-        if len(parts) == 3:
+        if len(parts) >= 3:
             gid = int(parts[1])
             target_uid = int(parts[2])
             if not (is_super_admin(user_id) or user_id in _get_admin_chat_ids(gid) or api.is_group_admin(user_id, gid)):
@@ -2496,13 +2749,22 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
                 api.answer_callback_query(query_id, text="⚠️ Cannot ban group owner or administrator.", show_alert=True)
                 return
             banned = api.ban_chat_member(gid, target_uid)
+            user_info = get_known_users().get(str(target_uid), {})
+            uname = user_info.get("username", "")
+            dname = user_info.get("name", "")
+            if not uname:
+                member = api.get_chat_member(gid, target_uid)
+                m_user = (member or {}).get("user") or {}
+                uname = m_user.get("username", "")
+                dname = get_user_display(m_user)
+            clean_display = f"@{uname}" if uname else (dname or str(target_uid))
             if banned:
-                add_group_banned_user(gid, target_uid, reason="Banned by admin")
+                add_group_banned_user(gid, target_uid, username=uname, name=dname, reason="Banned by admin")
                 remove_group_muted_user(gid, target_uid)
-                api.answer_callback_query(query_id, text="🔨 Spammer banned / បាន Ban អ្នកផ្ញើជោគជ័យ!", show_alert=True)
-                api.send_message(gid, "🔨 <b>Admin Action:</b> User was banned by admin.")
+                api.answer_callback_query(query_id, text=f"🔨 {clean_display} banned / បាន Ban អ្នកផ្ញើជោគជ័យ!", show_alert=True)
+                api.send_message(gid, f"🔨 <b>Admin Action:</b> {clean_display} was banned by admin.")
                 if chat_id > 0:
-                    api.send_message(chat_id, "🔨 Member banned from group.")
+                    api.send_message(chat_id, f"🔨 {clean_display} banned from group.")
             else:
                 api.answer_callback_query(query_id, text="⚠️ Failed to ban member. Check bot admin permissions.", show_alert=True)
             if msg_id and chat_id:
@@ -2516,7 +2778,7 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
 
     if data.startswith("mute:"):
         parts = data.split(":")
-        if len(parts) == 3:
+        if len(parts) >= 3:
             gid = int(parts[1])
             target_uid = int(parts[2])
             if not (is_super_admin(user_id) or user_id in _get_admin_chat_ids(gid) or api.is_group_admin(user_id, gid)):
@@ -2527,12 +2789,21 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
                 return
             until_date = int(time.time()) + 86400
             muted = api.restrict_chat_member(gid, target_uid, can_send_messages=False, until_date=until_date)
+            user_info = get_known_users().get(str(target_uid), {})
+            uname = user_info.get("username", "")
+            dname = user_info.get("name", "")
+            if not uname:
+                member = api.get_chat_member(gid, target_uid)
+                m_user = (member or {}).get("user") or {}
+                uname = m_user.get("username", "")
+                dname = get_user_display(m_user)
+            clean_display = f"@{uname}" if uname else (dname or str(target_uid))
             if muted:
-                add_group_muted_user(gid, target_uid, strikes=1)
-                api.answer_callback_query(query_id, text="🔇 User muted for 24h / បានផ្អាកសិទ្ធិផ្ញើសារ 24 ម៉ោង!", show_alert=True)
-                api.send_message(gid, "🔇 <b>Admin Action:</b> Member has been muted for 24 hours.")
+                add_group_muted_user(gid, target_uid, username=uname, name=dname, strikes=1)
+                api.answer_callback_query(query_id, text=f"🔇 {clean_display} muted for 24h / បានផ្អាកសិទ្ធិផ្ញើសារ 24 ម៉ោង!", show_alert=True)
+                api.send_message(gid, f"🔇 <b>Admin Action:</b> {clean_display} has been muted for 24 hours.")
                 if chat_id > 0:
-                    api.send_message(chat_id, "🔇 Member muted for 24 hours in group.")
+                    api.send_message(chat_id, f"🔇 {clean_display} muted for 24 hours in group.")
             else:
                 api.answer_callback_query(query_id, text="⚠️ Failed to mute member. Check bot admin permissions.", show_alert=True)
             if msg_id and chat_id:
@@ -3090,7 +3361,16 @@ def process_update(api: TelegramAPI, update: dict) -> None:
     # 4.5 New members (verification gate + join tracking)
     new_members = message.get("new_chat_members") or []
     if new_members:
-        _handle_new_members(api, chat_id, new_members, get_group_settings(chat_id))
+        for m in new_members:
+            m_uid = m.get("id", 0)
+            m_uname = m.get("username", "")
+            record_known_user(m_uid, m_uname, get_user_display(m))
+        non_wl_members = [
+            m for m in new_members
+            if not is_user_whitelisted_in_group(chat_id, m.get("id", 0), m.get("username", ""))
+        ]
+        if non_wl_members:
+            _handle_new_members(api, chat_id, non_wl_members, get_group_settings(chat_id))
 
     # 5. Handle In-Group Admin Commands
     if _handle_group_commands(api, chat_id, message, sender_id):
@@ -3098,9 +3378,12 @@ def process_update(api: TelegramAPI, update: dict) -> None:
 
     # 6. Extract Content & Decode QR Codes from Images
     user_display = get_user_display(sender)
+    sender_uname = sender.get("username", "")
     chat_title = chat.get("title", str(chat_id))
     if sender_id:
-        record_known_user(sender_id, sender.get("username", ""), user_display)
+        record_known_user(sender_id, sender_uname, user_display)
+
+    is_sender_wl = is_user_whitelisted_in_group(chat_id, sender_id, sender_uname)
 
     content = (message.get("text") or "") + " " + (message.get("caption") or "")
     if _is_duplicate_message(chat_id, msg_id, content):
@@ -3228,6 +3511,10 @@ def process_update(api: TelegramAPI, update: dict) -> None:
 
         if verdict == "suspicious":
             delete_notice()
+            if is_sender_wl:
+                logger.info("Whitelisted sender %s in chat %s posted suspicious URL %s — skipped threat action", user_display, chat_id, domain)
+                display_safe_feedback(domain)
+                return
             record_threat_event(
                 chat_id=chat_id,
                 chat_title=chat_title,
@@ -3283,6 +3570,10 @@ def process_update(api: TelegramAPI, update: dict) -> None:
             return
 
         delete_notice()
+        if is_sender_wl:
+            logger.info("Whitelisted sender %s in chat %s posted flagged URL %s — skipped deletion & strikes", user_display, chat_id, domain)
+            display_safe_feedback(domain)
+            return
         deleted = api.delete_message(chat_id, msg_id)
         if deleted:
             record_report(chat_id, chat_title, "deleted")
@@ -3359,6 +3650,10 @@ def process_update(api: TelegramAPI, update: dict) -> None:
 
     if verdict == "critical":
         delete_notice()
+        if is_sender_wl:
+            logger.info("Whitelisted sender %s in chat %s posted flagged file %s — skipped deletion & strikes", user_display, chat_id, filename)
+            display_safe_feedback(filename)
+            return
         deleted = api.delete_message(chat_id, msg_id)
         if deleted:
             record_report(chat_id, chat_title, "deleted")
@@ -3385,6 +3680,10 @@ def process_update(api: TelegramAPI, update: dict) -> None:
 
     if verdict == "suspicious":
         delete_notice()
+        if is_sender_wl:
+            logger.info("Whitelisted sender %s in chat %s posted suspicious file %s — skipped threat action", user_display, chat_id, filename)
+            display_safe_feedback(filename)
+            return
         record_threat_event(
             chat_id=chat_id,
             chat_title=chat_title,

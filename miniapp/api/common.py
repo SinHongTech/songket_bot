@@ -2699,37 +2699,90 @@ def get_group_whitelisted_users(chat_id: int) -> list[dict]:
         seen = set()
         res = []
         for u in data:
-            if isinstance(u, dict) and u.get("user_id"):
-                uid = int(u["user_id"])
-                if uid not in seen:
-                    seen.add(uid)
+            if isinstance(u, dict):
+                uid = int(u.get("user_id") or 0)
+                uname = (u.get("username") or "").lower()
+                key = (uid, uname)
+                if (uid or uname) and key not in seen:
+                    seen.add(key)
                     res.append(u)
         return res
     return []
 
 
-def add_group_whitelisted_user(chat_id: int, user_id: int, username: str = "", name: str = "") -> bool:
+def add_group_whitelisted_user(chat_id: int, user_id: int = 0, username: str = "", name: str = "") -> bool:
     users = get_group_whitelisted_users(chat_id)
-    uid = int(user_id)
+    uid = int(user_id) if user_id else 0
+    clean_uname = username.lstrip("@").strip()
+    if not uid and clean_uname:
+        uid = resolve_user_id(chat_id, clean_uname)
+    
+    found = False
     for u in users:
-        if u.get("user_id") == uid:
-            if username and not u.get("username"):
-                u["username"] = username.lstrip("@")
-            return True
-    users.append({
-        "user_id": uid,
-        "username": username.lstrip("@") if username else "",
-        "name": name or "",
-        "added_at": int(time.time()),
-    })
-    return kv_json_set(f"whitelist:users:{chat_id}", users)
+        u_uid = int(u.get("user_id") or 0)
+        u_uname = (u.get("username") or "").lower()
+        if (uid and u_uid == uid) or (clean_uname and u_uname == clean_uname.lower()):
+            if uid and not u_uid:
+                u["user_id"] = uid
+            if clean_uname and not u.get("username"):
+                u["username"] = clean_uname
+            if name and not u.get("name"):
+                u["name"] = name
+            found = True
+            break
+
+    if not found:
+        users.append({
+            "user_id": uid,
+            "username": clean_uname,
+            "name": name or "",
+            "added_at": int(time.time()),
+        })
+    ok = kv_json_set(f"whitelist:users:{chat_id}", users)
+    if uid:
+        remove_group_muted_user(chat_id, uid)
+        remove_group_banned_user(chat_id, uid)
+        kv_set(f"strikes:{chat_id}:{uid}", "0")
+        unrestrict_chat_member(chat_id, uid)
+        unban_chat_member(chat_id, uid)
+    elif clean_uname:
+        remove_group_muted_user(chat_id, username=clean_uname)
+        remove_group_banned_user(chat_id, username=clean_uname)
+    return ok
 
 
-def remove_group_whitelisted_user(chat_id: int, user_id: int) -> bool:
+def remove_group_whitelisted_user(chat_id: int, user_id: int = 0, username: str = "") -> bool:
     users = get_group_whitelisted_users(chat_id)
-    uid = int(user_id)
-    new_list = [u for u in users if u.get("user_id") != uid]
+    uid = int(user_id) if user_id else 0
+    clean_uname = username.lstrip("@").strip().lower() if username else ""
+    new_list = []
+    for u in users:
+        u_uid = int(u.get("user_id") or 0)
+        u_uname = (u.get("username") or "").lower()
+        if (uid and u_uid == uid) or (clean_uname and u_uname == clean_uname):
+            continue
+        new_list.append(u)
     return kv_json_set(f"whitelist:users:{chat_id}", new_list)
+
+
+def is_user_whitelisted_in_group(chat_id: int, user_id: int = 0, username: str = "") -> bool:
+    if not chat_id:
+        return False
+    if user_id and (is_super_admin(user_id) or user_id in whitelist_ids()):
+        return True
+    clean_uname = username.lstrip("@").strip().lower() if username else ""
+    wl_users = get_group_whitelisted_users(chat_id)
+    for u in wl_users:
+        u_uid = int(u.get("user_id") or 0)
+        u_uname = (u.get("username") or "").lower()
+        if user_id and u_uid == user_id:
+            return True
+        if clean_uname and u_uname == clean_uname:
+            if user_id and not u_uid:
+                u["user_id"] = user_id
+                add_group_whitelisted_user(chat_id, user_id, username=u.get("username", clean_uname), name=u.get("name", ""))
+            return True
+    return False
 
 
 # ── Group Muted / Blocklisted Users ──────────────────────────────────────────
@@ -2739,27 +2792,36 @@ def get_group_muted_users(chat_id: int) -> list[dict]:
         seen = set()
         res = []
         for u in data:
-            if isinstance(u, dict) and u.get("user_id"):
-                uid = int(u["user_id"])
-                if uid not in seen:
-                    seen.add(uid)
+            if isinstance(u, dict):
+                uid = int(u.get("user_id") or 0)
+                uname = (u.get("username") or "").lower()
+                key = (uid, uname)
+                if (uid or uname) and key not in seen:
+                    seen.add(key)
                     res.append(u)
         return res
     return []
 
 
-def add_group_muted_user(chat_id: int, user_id: int, username: str = "", name: str = "", strikes: int = 3) -> bool:
+def add_group_muted_user(chat_id: int, user_id: int = 0, username: str = "", name: str = "", strikes: int = 3) -> bool:
     users = get_group_muted_users(chat_id)
-    uid = int(user_id)
+    uid = int(user_id) if user_id else 0
+    clean_uname = username.lstrip("@").strip()
     for u in users:
-        if u.get("user_id") == uid:
+        u_uid = int(u.get("user_id") or 0)
+        u_uname = (u.get("username") or "").lower()
+        if (uid and u_uid == uid) or (clean_uname and u_uname == clean_uname.lower()):
             u["strikes"] = strikes
-            if username:
-                u["username"] = username.lstrip("@")
+            if uid and not u_uid:
+                u["user_id"] = uid
+            if clean_uname and not u.get("username"):
+                u["username"] = clean_uname
+            if name and not u.get("name"):
+                u["name"] = name
             return kv_json_set(f"muted:users:{chat_id}", users)
     users.append({
         "user_id": uid,
-        "username": username.lstrip("@") if username else "",
+        "username": clean_uname,
         "name": name or "",
         "strikes": strikes,
         "muted_at": int(time.time()),
@@ -2767,13 +2829,26 @@ def add_group_muted_user(chat_id: int, user_id: int, username: str = "", name: s
     return kv_json_set(f"muted:users:{chat_id}", users)
 
 
-def remove_group_muted_user(chat_id: int, user_id: int) -> bool:
+def remove_group_muted_user(chat_id: int, user_id: int = 0, username: str = "") -> bool:
     users = get_group_muted_users(chat_id)
-    uid = int(user_id)
-    new_list = [u for u in users if u.get("user_id") != uid]
+    uid = int(user_id) if user_id else 0
+    clean_uname = username.lstrip("@").strip().lower() if username else ""
+    if not uid and clean_uname:
+        uid = resolve_user_id(chat_id, clean_uname)
+    new_list = []
+    removed_uids = []
+    for u in users:
+        u_uid = int(u.get("user_id") or 0)
+        u_uname = (u.get("username") or "").lower()
+        if (uid and u_uid == uid) or (clean_uname and u_uname == clean_uname):
+            if u_uid:
+                removed_uids.append(u_uid)
+            continue
+        new_list.append(u)
     kv_json_set(f"muted:users:{chat_id}", new_list)
-    kv_set(f"strikes:{chat_id}:{uid}", "0")
-    unrestrict_chat_member(chat_id, uid)
+    for r_uid in removed_uids or ([uid] if uid else []):
+        kv_set(f"strikes:{chat_id}:{r_uid}", "0")
+        unrestrict_chat_member(chat_id, r_uid)
     return True
 
 
@@ -2784,28 +2859,37 @@ def get_group_banned_users(chat_id: int) -> list[dict]:
         seen = set()
         res = []
         for u in data:
-            if isinstance(u, dict) and u.get("user_id"):
-                uid = int(u["user_id"])
-                if uid not in seen:
-                    seen.add(uid)
+            if isinstance(u, dict):
+                uid = int(u.get("user_id") or 0)
+                uname = (u.get("username") or "").lower()
+                key = (uid, uname)
+                if (uid or uname) and key not in seen:
+                    seen.add(key)
                     res.append(u)
         return res
     return []
 
 
-def add_group_banned_user(chat_id: int, user_id: int, username: str = "", name: str = "", reason: str = "") -> bool:
+def add_group_banned_user(chat_id: int, user_id: int = 0, username: str = "", name: str = "", reason: str = "") -> bool:
     users = get_group_banned_users(chat_id)
-    uid = int(user_id)
+    uid = int(user_id) if user_id else 0
+    clean_uname = username.lstrip("@").strip()
     for u in users:
-        if u.get("user_id") == uid:
-            if username:
-                u["username"] = username.lstrip("@")
+        u_uid = int(u.get("user_id") or 0)
+        u_uname = (u.get("username") or "").lower()
+        if (uid and u_uid == uid) or (clean_uname and u_uname == clean_uname.lower()):
+            if uid and not u_uid:
+                u["user_id"] = uid
+            if clean_uname and not u.get("username"):
+                u["username"] = clean_uname
+            if name and not u.get("name"):
+                u["name"] = name
             if reason:
                 u["reason"] = reason
             return kv_json_set(f"banned:users:{chat_id}", users)
     users.append({
         "user_id": uid,
-        "username": username.lstrip("@") if username else "",
+        "username": clean_uname,
         "name": name or "",
         "reason": reason or "Malicious activity / spam",
         "banned_at": int(time.time()),
@@ -2813,13 +2897,71 @@ def add_group_banned_user(chat_id: int, user_id: int, username: str = "", name: 
     return kv_json_set(f"banned:users:{chat_id}", users)
 
 
-def remove_group_banned_user(chat_id: int, user_id: int) -> bool:
+def remove_group_banned_user(chat_id: int, user_id: int = 0, username: str = "") -> bool:
     users = get_group_banned_users(chat_id)
-    uid = int(user_id)
-    new_list = [u for u in users if u.get("user_id") != uid]
+    uid = int(user_id) if user_id else 0
+    clean_uname = username.lstrip("@").strip().lower() if username else ""
+    if not uid and clean_uname:
+        uid = resolve_user_id(chat_id, clean_uname)
+    new_list = []
+    removed_uids = []
+    for u in users:
+        u_uid = int(u.get("user_id") or 0)
+        u_uname = (u.get("username") or "").lower()
+        if (uid and u_uid == uid) or (clean_uname and u_uname == clean_uname):
+            if u_uid:
+                removed_uids.append(u_uid)
+            continue
+        new_list.append(u)
     kv_json_set(f"banned:users:{chat_id}", new_list)
-    unban_chat_member(chat_id, uid)
+    for r_uid in removed_uids or ([uid] if uid else []):
+        unban_chat_member(chat_id, r_uid)
     return True
+
+
+def resolve_user_info(chat_id: int, identifier: object) -> tuple[int, str, str]:
+    """
+    Resolve a user ID or @username to (user_id, username, display_name).
+    Searches known_users, group moderation lists, and cache.
+    """
+    if not identifier:
+        return 0, "", ""
+    raw = str(identifier).strip()
+    is_numeric = raw.isdigit() or (raw.startswith("-") and raw[1:].isdigit())
+    clean_uname = raw.lstrip("@").strip().lower()
+
+    if is_numeric:
+        uid = int(raw)
+        known = get_known_users()
+        info = known.get(str(uid), {})
+        uname = info.get("username", "")
+        name = info.get("name", "")
+        if not uname:
+            for u in get_group_banned_users(chat_id) + get_group_muted_users(chat_id) + get_group_whitelisted_users(chat_id):
+                if u.get("user_id") == uid and u.get("username"):
+                    uname = u.get("username", "")
+                    name = u.get("name", "")
+                    break
+        return uid, uname, name or f"User {uid}"
+
+    known = get_known_users()
+    for uid_str, info in known.items():
+        if isinstance(info, dict) and (info.get("username") or "").lower() == clean_uname:
+            try:
+                return int(uid_str), info.get("username", clean_uname), info.get("name", "")
+            except ValueError:
+                pass
+
+    for u in get_group_banned_users(chat_id) + get_group_muted_users(chat_id) + get_group_whitelisted_users(chat_id):
+        if (u.get("username") or "").lower() == clean_uname:
+            return int(u.get("user_id", 0)), u.get("username", clean_uname), u.get("name", "")
+
+    return 0, clean_uname, f"@{clean_uname}"
+
+
+def resolve_user_id(chat_id: int, identifier: object) -> int:
+    uid, _, _ = resolve_user_info(chat_id, identifier)
+    return uid
 
 
 # ── Group Whitelisted Files ──────────────────────────────────────────────────
