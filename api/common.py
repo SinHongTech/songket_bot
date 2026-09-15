@@ -750,6 +750,8 @@ def verify_telegram_init_data(
         logger.error("[Auth] No bot tokens configured for Telegram HMAC verification.")
         return None, "No bot tokens configured"
 
+    token_keys = [hmac.new(b"WebAppData", tok.encode(), hashlib.sha256).digest() for tok in tokens]
+
     candidates = []
     for raw_src in (init_data, raw_hash, raw_search):
         if not raw_src:
@@ -815,8 +817,7 @@ def verify_telegram_init_data(
                 "\n".join(f"{k}={unquote(raw_map[k])}".replace(r"\/", "/") if k == "user" else f"{k}={raw_map[k]}" for k in sorted(raw_map.keys())),
             ]
             for cs in raw_variants:
-                for tok in tokens:
-                    secret_key = hmac.new(b"WebAppData", tok.encode(), hashlib.sha256).digest()
+                for secret_key in token_keys:
                     calculated = hmac.new(secret_key, cs.encode(), hashlib.sha256).hexdigest()
                     if hmac.compare_digest(calculated, h_raw):
                         try:
@@ -889,20 +890,27 @@ def verify_telegram_init_data(
                 return list(dict.fromkeys(var_list))
 
             sorted_keys = sorted(data.keys())
-            val_options = [_get_val_variations(k, data[k]) for k in sorted_keys]
-            
-            import itertools
+
+            # Fast direct match check (<1ms)
             matched = False
-            for val_tuple in itertools.product(*val_options):
-                check_str = "\n".join(f"{k}={v}" for k, v in zip(sorted_keys, val_tuple))
-                for tok in tokens:
-                    secret_key = hmac.new(b"WebAppData", tok.encode(), hashlib.sha256).digest()
-                    calculated = hmac.new(secret_key, check_str.encode(), hashlib.sha256).hexdigest()
-                    if hmac.compare_digest(calculated, received_hash):
-                        matched = True
-                        break
-                if matched:
+            direct_check_str = "\n".join(f"{k}={data[k]}" for k in sorted_keys)
+            for secret_key in token_keys:
+                if hmac.compare_digest(hmac.new(secret_key, direct_check_str.encode(), hashlib.sha256).hexdigest(), received_hash):
+                    matched = True
                     break
+
+            if not matched:
+                val_options = [_get_val_variations(k, data[k]) for k in sorted_keys]
+                import itertools
+                for val_tuple in itertools.product(*val_options):
+                    check_str = "\n".join(f"{k}={v}" for k, v in zip(sorted_keys, val_tuple))
+                    for secret_key in token_keys:
+                        calculated = hmac.new(secret_key, check_str.encode(), hashlib.sha256).hexdigest()
+                        if hmac.compare_digest(calculated, received_hash):
+                            matched = True
+                            break
+                    if matched:
+                        break
 
             if not matched:
                 last_debug = (
