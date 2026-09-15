@@ -218,7 +218,6 @@ export default function ManageView({
   }, [subscriptions]);
 
   // ── Helper: Format User Display based on Super Admin vs Regular Admin ──────
-  // ── Helper: Format User Display based on Super Admin vs Regular Admin ──────
   function formatUser(
     userId: number | string,
     fallbackUsername?: string,
@@ -228,24 +227,45 @@ export default function ManageView({
     const idStr = String(userId || "").trim();
     const info = knownUsers?.[idStr];
     const uname = fallbackUsername || info?.username || "";
-    const dname = fallbackName || info?.name || "";
+    const rawDname = fallbackName || info?.name || "";
+    const dname = rawDname && !rawDname.startsWith("User ") && !rawDname.startsWith("Admin_") && !rawDname.startsWith("Admin (") ? rawDname : "";
     const cleanUname = uname ? (uname.startsWith("@") ? uname : `@${uname}`) : "";
 
-    // For Super Admin view: show Both Name/Username and ID
+    // For Super Admin view: show Name (@username) with ID in ()
     if (showId && idStr) {
-      const namePart = cleanUname || dname || `User ${idStr}`;
-      const extraPart = cleanUname && dname && dname !== cleanUname ? `${dname} • ` : "";
+      if (dname && cleanUname) {
+        return {
+          title: `${dname} (${cleanUname})`,
+          subtitle: `ID: (${idStr})`,
+        };
+      }
+      if (dname) {
+        return {
+          title: dname,
+          subtitle: `ID: (${idStr})`,
+        };
+      }
+      if (cleanUname) {
+        return {
+          title: cleanUname,
+          subtitle: `ID: (${idStr})`,
+        };
+      }
       return {
-        title: namePart,
-        subtitle: namePart === `User ${idStr}` ? undefined : `${extraPart}ID: ${idStr}`,
+        title: `User (${idStr})`,
+        subtitle: `ID: (${idStr})`,
       };
     }
 
     // For Regular Admin view: Privacy standard (NEVER show numeric ID)
+    if (dname && cleanUname) {
+      return {
+        title: `${dname} (${cleanUname})`,
+      };
+    }
     if (cleanUname) {
       return {
         title: cleanUname,
-        subtitle: dname && dname !== cleanUname ? dname : undefined,
       };
     }
     if (dname) {
@@ -1330,7 +1350,7 @@ export default function ManageView({
                 </div>
               ) : (
                 groupWlUsers.map((u) => {
-                  const formatted = formatUser(u.user_id, u.username, u.name);
+                  const formatted = formatUser(u.user_id, u.username, u.name, isSuperAdmin);
                   return (
                     <div
                       key={u.user_id}
@@ -1436,7 +1456,7 @@ export default function ManageView({
                 </div>
               ) : (
                 groupMutedUsers.map((u) => {
-                  const formatted = formatUser(u.user_id, u.username, u.name);
+                  const formatted = formatUser(u.user_id, u.username, u.name, isSuperAdmin);
                   return (
                     <div
                       key={u.user_id}

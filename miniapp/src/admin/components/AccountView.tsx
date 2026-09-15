@@ -156,11 +156,12 @@ export default function AccountView({
       setSendingReport((prev) => ({ ...prev, [period]: false }));
     }
   }
-  const userFullName =
+  const rawFullName =
     [user?.first_name, user?.last_name].filter(Boolean).join(" ").trim() ||
-    user?.name ||
+    (user?.name && !user.name.startsWith("Admin_") && !user.name.startsWith("User ") ? user.name : "") ||
     user?.first_name ||
     (user?.username ? `@${user.username.replace(/^@/, "")}` : "Admin User");
+  const userFullName = rawFullName.startsWith("Admin_") ? "Admin User" : rawFullName;
 
   const avatarInitials = (() => {
     if (user?.first_name && user?.last_name) {
@@ -392,11 +393,18 @@ export default function AccountView({
             <div style={{ fontWeight: 700, fontSize: 16, color: G.text }}>
               {userFullName}
             </div>
-            {user?.username ? (
-              <div style={{ fontSize: 12, color: G.muted, marginTop: 2 }}>
-                @{user.username.replace(/^@/, "")}
-              </div>
-            ) : null}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
+              {user?.username ? (
+                <div style={{ fontSize: 12, color: G.muted }}>
+                  @{user.username.replace(/^@/, "")}
+                </div>
+              ) : null}
+              {user?.id ? (
+                <div style={{ fontSize: 11, color: G.muted, fontFamily: "monospace" }}>
+                  ({user.id})
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
       </div>

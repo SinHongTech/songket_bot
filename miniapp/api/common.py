@@ -1131,12 +1131,23 @@ def get_chat(chat_id: int, force_refresh: bool = False) -> Optional[dict]:
     # 2. Telegram API live fetch
     d = telegram_post("getChat", {"chat_id": chat_id})
     res = d.get("result") if d.get("ok") else None
-    if res and res.get("title"):
-        try:
-            kv_set(f"cache:chat_title:{chat_id}", res["title"], ttl=86400)
-            record_known_group(chat_id, res["title"])
-        except Exception:
-            pass
+    if res:
+        if res.get("title"):
+            try:
+                kv_set(f"cache:chat_title:{chat_id}", res["title"], ttl=86400)
+                record_known_group(chat_id, res["title"])
+            except Exception:
+                pass
+        elif res.get("first_name") or res.get("username"):
+            try:
+                fn = res.get("first_name", "")
+                ln = res.get("last_name", "")
+                un = res.get("username", "")
+                full_display = f"{fn} {ln}".strip() or (f"@{un}" if un else f"User {chat_id}")
+                record_known_user(chat_id, un, full_display)
+                kv_json_set(f"cache:user:{chat_id}", {"id": chat_id, "first_name": fn, "last_name": ln, "username": un}, ttl=86400 * 30)
+            except Exception:
+                pass
         return res
     elif not res:
         # Fallback to cached title if Telegram API is unreachable or rate limited

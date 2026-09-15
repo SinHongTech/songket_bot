@@ -108,7 +108,7 @@ export default function HomeView({ dashboard, threatEvents, user, lang, isMock, 
 
   const displayName =
     [user?.first_name, user?.last_name].filter(Boolean).join(" ").trim() ||
-    user?.name ||
+    (user?.name && !user.name.startsWith("Admin_") && !user.name.startsWith("User ") ? user.name : "") ||
     user?.first_name ||
     (user?.username ? `@${user.username.replace(/^@/, "")}` : (lang === "km" ? "អ្នកគ្រប់គ្រង" : "Admin"));
 

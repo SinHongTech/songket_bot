@@ -861,38 +861,67 @@ class handler(BaseHTTPRequestHandler):
             }
 
         known_users = get_known_users()
-        known_info = known_users.get(str(uid), {})
         cached_u = kv_json_get(f"cache:user:{uid}") or {}
 
-        first_name = user.get("first_name", "")
-        last_name = user.get("last_name", "")
-        u_name = user.get("username") or cached_u.get("username") or known_info.get("username", "")
-        if (not u_name or u_name == "admin") and (cached_u.get("username") or known_info.get("username")):
-            u_name = cached_u.get("username") or known_info.get("username", "")
+        first_name = user.get("first_name") or cached_u.get("first_name", "")
+        last_name = user.get("last_name") or cached_u.get("last_name", "")
+        u_name = user.get("username") or cached_u.get("username", "")
+
+        # Strip default/placeholder strings
+        if str(first_name).startswith("Admin_") or str(first_name).startswith("User "):
+            first_name = ""
+        if u_name == "admin":
+            u_name = ""
+
+        # Check known_info fallback
+        known_info = known_users.get(str(uid), {})
+        if not u_name and known_info.get("username"):
+            u_name = known_info["username"]
 
         known_name = known_info.get("name", "")
-        if known_name:
+        if known_name and not (known_name.startswith("Admin_") or known_name.startswith("User ")):
             full_name = known_name
-            if " " in known_name:
+            if not first_name:
                 parts = known_name.split(" ", 1)
                 first_name = parts[0]
-                last_name = parts[1]
-            elif not first_name:
-                first_name = known_name
+                if len(parts) > 1 and not last_name:
+                    last_name = parts[1]
         else:
-            if (not first_name or str(first_name).startswith("Admin_")) and cached_u.get("first_name"):
-                first_name = cached_u.get("first_name")
-            if not last_name and cached_u.get("last_name"):
-                last_name = cached_u.get("last_name")
             full_name = f"{first_name} {last_name}".strip()
-            if not full_name or full_name.startswith("Admin_"):
-                full_name = f"@{u_name}" if u_name else f"Admin_{uid}"
+            if not full_name:
+                full_name = f"@{u_name}" if u_name else f"Admin ({uid})"
 
-        if not first_name and full_name:
-            parts = full_name.split(" ", 1)
-            first_name = parts[0]
-            if len(parts) > 1 and not last_name:
-                last_name = parts[1]
+        # If we have a valid human name, update known_users and cache:user:uid
+        if full_name and not (full_name.startswith("Admin (") or full_name.startswith("User ")):
+            record_known_user(uid, u_name, full_name)
+            known_users[str(uid)] = {"username": u_name, "name": full_name}
+            cached_u.update({"id": uid, "first_name": first_name, "last_name": last_name, "username": u_name, "name": full_name})
+            kv_json_set(f"cache:user:{uid}", cached_u, ttl=86400 * 30)
+
+        # Enrich known_users for all super admins, whitelist users, and group members
+        all_relevant_uids = set(super_admin_ids()) | set(whitelist_ids()) | {uid}
+        for gd in group_details.values():
+            for wu in gd.get("whitelisted_users", []):
+                if isinstance(wu, dict) and wu.get("user_id"):
+                    all_relevant_uids.add(int(wu["user_id"]))
+                elif str(wu).lstrip("-").isdigit():
+                    all_relevant_uids.add(int(wu))
+
+        for target_uid in all_relevant_uids:
+            uid_str = str(target_uid)
+            info = known_users.get(uid_str, {})
+            t_uname = info.get("username", "")
+            t_dname = info.get("name", "")
+            if not t_uname or not t_dname or t_dname.startswith("User ") or t_dname.startswith("Admin_"):
+                c_user = kv_json_get(f"cache:user:{target_uid}")
+                if c_user and isinstance(c_user, dict):
+                    fn = c_user.get("first_name", "")
+                    ln = c_user.get("last_name", "")
+                    un = c_user.get("username", "")
+                    disp = f"{fn} {ln}".strip() or (f"@{un}" if un else "")
+                    if disp and not disp.startswith("Admin_") and not disp.startswith("User "):
+                        known_users[uid_str] = {"username": un, "name": disp}
+                        record_known_user(target_uid, un, disp)
 
         payload = {
             "authorized": True,
