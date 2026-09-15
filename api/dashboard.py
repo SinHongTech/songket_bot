@@ -221,18 +221,24 @@ def build_dashboard(user_id: int, days: int = 90, allowed_groups: list = None, k
                 if idx is not None and idx < len(all_reports) and isinstance(all_reports[idx], dict)
                 else {}
             )
-            if not title:
-                title = report.get("group_title")
             row = {"date": day, **{m: int(report.get(m, 0) or 0) for m in METRICS}}
             daily.append(row)
             for k in totals:
                 totals[k] += row[k]
-        if not title or title == str(gid) or title == "Group":
-            title = known_groups.get(str(gid)) or known_groups.get(gid)
-            if not title or title == str(gid) or title == "Group":
-                chat = get_chat(gid)
-                title = (chat or {}).get("title") or known_groups.get(str(gid)) or str(gid)
-        if title and title != str(gid) and title != "Group":
+
+        chat = get_chat(gid) if gid else None
+        title = (chat or {}).get("title") or known_groups.get(str(gid)) or known_groups.get(gid)
+        if not title or title in (str(gid), "Group", "Selected Group"):
+            for day in days_list[:7]:
+                idx = key_map.get((gid, day))
+                report = all_reports[idx] if idx is not None and idx < len(all_reports) and isinstance(all_reports[idx], dict) else {}
+                r_title = report.get("group_title")
+                if r_title and r_title not in (str(gid), "Group", "Selected Group"):
+                    title = r_title
+                    break
+        if not title:
+            title = f"Group {gid}" if gid else "Group"
+        if title and title not in (str(gid), "Group", "Selected Group"):
             record_known_group(gid, title)
         groups.append({"id": gid, "title": title, "daily": daily})
 
