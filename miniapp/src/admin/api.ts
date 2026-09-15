@@ -90,46 +90,20 @@ if (typeof window !== "undefined") {
 }
 
 export function getInitData(): string {
-  // 1. Check window global / memory cache
-  if (typeof window !== "undefined" && (window as any).__songket_init_data) {
-    const wData = String((window as any).__songket_init_data).trim();
-    if (wData.includes("hash=")) {
-      _cachedInitData = wData;
-      return wData;
-    }
-  }
-
-  if (_cachedInitData && _cachedInitData.includes("hash=")) {
-    return _cachedInitData;
-  }
-
-  // 2. Check window.Telegram.WebApp.initData
+  // 1. PRIMARY: Always prioritize live window.Telegram.WebApp.initData from Telegram runtime
   const tg = getTelegramWebApp();
   if (tg?.initData && tg.initData.trim().length > 0 && tg.initData.includes("hash=")) {
-    _cachedInitData = tg.initData.trim();
-    if (typeof window !== "undefined") (window as any).__songket_init_data = _cachedInitData;
+    const liveData = tg.initData.trim();
+    _cachedInitData = liveData;
+    if (typeof window !== "undefined") (window as any).__songket_init_data = liveData;
     try {
-      safeStorage.setItem("songket_init_data", _cachedInitData);
+      safeStorage.setItem("songket_init_data", liveData);
+      sessionStorage.setItem("songket_init_data", liveData);
     } catch {}
-    return _cachedInitData;
+    return liveData;
   }
 
-  // 3. Check safeStorage / sessionStorage / localStorage for saved init data
-  if (typeof window !== "undefined") {
-    try {
-      const saved =
-        safeStorage.getItem("songket_init_data") ||
-        sessionStorage.getItem("songket_init_data") ||
-        localStorage.getItem("songket_init_data");
-      if (saved && saved.includes("hash=")) {
-        _cachedInitData = saved;
-        (window as any).__songket_init_data = saved;
-        return saved;
-      }
-    } catch {}
-  }
-
-  // 4. Fallback from raw URL hash / search / boot storage
+  // 2. Check live URL hash / search for tgWebAppData
   if (typeof window !== "undefined") {
     const candidates = [
       (window as any).__songket_init_raw || "",
@@ -150,9 +124,6 @@ export function getInitData(): string {
           if (rawVal && rawVal.includes("hash=")) {
             _cachedInitData = rawVal;
             (window as any).__songket_init_data = rawVal;
-            try {
-              safeStorage.setItem("songket_init_data", rawVal);
-            } catch {}
             return rawVal;
           }
         } catch {}
@@ -163,9 +134,6 @@ export function getInitData(): string {
             if (decoded.includes("hash=")) {
               _cachedInitData = decoded;
               (window as any).__songket_init_data = decoded;
-              try {
-                safeStorage.setItem("songket_init_data", decoded);
-              } catch {}
               return decoded;
             }
           } catch {}
@@ -174,15 +142,40 @@ export function getInitData(): string {
       if (clean.includes("hash=") && (clean.includes("user=") || clean.includes("query_id=") || clean.includes("auth_date="))) {
         _cachedInitData = clean;
         (window as any).__songket_init_data = clean;
-        try {
-          safeStorage.setItem("songket_init_data", clean);
-        } catch {}
         return clean;
       }
     }
   }
 
-  return _cachedInitData || "";
+  // 3. Check memory / message event cache
+  if (typeof window !== "undefined" && (window as any).__songket_init_data) {
+    const wData = String((window as any).__songket_init_data).trim();
+    if (wData.includes("hash=")) {
+      _cachedInitData = wData;
+      return wData;
+    }
+  }
+
+  if (_cachedInitData && _cachedInitData.includes("hash=")) {
+    return _cachedInitData;
+  }
+
+  // 4. Stored fallback
+  if (typeof window !== "undefined") {
+    try {
+      const saved =
+        safeStorage.getItem("songket_init_data") ||
+        sessionStorage.getItem("songket_init_data") ||
+        localStorage.getItem("songket_init_data");
+      if (saved && saved.includes("hash=")) {
+        _cachedInitData = saved;
+        (window as any).__songket_init_data = saved;
+        return saved;
+      }
+    } catch {}
+  }
+
+  return "";
 }
 
 export async function waitForTelegramInitData(timeoutMs: number = 1500): Promise<string> {

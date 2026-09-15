@@ -812,6 +812,7 @@ def verify_telegram_init_data(
                 "\n".join(_compact_user_fmt(k, raw_map[k]) for k in sorted(raw_map.keys())),
                 "\n".join(f"{k}={unquote(raw_map[k])}".replace("/", r"\/") if k == "user" else f"{k}={raw_map[k]}" for k in sorted(raw_map.keys())),
                 "\n".join(_compact_user_fmt(k, raw_map[k]).replace("/", r"\/") if k == "user" else f"{k}={raw_map[k]}" for k in sorted(raw_map.keys())),
+                "\n".join(f"{k}={unquote(raw_map[k])}".replace(r"\/", "/") if k == "user" else f"{k}={raw_map[k]}" for k in sorted(raw_map.keys())),
             ]
             for cs in raw_variants:
                 for tok in tokens:
@@ -842,7 +843,7 @@ def verify_telegram_init_data(
                         except Exception:
                             pass
 
-        # 2. Parsed key-value pairs
+        # 2. Parsed key-value pairs with tgWebAppData unwrapping
         for parse_fn in (
             lambda s: parse_qsl(s, keep_blank_values=True),
             lambda s: parse_qsl(unquote(s), keep_blank_values=True),
@@ -853,6 +854,13 @@ def verify_telegram_init_data(
             except Exception:
                 continue
             data = dict(pairs)
+            if "tgWebAppData" in data:
+                raw_sub = data.pop("tgWebAppData")
+                try:
+                    data.update(dict(parse_fn(raw_sub)))
+                except Exception:
+                    pass
+
             received_hash = data.pop("hash", None)
             if not received_hash:
                 continue
@@ -863,17 +871,30 @@ def verify_telegram_init_data(
                 if k.startswith("tgWebApp") or k.startswith("tg_"):
                     data.pop(k, None)
 
-            check_variants = [
-                "\n".join(f"{k}={v}" for k, v in sorted(data.items())),
-                "\n".join(f"{k}={unquote(v)}" for k, v in sorted(data.items())),
-                "\n".join(f"{k}={unquote_plus(v)}" for k, v in sorted(data.items())),
-                "\n".join(_compact_user_fmt(k, v) for k, v in sorted(data.items())),
-                "\n".join(f"{k}={unquote(v)}".replace("/", r"\/") if k == "user" else f"{k}={v}" for k, v in sorted(data.items())),
-                "\n".join(_compact_user_fmt(k, v).replace("/", r"\/") if k == "user" else f"{k}={v}" for k, v in sorted(data.items())),
-            ]
+            def _get_val_variations(k: str, v: str) -> list[str]:
+                var_list = [v, unquote(v), unquote_plus(v)]
+                if k == "user":
+                    try:
+                        u_obj = json.loads(unquote(v))
+                        c_json = json.dumps(u_obj, separators=(",", ":"))
+                        var_list.append(c_json)
+                        var_list.append(c_json.replace("/", r"\/"))
+                        var_list.append(c_json.replace(r"\/", "/"))
+                    except Exception:
+                        pass
+                    var_list.append(v.replace("/", r"\/"))
+                    var_list.append(v.replace(r"\/", "/"))
+                    var_list.append(unquote(v).replace("/", r"\/"))
+                    var_list.append(unquote(v).replace(r"\/", "/"))
+                return list(dict.fromkeys(var_list))
 
+            sorted_keys = sorted(data.keys())
+            val_options = [_get_val_variations(k, data[k]) for k in sorted_keys]
+            
+            import itertools
             matched = False
-            for check_str in check_variants:
+            for val_tuple in itertools.product(*val_options):
+                check_str = "\n".join(f"{k}={v}" for k, v in zip(sorted_keys, val_tuple))
                 for tok in tokens:
                     secret_key = hmac.new(b"WebAppData", tok.encode(), hashlib.sha256).digest()
                     calculated = hmac.new(secret_key, check_str.encode(), hashlib.sha256).hexdigest()
@@ -883,18 +904,10 @@ def verify_telegram_init_data(
                 if matched:
                     break
 
-            calc_hashes = []
-            for tok in tokens:
-                secret_key = hmac.new(b"WebAppData", tok.encode(), hashlib.sha256).digest()
-                calc_h = hmac.new(secret_key, check_variants[0].encode(), hashlib.sha256).hexdigest()
-                calc_hashes.append(f"{tok[:8]}..->{calc_h[:8]}")
-
             if not matched:
                 last_debug = (
                     f"HMAC mismatch!\n"
                     f"Recv Hash: {received_hash}\n"
-                    f"Calc Hashes: {', '.join(calc_hashes)}\n"
-                    f"CheckStr:\n{check_variants[0]}\n"
                     f"RawCand:\n{cand_clean[:180]}"
                 )
                 logger.debug("[Auth Failure Details]\n%s", last_debug)
@@ -1118,12 +1131,23 @@ def get_chat(chat_id: int, force_refresh: bool = False) -> Optional[dict]:
     # 2. Telegram API live fetch
     d = telegram_post("getChat", {"chat_id": chat_id})
     res = d.get("result") if d.get("ok") else None
-    if res and res.get("title"):
-        try:
-            kv_set(f"cache:chat_title:{chat_id}", res["title"], ttl=86400)
-            record_known_group(chat_id, res["title"])
-        except Exception:
-            pass
+    if res:
+        if res.get("title"):
+            try:
+                kv_set(f"cache:chat_title:{chat_id}", res["title"], ttl=86400)
+                record_known_group(chat_id, res["title"])
+            except Exception:
+                pass
+        elif res.get("first_name") or res.get("username"):
+            try:
+                fn = res.get("first_name", "")
+                ln = res.get("last_name", "")
+                un = res.get("username", "")
+                full_display = f"{fn} {ln}".strip() or (f"@{un}" if un else f"User {chat_id}")
+                record_known_user(chat_id, un, full_display)
+                kv_json_set(f"cache:user:{chat_id}", {"id": chat_id, "first_name": fn, "last_name": ln, "username": un}, ttl=86400 * 30)
+            except Exception:
+                pass
         return res
     elif not res:
         # Fallback to cached title if Telegram API is unreachable or rate limited
