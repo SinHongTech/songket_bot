@@ -6,6 +6,7 @@ import { t as T, kh } from "../i18n";
 import type { DashboardData } from "../types";
 import { getTimelineFromDashboard, getThreatBreakdownFromDashboard, getThreatsListFromDashboard, PIE_COLORS } from "../data";
 import { StatCard, RiskBadge } from "./Badges";
+import { getTelegramUser } from "../api";
 
 interface HomeViewProps {
   dashboard: DashboardData | null;
@@ -106,11 +107,22 @@ export default function HomeView({ dashboard, threatEvents, user, lang, isMock, 
   const isKm = lang === "km";
   const [expandedThreat, setExpandedThreat] = useState<string | null>(null);
 
-  const displayName =
-    [user?.first_name, user?.last_name].filter(Boolean).join(" ").trim() ||
-    (user?.name && !user.name.startsWith("Admin_") && !user.name.startsWith("User ") ? user.name : "") ||
-    user?.first_name ||
-    (user?.username ? `@${user.username.replace(/^@/, "")}` : (lang === "km" ? "អ្នកគ្រប់គ្រង" : "Admin"));
+  const tgUser = getTelegramUser();
+  const fName = (user?.first_name && !user.first_name.startsWith("Admin_") ? user.first_name : "") || tgUser?.first_name || "";
+  const lName = (user?.last_name && !user.last_name.startsWith("Admin_") ? user.last_name : "") || tgUser?.last_name || "";
+  const uName = (user?.username && user.username !== "admin" ? user.username : "") || tgUser?.username || "";
+  const combinedName = [fName, lName].filter(Boolean).join(" ").trim();
+
+  let displayName = combinedName;
+  if (!displayName) {
+    if (user?.name && !user.name.startsWith("Admin_") && !user.name.startsWith("User ") && user.name !== "Admin User" && user.name !== "Admin") {
+      displayName = user.name;
+    } else if (uName) {
+      displayName = `@${uName.replace(/^@/, "")}`;
+    } else {
+      displayName = isKm ? "អ្នកគ្រប់គ្រង" : "Admin";
+    }
+  }
 
   const isSingleDate = dateFrom === dateTo;
   const allTimelineData = getTimelineFromDashboard(dashboard);

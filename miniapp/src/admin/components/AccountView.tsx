@@ -5,7 +5,7 @@ import { t as T, kh } from "../i18n";
 import type { DashboardData, TelegramUser, UserSettings } from "../types";
 import { SectionHeader } from "./Badges";
 import TotpModal from "./TotpModal";
-import { getTotpStatus, saveUserSettings, requestReport } from "../api";
+import { getTotpStatus, saveUserSettings, requestReport, getTelegramUser } from "../api";
 import { safeStorage } from "@/shared/storage";
 
 interface AccountViewProps {
@@ -36,6 +36,7 @@ export default function AccountView({
   canShow2FA = false,
 }: AccountViewProps) {
   const tx = T(lang);
+  const isKm = lang === "km";
   const [previewAlertOpen, setPreviewAlertOpen] = useState(false);
   const [dailyReportEnabled, setDailyReportEnabled] = useState<boolean>(() => {
     if (userSettings?.daily_report_enabled !== undefined) return userSettings.daily_report_enabled;
@@ -151,25 +152,36 @@ export default function AccountView({
       setSendingReport((prev) => ({ ...prev, [period]: false }));
     }
   }
-  const rawFullName =
-    [user?.first_name, user?.last_name].filter(Boolean).join(" ").trim() ||
-    (user?.name && !user.name.startsWith("Admin_") && !user.name.startsWith("User ") ? user.name : "") ||
-    user?.first_name ||
-    (user?.username ? `@${user.username.replace(/^@/, "")}` : "Admin User");
-  const userFullName = rawFullName.startsWith("Admin_") ? "Admin User" : rawFullName;
+  const tgUser = getTelegramUser();
+  const fName = (user?.first_name && !user.first_name.startsWith("Admin_") ? user.first_name : "") || tgUser?.first_name || "";
+  const lName = (user?.last_name && !user.last_name.startsWith("Admin_") ? user.last_name : "") || tgUser?.last_name || "";
+  const uName = (user?.username && user.username !== "admin" ? user.username : "") || tgUser?.username || "";
+  const combinedName = [fName, lName].filter(Boolean).join(" ").trim();
+
+  let userFullName = combinedName;
+  if (!userFullName) {
+    if (user?.name && !user.name.startsWith("Admin_") && !user.name.startsWith("User ") && user.name !== "Admin User" && user.name !== "Admin") {
+      userFullName = user.name;
+    } else if (uName) {
+      userFullName = `@${uName.replace(/^@/, "")}`;
+    } else {
+      userFullName = isKm ? "អ្នកគ្រប់គ្រង" : "Admin User";
+    }
+  }
 
   const avatarInitials = (() => {
-    if (user?.first_name && user?.last_name) {
-      return (user.first_name.trim().charAt(0) + user.last_name.trim().charAt(0)).toUpperCase();
+    if (fName && lName) {
+      return (fName.trim().charAt(0) + lName.trim().charAt(0)).toUpperCase();
     }
-    if (userFullName && userFullName !== "Admin User") {
-      const parts = userFullName.replace(/^@/, "").trim().split(/\s+/);
-      if (parts.length >= 2) {
+    if (userFullName && userFullName !== "Admin User" && userFullName !== "អ្នកគ្រប់គ្រង") {
+      const clean = userFullName.replace(/^@/, "").trim();
+      const parts = clean.split(/\s+/);
+      if (parts.length >= 2 && parts[0] && parts[1]) {
         return (parts[0].charAt(0) + parts[1].charAt(0)).toUpperCase();
       }
-      return parts[0].slice(0, 2).toUpperCase();
+      return clean.slice(0, 2).toUpperCase() || "A";
     }
-    return user?.first_name ? user.first_name.charAt(0).toUpperCase() : "A";
+    return fName ? fName.charAt(0).toUpperCase() : (uName ? uName.charAt(0).toUpperCase() : "A");
   })();
 
   const [org, setOrg] = useState(() => {
@@ -181,7 +193,7 @@ export default function AccountView({
   const [telegram, setTelegram] = useState(() => {
     return (
       safeStorage.getItem("songket.admin.telegram") ||
-      (user?.username ? `@${user.username.replace(/^@/, "")}` : userFullName !== "Admin User" ? userFullName : "@admin")
+      (uName ? `@${uName.replace(/^@/, "")}` : userFullName !== "Admin User" && userFullName !== "អ្នកគ្រប់គ្រង" ? userFullName : "@admin")
     );
   });
   const [notifTelegram, setNotifTelegram] = useState(() => {
@@ -195,8 +207,6 @@ export default function AccountView({
   const [totpEnabled, setTotpEnabled] = useState(false);
   const [totpModalOpen, setTotpModalOpen] = useState(false);
   const [totpModalMode, setTotpModalMode] = useState<"setup" | "disable">("setup");
-
-  const isKm = lang === "km";
 
   useEffect(() => {
     safeStorage.setItem("songket.admin.org", org);
@@ -295,9 +305,9 @@ export default function AccountView({
             <div style={{ fontWeight: 700, fontSize: 16, color: G.text }}>
               {userFullName}
             </div>
-            {user?.username ? (
+            {uName ? (
               <div style={{ fontSize: 12, color: G.muted, marginTop: 2 }}>
-                @{user.username.replace(/^@/, "")}
+                @{uName.replace(/^@/, "")}
               </div>
             ) : null}
           </div>

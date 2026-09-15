@@ -292,7 +292,12 @@ class handler(BaseHTTPRequestHandler):
                 if session_tok:
                     s_uid = validate_session(session_tok)
                     if s_uid and (s_uid in super_admin_ids() or s_uid in whitelist_ids()):
-                        user = {"id": s_uid, "first_name": f"Admin_{s_uid}", "username": "admin"}
+                        known_users = get_known_users()
+                        known_info = known_users.get(str(s_uid), {})
+                        fn = (unsafe_user.get("first_name") if isinstance(unsafe_user, dict) else "") or known_info.get("name") or ""
+                        ln = (unsafe_user.get("last_name") if isinstance(unsafe_user, dict) else "") or ""
+                        un = (unsafe_user.get("username") if isinstance(unsafe_user, dict) else "") or known_info.get("username") or ""
+                        user = {"id": s_uid, "first_name": fn, "last_name": ln, "username": un}
                         debug_str = "OK (session)"
                         logger.info("[Dashboard API] Telegram session authenticated via active PIN session for uid=%d", s_uid)
 
@@ -308,12 +313,17 @@ class handler(BaseHTTPRequestHandler):
                     uid_candidate = int(body.get("user_id"))
                 except (TypeError, ValueError):
                     pass
+            if not uid_candidate and body.get("user") and isinstance(body.get("user"), dict) and body.get("user").get("id"):
+                try:
+                    uid_candidate = int(body["user"]["id"])
+                except (TypeError, ValueError):
+                    pass
 
             is_db_admin = False
             totp_active = False
             pin_active = False
             if uid_candidate:
-                is_db_admin = uid_candidate in super_admin_ids() or uid_candidate in whitelist_ids()
+                is_db_admin = uid_candidate in super_admin_ids() or uid_candidate in whitelist_ids() or uid_candidate in primary_admin_ids()
                 if is_db_admin:
                     totp_active = is_totp_enabled(uid_candidate)
                     pin_active = pin_exists(uid_candidate)
@@ -341,6 +351,7 @@ class handler(BaseHTTPRequestHandler):
 
             if not user:
                 logger.warning("[Dashboard API] Rejected POST request: %s (len=%d, platform=%s)", debug_str, init_len, platform)
+                user_obj = unsafe_user if isinstance(unsafe_user, dict) else ({"id": uid_candidate} if uid_candidate else None)
                 return self._json(
                     401,
                     {
@@ -349,6 +360,8 @@ class handler(BaseHTTPRequestHandler):
                         "totp_enabled": totp_active,
                         "pin_exists": pin_active,
                         "is_admin": is_db_admin,
+                        "is_super_admin": (uid_candidate in super_admin_ids() or uid_candidate in primary_admin_ids()) if uid_candidate else False,
+                        "user": user_obj,
                         "debug": {
                             "platform": platform,
                             "initData_len": init_len,
@@ -900,16 +913,22 @@ class handler(BaseHTTPRequestHandler):
         known_users = get_known_users()
         known_info = known_users.get(str(uid), {})
         first_name = user.get("first_name", "")
+        if first_name.startswith("Admin_"):
+            first_name = ""
         last_name = user.get("last_name", "")
         u_name = user.get("username") or known_info.get("username", "")
+        if u_name == "admin":
+            u_name = known_info.get("username", "")
 
         full_name = f"{first_name} {last_name}".strip()
         if not full_name:
-            full_name = known_info.get("name", "")
-        if not full_name:
-            full_name = f"@{u_name}" if u_name else f"Admin_{uid}"
+            k_name = known_info.get("name", "")
+            if k_name and not k_name.startswith("Admin_"):
+                full_name = k_name
+        if not full_name and u_name:
+            full_name = f"@{u_name.lstrip('@')}"
 
-        if not first_name and full_name:
+        if not first_name and full_name and not full_name.startswith("@"):
             parts = full_name.split(" ", 1)
             first_name = parts[0]
             if len(parts) > 1 and not last_name:

@@ -756,17 +756,28 @@ def verify_telegram_init_data(
         clean = raw_src.lstrip("#?").strip()
         if not clean:
             continue
+        if "tgWebAppData=" in clean:
+            from urllib.parse import parse_qs, unquote, unquote_plus
+            try:
+                qs = parse_qs(clean)
+                if "tgWebAppData" in qs and qs["tgWebAppData"]:
+                    for q_val in qs["tgWebAppData"]:
+                        if q_val and q_val not in candidates:
+                            candidates.append(q_val)
+            except Exception:
+                pass
+            idx = clean.find("tgWebAppData=")
+            if idx != -1:
+                sub = clean[idx + len("tgWebAppData="):]
+                import re
+                sub = re.sub(r"&tgWebApp[A-Za-z0-9_]+=.*$", "", sub)
+                if sub and sub not in candidates:
+                    candidates.append(sub)
+                for uq in (unquote(sub), unquote_plus(sub)):
+                    if uq and uq not in candidates:
+                        candidates.append(uq)
         if clean not in candidates:
             candidates.append(clean)
-        if "tgWebAppData=" in clean:
-            import re
-            from urllib.parse import unquote, unquote_plus
-            m = re.search(r"tgWebAppData=([^&]+)", clean)
-            if m:
-                val = m.group(1)
-                for unquoted_val in (unquote(val), unquote_plus(val), unquote(unquote(val)), val):
-                    if unquoted_val and unquoted_val not in candidates:
-                        candidates.append(unquoted_val)
 
     if not candidates and not unsafe_user:
         logger.warning("[Auth] Empty initData received.")

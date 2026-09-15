@@ -1,5 +1,7 @@
 import LogoMark from "@/shared/components/LogoMark";
 import { Send, Mail } from "lucide-react";
+import { FaTiktok } from "../assets/FaTiktok";
+import { FaFacebook } from "../assets/FaFacebook";
 
 interface FooterProps {
   isKm: boolean;
@@ -28,8 +30,29 @@ export default function Footer({ isKm, bodyFont }: FooterProps) {
         </div>
         <p style={{ fontSize: 13, color: "var(--text-secondary)", lineHeight: 1.7, marginBottom: 20, fontFamily: bodyFont }}>{isKm ? "ជួយខ្មែរ និងអាជីវកម្មធ្វើការសម្រេចចិត្តប្រកបដោយសុវត្ថិភាព ទាក់ទងនឹងសារឌីជីថលគួរឱ្យសង្ស័យ។" : "Helping Cambodians and businesses make safer decisions around suspicious digital messages."}</p>
         <div style={{ display: "flex", gap: 8, marginBottom: 28 }}>
-          {[{ label: "Facebook", icon: "𝐟", href: "#" }, { label: "Telegram", icon: <Send size={14} />, href: "https://t.me/songket_beyda_bot" }, { label: "TikTok", icon: "♪", href: "#" }, { label: "Email", icon: <Mail size={14} />, href: "mailto:team@songket.app" }].map(s => (
-            <a key={s.label} href={s.href} target="_blank" rel="noreferrer" aria-label={s.label} style={{ width: 40, height: 40, borderRadius: 10, background: "var(--surface2)", border: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, textDecoration: "none", transition: "all 0.18s", color: "var(--text-secondary)" }} onMouseEnter={e => { e.currentTarget.style.background = "var(--gold-surface)"; e.currentTarget.style.borderColor = "var(--border-gold)"; }} onMouseLeave={e => { e.currentTarget.style.background = "var(--surface2)"; e.currentTarget.style.borderColor = "var(--border)"; }}>
+          {[
+            {
+              label: "Facebook",
+              icon: <FaFacebook size={16} color="currentColor" />,
+              href: "https://www.facebook.com/profile.php?fb_profile_edit_entry_point=%7B%22click_point%22%3A%22edit_profile_button%22%2C%22feature%22%3A%22profile_header%22%7D&id=61594287183497&sk=about"
+            },
+            {
+              label: "Telegram",
+              icon: <Send size={15} />,
+              href: "https://t.me/songket_beyda_bot"
+            },
+            {
+              label: "TikTok",
+              icon: <FaTiktok size={15} color="currentColor" />,
+              href: "https://www.tiktok.com/@songket67?_r=1&_t=ZS-99kLIZCNTOf"
+            },
+            {
+              label: "Email",
+              icon: <Mail size={15} />,
+              href: "mailto:Songketteam@gmail.com"
+            }
+          ].map(s => (
+            <a key={s.label} href={s.href} target="_blank" rel="noreferrer" aria-label={s.label} style={{ width: 40, height: 40, borderRadius: 10, background: "var(--surface2)", border: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none", transition: "all 0.18s", color: "var(--text-secondary)" }} onMouseEnter={e => { e.currentTarget.style.background = "var(--gold-surface)"; e.currentTarget.style.borderColor = "var(--border-gold)"; e.currentTarget.style.color = "var(--gold)"; }} onMouseLeave={e => { e.currentTarget.style.background = "var(--surface2)"; e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--text-secondary)"; }}>
               {s.icon}
             </a>
           ))}
@@ -38,7 +61,7 @@ export default function Footer({ isKm, bodyFont }: FooterProps) {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 20, marginBottom: 28 }}>
           {[
             { heading: isKm ? "ផលិតផល" : "PRODUCT", links: [{ label: isKm ? "ការស្កែន" : "File Scanning", href: "#" }, { label: isKm ? "ការរកឃើញតំណ" : "Link Detection", href: "#" }, { label: isKm ? "តម្លៃ" : "Pricing", href: "#pricing" }, { label: isKm ? "របៀបដំណើរការ" : "How It Works", href: "#how-it-works" }] },
-            { heading: isKm ? "ក្រុមហ៊ុន" : "COMPANY", links: [{ label: isKm ? "អំពីយើង" : "About Us", href: "#about" }, { label: isKm ? "ក្រុមការងារ" : "Our Team", href: "#about" }, { label: isKm ? "ទំនាក់ទំនង" : "Contact", href: "mailto:team@songket.app" }, { label: isKm ? "សំណួរញឹកញាប់" : "FAQ", href: "#" }] },
+            { heading: isKm ? "ក្រុមហ៊ុន" : "COMPANY", links: [{ label: isKm ? "អំពីយើង" : "About Us", href: "#about" }, { label: isKm ? "ក្រុមការងារ" : "Our Team", href: "#about" }, { label: isKm ? "ទំនាក់ទំនង" : "Contact", href: "mailto:Songketteam@gmail.com" }, { label: isKm ? "សំណួរញឹកញាប់" : "FAQ", href: "#" }] },
             { heading: isKm ? "ច្បាប់" : "LEGAL", links: [{ label: isKm ? "គោលនយោបាយឯកជន" : "Privacy Policy", href: "/privacy-terms#privacy" }, { label: isKm ? "លក្ខខណ្ឌនៃការប្រើប្រាស់" : "Terms & Conditions", href: "/privacy-terms#terms" }] },
           ].map(col => (
             <div key={col.heading}>
