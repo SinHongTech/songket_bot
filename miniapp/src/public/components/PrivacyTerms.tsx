@@ -1133,7 +1133,9 @@ return (
         >
           {t.contactEmail}{" "}
           <a
-            href="mailto:Songketteam@gmail.com"
+            href="https://mail.google.com/mail/?view=cm&fs=1&to=Songketteam@gmail.com"
+            target="_blank"
+            rel="noreferrer"
             style={{
               color: "var(--gold)",
               textDecoration: "none",

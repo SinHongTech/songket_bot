@@ -251,17 +251,33 @@ export default function About({ isKm, bodyFont }: AboutProps) {
             <Mail size={14} color="var(--gold)" />
             <p style={{ fontSize: 13, fontWeight: 700, fontFamily: bodyFont }}>{isKm ? "ទំនាក់ទំនង" : "Contact"}</p>
           </div>
-          <div style={{ display: "grid", gap: 6 }}>
+          <div style={{ display: "grid", gap: 8 }}>
             {[
-              { icon: <Send size={11} color="var(--muted)" />, label: "@songket_beyda_bot" },
-              { icon: <Mail size={11} color="var(--muted)" />, label: "Songketteam@gmail.com" },
+              { icon: <Send size={11} color="var(--muted)" />, label: "@songket_beyda_bot", href: "https://t.me/songket_beyda_bot" },
+              { icon: <Mail size={11} color="var(--muted)" />, label: "Songketteam@gmail.com", href: "https://mail.google.com/mail/?view=cm&fs=1&to=Songketteam@gmail.com" },
             ].map((c) => (
-              <div key={c.label} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <a
+                key={c.label}
+                href={c.href}
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  textDecoration: "none",
+                  color: "inherit",
+                  transition: "opacity 0.2s ease",
+                  cursor: "pointer",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.75"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; }}
+              >
                 {c.icon}
                 <span className="mono" style={{ fontSize: 10, color: "var(--text-secondary)" }}>
                   {c.label}
                 </span>
-              </div>
+              </a>
             ))}
           </div>
         </div>

@@ -47,9 +47,9 @@ export default function Footer({ isKm, bodyFont }: FooterProps) {
               href: "https://www.tiktok.com/@songket67?_r=1&_t=ZS-99kLIZCNTOf"
             },
             {
-              label: "Email",
+              label: "Gmail",
               icon: <Mail size={15} />,
-              href: "mailto:Songketteam@gmail.com"
+              href: "https://mail.google.com/mail/?view=cm&fs=1&to=Songketteam@gmail.com"
             }
           ].map(s => (
             <a key={s.label} href={s.href} target="_blank" rel="noreferrer" aria-label={s.label} style={{ width: 40, height: 40, borderRadius: 10, background: "var(--surface2)", border: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", textDecoration: "none", transition: "all 0.18s", color: "var(--text-secondary)" }} onMouseEnter={e => { e.currentTarget.style.background = "var(--gold-surface)"; e.currentTarget.style.borderColor = "var(--border-gold)"; e.currentTarget.style.color = "var(--gold)"; }} onMouseLeave={e => { e.currentTarget.style.background = "var(--surface2)"; e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--text-secondary)"; }}>
@@ -61,7 +61,7 @@ export default function Footer({ isKm, bodyFont }: FooterProps) {
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 20, marginBottom: 28 }}>
           {[
             { heading: isKm ? "ផលិតផល" : "PRODUCT", links: [{ label: isKm ? "ការស្កែន" : "File Scanning", href: "#" }, { label: isKm ? "ការរកឃើញតំណ" : "Link Detection", href: "#" }, { label: isKm ? "តម្លៃ" : "Pricing", href: "#pricing" }, { label: isKm ? "របៀបដំណើរការ" : "How It Works", href: "#how-it-works" }] },
-            { heading: isKm ? "ក្រុមហ៊ុន" : "COMPANY", links: [{ label: isKm ? "អំពីយើង" : "About Us", href: "#about" }, { label: isKm ? "ក្រុមការងារ" : "Our Team", href: "#about" }, { label: isKm ? "ទំនាក់ទំនង" : "Contact", href: "mailto:Songketteam@gmail.com" }, { label: isKm ? "សំណួរញឹកញាប់" : "FAQ", href: "#" }] },
+            { heading: isKm ? "ក្រុមហ៊ុន" : "COMPANY", links: [{ label: isKm ? "អំពីយើង" : "About Us", href: "#about" }, { label: isKm ? "ក្រុមការងារ" : "Our Team", href: "#about" }, { label: isKm ? "ទំនាក់ទំនង" : "Contact", href: "https://mail.google.com/mail/?view=cm&fs=1&to=Songketteam@gmail.com" }, { label: isKm ? "សំណួរញឹកញាប់" : "FAQ", href: "#" }] },
             { heading: isKm ? "ច្បាប់" : "LEGAL", links: [{ label: isKm ? "គោលនយោបាយឯកជន" : "Privacy Policy", href: "/privacy-terms#privacy" }, { label: isKm ? "លក្ខខណ្ឌនៃការប្រើប្រាស់" : "Terms & Conditions", href: "/privacy-terms#terms" }] },
           ].map(col => (
             <div key={col.heading}>
