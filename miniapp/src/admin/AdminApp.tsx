@@ -17,11 +17,12 @@ import {
   Lock,
   LogOut,
   Bell,
+  KeyRound,
 } from "lucide-react";
 import LogoMark from "@/shared/components/LogoMark";
 import { G, type Nav, type Lang } from "@/admin/palette";
 import { t as T, kh } from "@/admin/i18n";
-import { fetchDashboardData, getCachedDashboardData, setupPin, loginPin, resetPin, resetPinWithTotp, setSessionToken, openTelegramDirect, getTelegramUser, getTelegramWebApp, saveUserDatePreferences } from "@/admin/api";
+import { fetchDashboardData, getCachedDashboardData, setupPin, loginPin, loginTotp, resetPin, resetPinWithTotp, setSessionToken, openTelegramDirect, getTelegramUser, getTelegramWebApp, saveUserDatePreferences } from "@/admin/api";
 import { safeStorage } from "@/shared/storage";
 import type { DashboardApiResponse, ThreatEvent } from "@/admin/types";
 import { mockUser } from "@/admin/data";
@@ -208,16 +209,200 @@ function UpgradeModal({ onClose, lang }: { onClose: () => void; lang: Lang }) {
 
 
 
+function TotpLoginModal({
+  isOpen,
+  onClose,
+  onSuccess,
+  lang,
+  userId,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onSuccess: (data: any) => void;
+  lang: Lang;
+  userId?: number;
+}) {
+  const [code, setCode] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const isKm = lang === "km";
+
+  if (!isOpen) return null;
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!code.trim()) return;
+    setErr(null);
+    setBusy(true);
+    try {
+      const res = await loginTotp(code.trim(), userId);
+      if (res && (res.authorized || res.session || res.ok)) {
+        onSuccess(res);
+        onClose();
+        return;
+      }
+      setErr(res?.error || (isKm ? "លេខកូដ 2FA មិនត្រឹមត្រូវ" : "Invalid 2FA code"));
+    } catch (e: any) {
+      setErr(e?.message || (isKm ? "លេខកូដ 2FA មិនត្រឹមត្រូវ" : "Invalid 2FA code"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 9999,
+        background: "rgba(0,0,0,0.78)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "20px 16px",
+      }}
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: G.surface,
+          borderRadius: 20,
+          border: `1px solid ${G.goldBorder}`,
+          width: "100%",
+          maxWidth: 380,
+          padding: "24px 20px",
+          textAlign: "center",
+          boxShadow: "0 24px 80px rgba(0,0,0,0.6)",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: -10 }}>
+          <button
+            onClick={onClose}
+            style={{
+              background: "transparent",
+              border: `1px solid ${G.border}`,
+              color: G.muted,
+              borderRadius: 8,
+              width: 30,
+              height: 30,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <X size={14} />
+          </button>
+        </div>
+        <div
+          style={{
+            width: 52,
+            height: 52,
+            borderRadius: "50%",
+            background: "rgba(212,167,44,0.15)",
+            color: G.gold,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            margin: "0 auto 12px",
+          }}
+        >
+          <KeyRound size={26} />
+        </div>
+        <div style={{ fontSize: 17, fontWeight: 800, color: G.gold, marginBottom: 6 }}>
+          <span className={kh(lang)}>
+            {isKm ? "ផ្ទៀងផ្ទាត់ 2FA / Google Authenticator" : "Unlock with 2FA / TOTP"}
+          </span>
+        </div>
+        <p style={{ fontSize: 12, color: G.textSec, lineHeight: 1.5, margin: "0 0 16px" }}>
+          <span className={kh(lang)}>
+            {isKm
+              ? "សូមបញ្ចូលលេខកូដ ៦ ខ្ទង់ពីកម្មវិធី Google Authenticator របស់អ្នក ដើម្បីចូលដំណើរការផ្ទាល់។"
+              : "Enter the 6-digit rolling code or backup recovery code from your Authenticator app to instantly unlock live admin access."}
+          </span>
+        </p>
+
+        {err && (
+          <div
+            style={{
+              background: "rgba(239,68,68,0.15)",
+              border: `1px solid ${G.danger}`,
+              borderRadius: 10,
+              padding: "10px 12px",
+              color: G.danger,
+              fontSize: 12,
+              fontWeight: 600,
+              marginBottom: 14,
+            }}
+          >
+            {err}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <input
+            type="text"
+            inputMode="numeric"
+            maxLength={10}
+            autoFocus
+            placeholder="000000"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            style={{
+              background: G.surface2,
+              border: `1.5px solid ${G.goldBorder}`,
+              borderRadius: 12,
+              padding: "14px",
+              fontSize: 22,
+              fontWeight: 800,
+              letterSpacing: "0.25em",
+              textAlign: "center",
+              color: G.text,
+              outline: "none",
+            }}
+          />
+
+          <button
+            type="submit"
+            disabled={busy || code.trim().length < 6}
+            style={{
+              background: G.gold,
+              color: "#1a1200",
+              border: "none",
+              borderRadius: 12,
+              padding: "13px 0",
+              fontSize: 14,
+              fontWeight: 800,
+              cursor: busy || code.trim().length < 6 ? "not-allowed" : "pointer",
+              opacity: busy || code.trim().length < 6 ? 0.6 : 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+            }}
+          >
+            {busy ? <Loader2 size={16} className="spin-animation" /> : <KeyRound size={16} />}
+            <span className={kh(lang)}>{isKm ? "ផ្ទៀងផ្ទាត់ & ចូលភ្លាមៗ" : "Verify & Unlock Live"}</span>
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function PinGate({
   mode,
   locked,
   lang,
   onSuccess,
+  onOpenTotpLogin,
 }: {
   mode: "setup" | "login";
   locked: number;
   lang: Lang;
   onSuccess: (data?: any) => void;
+  onOpenTotpLogin?: () => void;
 }) {
   const tx = T(lang);
   const [pin, setPin] = useState("");
@@ -473,15 +658,40 @@ function PinGate({
               <span className={kh(lang)}>{currentMode === "setup" ? tx.setPin : tx.unlock}</span>
             </button>
 
-            {currentMode === "login" && (
-              <button
-                onClick={handleResetPin}
-                disabled={busy}
-                style={{ background: "transparent", border: "none", color: G.gold, fontSize: 12, fontWeight: 700, cursor: "pointer", padding: "6px 12px", textDecoration: "underline" }}
-              >
-                <span className={kh(lang)}>{isKm ? "ភ្លេច / កំណត់កូដសម្ងាត់ឡើងវិញ?" : "Forgot / Reset PIN?"}</span>
-              </button>
-            )}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "center" }}>
+              {currentMode === "login" && (
+                <button
+                  onClick={handleResetPin}
+                  disabled={busy}
+                  style={{ background: "transparent", border: "none", color: G.gold, fontSize: 12, fontWeight: 700, cursor: "pointer", padding: "4px 8px", textDecoration: "underline" }}
+                >
+                  <span className={kh(lang)}>{isKm ? "ភ្លេច / កំណត់កូដសម្ងាត់ឡើងវិញ?" : "Forgot / Reset PIN?"}</span>
+                </button>
+              )}
+              {onOpenTotpLogin && (
+                <button
+                  type="button"
+                  onClick={onOpenTotpLogin}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: G.textSec,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "4px 8px",
+                  }}
+                >
+                  <KeyRound size={13} color={G.gold} />
+                  <span className={kh(lang)} style={{ color: G.gold }}>
+                    {isKm ? "ចូលដោយប្រើ Google Authenticator (2FA)" : "Login with Google Authenticator (2FA)"}
+                  </span>
+                </button>
+              )}
+            </div>
           </>
         )}
       </div>
@@ -514,6 +724,7 @@ export default function AdminApp() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [manageUnlocked, setManageUnlocked] = useState(false);
+  const [totpLoginOpen, setTotpLoginOpen] = useState(false);
 
   const getThirtyDaysAgo = () => {
     const d = new Date();
@@ -852,15 +1063,15 @@ export default function AdminApp() {
           <div style={{ fontSize: 18, fontWeight: 800, color: G.gold, marginTop: 16, marginBottom: 8 }}>
             <span className={kh(lang)}>{lang === "km" ? "ការគ្រប់គ្រងសម្រាប់តែ Admin" : "Admin Access Only"}</span>
           </div>
-          <div style={{ fontSize: 13, color: G.textSec, lineHeight: 1.6, marginBottom: 24 }}>
+          <div style={{ fontSize: 13, color: G.textSec, lineHeight: 1.6, marginBottom: 20 }}>
             <span className={kh(lang)}>
               {lang === "km"
-                ? "ផ្ទាំងគ្រប់គ្រងប្រព័ន្ធត្រូវបានការពារ។ សូមទាក់ទងមកកាន់ @Sin_Hong ដើម្បីស្នើសុំសិទ្ធិគ្រប់គ្រង។"
-                : "System configuration is restricted to authorized administrators. Please contact @Sin_Hong to request access."}
+                ? "ផ្ទាំងគ្រប់គ្រងប្រព័ន្ធត្រូវបានការពារ។ សូមប្រើប្រាស់ Google Authenticator (2FA) ដើម្បីចូលផ្ទាល់ ឬទាក់ទងមកកាន់ @Sin_Hong។"
+                : "System configuration is restricted to authorized administrators. Unlock with Google Authenticator (2FA) or contact @Sin_Hong."}
             </span>
           </div>
           <button
-            onClick={() => openTelegramDirect("Sin_Hong")}
+            onClick={() => setTotpLoginOpen(true)}
             style={{
               width: "100%",
               background: G.gold,
@@ -871,6 +1082,28 @@ export default function AdminApp() {
               fontWeight: 800,
               cursor: "pointer",
               fontSize: 14,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 8,
+              marginBottom: 10,
+            }}
+          >
+            <KeyRound size={16} />
+            <span className={kh(lang)}>{lang === "km" ? "🔑 ចូលដោយប្រើ 2FA / TOTP" : "🔑 Unlock Live Access via 2FA"}</span>
+          </button>
+          <button
+            onClick={() => openTelegramDirect("Sin_Hong")}
+            style={{
+              width: "100%",
+              background: "transparent",
+              border: `1px solid ${G.border}`,
+              color: G.textSec,
+              borderRadius: 10,
+              padding: "11px 0",
+              fontWeight: 700,
+              cursor: "pointer",
+              fontSize: 13,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -886,6 +1119,7 @@ export default function AdminApp() {
         mode={apiData?.pin_exists ? "login" : "setup"}
         locked={apiData?.locked || 0}
         lang={lang}
+        onOpenTotpLogin={() => setTotpLoginOpen(true)}
         onSuccess={(res) => {
           setManageUnlocked(true);
           if (res && (res.config || res.dashboard || res.authorized)) {
@@ -930,6 +1164,18 @@ export default function AdminApp() {
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100dvh", background: G.bg, color: G.text, fontFamily: "Outfit, sans-serif" }}>
       {upgradeOpen && <UpgradeModal onClose={() => setUpgradeOpen(false)} lang={lang} />}
+      {totpLoginOpen && (
+        <TotpLoginModal
+          isOpen={totpLoginOpen}
+          onClose={() => setTotpLoginOpen(false)}
+          onSuccess={(res) => {
+            setManageUnlocked(true);
+            setApiData(res);
+          }}
+          lang={lang}
+          userId={user?.id}
+        />
+      )}
 
       <header style={{ padding: "12px 16px", borderBottom: `1px solid ${G.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: G.surface, flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -943,6 +1189,28 @@ export default function AdminApp() {
               <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: isMock ? "rgba(224,160,32,0.18)" : "rgba(34,197,94,0.15)", color: isMock ? G.warn : G.safe, fontWeight: 700, letterSpacing: "0.04em" }}>
                 {isMock ? "PREVIEW" : "LIVE"}
               </span>
+              {isMock && (
+                <button
+                  onClick={() => setTotpLoginOpen(true)}
+                  style={{
+                    background: "rgba(212,167,44,0.18)",
+                    border: `1px solid ${G.goldBorder}`,
+                    color: G.gold,
+                    borderRadius: 6,
+                    padding: "2px 7px",
+                    fontSize: 10,
+                    fontWeight: 800,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                  }}
+                  title="Unlock Live with Google Authenticator"
+                >
+                  <KeyRound size={11} />
+                  <span>{lang === "km" ? "ចូលតាម 2FA" : "2FA Unlock"}</span>
+                </button>
+              )}
             </div>
             <div style={{ fontSize: 10, color: G.muted, letterSpacing: "0.06em", fontWeight: 600 }}>{currentLabel}</div>
           </div>

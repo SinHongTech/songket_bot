@@ -576,6 +576,34 @@ export async function loginPin(pin: string) {
   }
 }
 
+export async function loginTotp(
+  code: string,
+  userId?: number
+): Promise<{ ok: boolean; session?: string; authorized?: boolean; error?: string; [key: string]: any }> {
+  try {
+    const user = getTelegramUser();
+    const targetUid = userId || user?.id || 1221693150;
+    const response = await fetch("/api/dashboard", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(getAuthPayload({ action: "login_totp", code, user_id: targetUid })),
+    });
+    const res = await response.json();
+    if (res && res.session) {
+      setSessionToken(res.session);
+    }
+    if (res && res.authorized) {
+      try {
+        safeStorage.setItem("songket.admin.cachedDashboard", JSON.stringify(res));
+      } catch {}
+    }
+    return res;
+  } catch (err: any) {
+    console.warn("[MiniApp] loginTotp error:", err);
+    return { ok: false, error: err?.message || "Verification failed" };
+  }
+}
+
 export async function saveSystemConfig(config: {
   whitelist: number[];
   allowed_groups: number[];
