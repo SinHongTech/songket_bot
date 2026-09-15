@@ -67,18 +67,37 @@ export function getTelegramWebApp() {
 export function getInitData(): string {
   const tg = getTelegramWebApp();
   if (tg?.initData) {
-    _cachedInitData = tg.initData;
+    let data = tg.initData;
+    while (data.includes("%3D") || data.includes("%26") || data.includes("%7B") || data.includes("%22")) {
+      try {
+        const next = decodeURIComponent(data);
+        if (next === data) break;
+        data = next;
+      } catch {
+        break;
+      }
+    }
+    _cachedInitData = data;
     try {
-      safeStorage.setItem("songket_init_data", tg.initData);
+      safeStorage.setItem("songket_init_data", data);
     } catch {}
-    return tg.initData;
+    return data;
   }
 
   if (typeof window !== "undefined") {
     // 1. Fallback from cached decoded session
     try {
-      const saved = safeStorage.getItem("songket_init_data");
-      if (saved) {
+      let saved = safeStorage.getItem("songket_init_data");
+      if (saved && (saved.includes("hash=") || saved.includes("user="))) {
+        while (saved.includes("%3D") || saved.includes("%26") || saved.includes("%7B") || saved.includes("%22")) {
+          try {
+            const next = decodeURIComponent(saved);
+            if (next === saved) break;
+            saved = next;
+          } catch {
+            break;
+          }
+        }
         _cachedInitData = saved;
         return saved;
       }
@@ -96,8 +115,17 @@ export function getInitData(): string {
       const clean = rawCandidate.startsWith("#") || rawCandidate.startsWith("?") ? rawCandidate.slice(1) : rawCandidate;
       if (clean.includes("tgWebAppData=")) {
         const params = new URLSearchParams(clean);
-        const rawVal = params.get("tgWebAppData");
+        let rawVal = params.get("tgWebAppData");
         if (rawVal) {
+          while (rawVal.includes("%3D") || rawVal.includes("%26") || rawVal.includes("%7B") || rawVal.includes("%22")) {
+            try {
+              const next = decodeURIComponent(rawVal);
+              if (next === rawVal) break;
+              rawVal = next;
+            } catch {
+              break;
+            }
+          }
           _cachedInitData = rawVal;
           try {
             safeStorage.setItem("songket_init_data", rawVal);
@@ -106,11 +134,21 @@ export function getInitData(): string {
         }
       }
       if (clean.includes("hash=") && (clean.includes("user=") || clean.includes("query_id=") || clean.includes("auth_date="))) {
-        _cachedInitData = clean;
+        let cleanVal = clean;
+        while (cleanVal.includes("%3D") || cleanVal.includes("%26")) {
+          try {
+            const next = decodeURIComponent(cleanVal);
+            if (next === cleanVal) break;
+            cleanVal = next;
+          } catch {
+            break;
+          }
+        }
+        _cachedInitData = cleanVal;
         try {
-          safeStorage.setItem("songket_init_data", clean);
+          safeStorage.setItem("songket_init_data", cleanVal);
         } catch {}
-        return clean;
+        return cleanVal;
       }
     }
   }
@@ -118,7 +156,7 @@ export function getInitData(): string {
   return _cachedInitData || "";
 }
 
-export async function waitForTelegramInitData(timeoutMs: number = 100): Promise<string> {
+export async function waitForTelegramInitData(timeoutMs: number = 300): Promise<string> {
   const initial = getInitData();
   if (initial) return initial;
   const start = Date.now();
@@ -275,7 +313,7 @@ export async function fetchDashboardData(days: number = 90, force: boolean = fal
     // Fast check for initData (returns immediately if already present)
     const initData = getInitData();
     if (!initData) {
-      await waitForTelegramInitData(100);
+      await waitForTelegramInitData(300);
     }
     const payload = getAuthPayload({ days });
 
