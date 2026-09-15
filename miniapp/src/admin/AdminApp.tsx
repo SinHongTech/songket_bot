@@ -21,7 +21,7 @@ import {
 import LogoMark from "@/shared/components/LogoMark";
 import { G, type Nav, type Lang } from "@/admin/palette";
 import { t as T, kh } from "@/admin/i18n";
-import { fetchDashboardData, getCachedDashboardData, setupPin, loginPin, resetPin, resetPinWithTotp, setSessionToken, openTelegramDirect, getTelegramWebApp, saveUserDatePreferences, extractInitString } from "@/admin/api";
+import { fetchDashboardData, getCachedDashboardData, setupPin, loginPin, resetPin, resetPinWithTotp, setSessionToken, openTelegramDirect, getTelegramWebApp, saveUserDatePreferences, extractInitString, clearMiniAppCache } from "@/admin/api";
 import { safeStorage } from "@/shared/storage";
 import type { DashboardApiResponse, ThreatEvent } from "@/admin/types";
 import { mockUser } from "@/admin/data";
@@ -653,6 +653,7 @@ export default function AdminApp({ initialData }: { initialData?: DashboardApiRe
   const loadData = useCallback(async (isRefresh = false, queryDays = 90, isSilent = false) => {
     if (isRefresh) {
       setRefreshing(true);
+      clearMiniAppCache();
     } else if (!apiDataRef.current && !isSilent) {
       setLoading(true);
     }
