@@ -730,6 +730,8 @@ def _handle_personal_scan(api: TelegramAPI, chat_id: int, message: dict, user_id
     if has_file and doc_decision:
         if doc_decision.oversize:
             results.append(("file", filename, {"error": "File too large to scan"}))
+        elif doc_decision.reason == "download_failed":
+            results.append(("file", filename, {"error": "Could not download file (timeout or network error)"}))
         elif doc_decision.ok:
             results.append(("file", filename, vt_scan_file(doc_decision.file_bytes, filename)))
         elif not urls:
@@ -3210,6 +3212,11 @@ def process_update(api: TelegramAPI, update: dict) -> None:
         return
 
     if not decision.ok:
+        if decision.reason == "download_failed":
+            logger.error("File download failed for %s | chat=%s", filename, chat_id)
+            record_report(chat_id, chat_title, "errors")
+            delete_notice()
+            return
         if scanned_clean_targets:
             display_safe_feedback(", ".join(scanned_clean_targets + [filename]))
         else:
