@@ -738,6 +738,7 @@ def verify_telegram_init_data(
     max_age_seconds: int = 7 * 86400,
 ) -> tuple[Optional[dict], str]:
     """Validate Telegram WebApp initData using the official HMAC scheme across all encoding formats."""
+    from urllib.parse import parse_qsl, unquote, unquote_plus
     tokens = list(dict.fromkeys([t.strip() for t in [
         BOT_TOKEN,
         os.environ.get("BOT_TOKEN", ""),
@@ -749,6 +750,8 @@ def verify_telegram_init_data(
         logger.error("[Auth] No bot tokens configured for Telegram HMAC verification.")
         return None, "No bot tokens configured"
 
+    token_keys = [hmac.new(b"WebAppData", tok.encode(), hashlib.sha256).digest() for tok in tokens]
+
     candidates = []
     for raw_src in (init_data, raw_hash, raw_search):
         if not raw_src:
@@ -758,9 +761,22 @@ def verify_telegram_init_data(
             continue
         if clean not in candidates:
             candidates.append(clean)
+        
+        # Add multiple unquoted levels
+        curr = clean
+        for _ in range(3):
+            curr_unq = unquote(curr)
+            if curr_unq and curr_unq not in candidates:
+                candidates.append(curr_unq)
+            curr_plus = unquote_plus(curr)
+            if curr_plus and curr_plus not in candidates:
+                candidates.append(curr_plus)
+            if curr_unq == curr:
+                break
+            curr = curr_unq
+
         if "tgWebAppData=" in clean:
             import re
-            from urllib.parse import unquote, unquote_plus
             m = re.search(r"tgWebAppData=([^&]+)", clean)
             if m:
                 val = m.group(1)
@@ -775,7 +791,6 @@ def verify_telegram_init_data(
     last_debug = "No valid candidate found"
     for cand in candidates:
         cand_clean = cand.lstrip("#?").strip()
-        from urllib.parse import parse_qsl, unquote, unquote_plus
         
         # 1. Direct raw parameter split without parsing
         raw_items = [p for p in cand_clean.split("&") if "=" in p]
@@ -797,10 +812,12 @@ def verify_telegram_init_data(
                 "\n".join(f"{k}={unquote(raw_map[k])}" for k in sorted(raw_map.keys())),
                 "\n".join(f"{k}={unquote_plus(raw_map[k])}" for k in sorted(raw_map.keys())),
                 "\n".join(_compact_user_fmt(k, raw_map[k]) for k in sorted(raw_map.keys())),
+                "\n".join(f"{k}={unquote(raw_map[k])}".replace("/", r"\/") if k == "user" else f"{k}={raw_map[k]}" for k in sorted(raw_map.keys())),
+                "\n".join(_compact_user_fmt(k, raw_map[k]).replace("/", r"\/") if k == "user" else f"{k}={raw_map[k]}" for k in sorted(raw_map.keys())),
+                "\n".join(f"{k}={unquote(raw_map[k])}".replace(r"\/", "/") if k == "user" else f"{k}={raw_map[k]}" for k in sorted(raw_map.keys())),
             ]
             for cs in raw_variants:
-                for tok in tokens:
-                    secret_key = hmac.new(b"WebAppData", tok.encode(), hashlib.sha256).digest()
+                for secret_key in token_keys:
                     calculated = hmac.new(secret_key, cs.encode(), hashlib.sha256).hexdigest()
                     if hmac.compare_digest(calculated, h_raw):
                         try:
@@ -812,12 +829,22 @@ def verify_telegram_init_data(
                                 continue
                             user = _safe_json_loads(raw_map.get("user", ""))
                             if isinstance(user, dict) and user.get("id"):
-                                logger.info("[Auth] Telegram session verified via raw map: user_id=%s", user.get("id"))
+                                try:
+                                    uid_int = int(user["id"])
+                                    u_fn = user.get("first_name", "")
+                                    u_ln = user.get("last_name", "")
+                                    u_un = user.get("username", "")
+                                    u_display = f"{u_fn} {u_ln}".strip() or (f"@{u_un}" if u_un else f"User {uid_int}")
+                                    record_known_user(uid_int, u_un, u_display)
+                                    kv_json_set(f"cache:user:{uid_int}", user, ttl=86400 * 30)
+                                except Exception:
+                                    pass
+                                logger.info("[Auth] Telegram session verified via raw map: user_id=%s username=%s", user.get("id"), user.get("username"))
                                 return user, "OK"
                         except Exception:
                             pass
 
-        # 2. Parsed key-value pairs
+        # 2. Parsed key-value pairs with tgWebAppData unwrapping
         for parse_fn in (
             lambda s: parse_qsl(s, keep_blank_values=True),
             lambda s: parse_qsl(unquote(s), keep_blank_values=True),
@@ -828,6 +855,13 @@ def verify_telegram_init_data(
             except Exception:
                 continue
             data = dict(pairs)
+            if "tgWebAppData" in data:
+                raw_sub = data.pop("tgWebAppData")
+                try:
+                    data.update(dict(parse_fn(raw_sub)))
+                except Exception:
+                    pass
+
             received_hash = data.pop("hash", None)
             if not received_hash:
                 continue
@@ -838,36 +872,50 @@ def verify_telegram_init_data(
                 if k.startswith("tgWebApp") or k.startswith("tg_"):
                     data.pop(k, None)
 
-            check_variants = [
-                "\n".join(f"{k}={v}" for k, v in sorted(data.items())),
-                "\n".join(f"{k}={unquote(v)}" for k, v in sorted(data.items())),
-                "\n".join(f"{k}={unquote_plus(v)}" for k, v in sorted(data.items())),
-                "\n".join(_compact_user_fmt(k, v) for k, v in sorted(data.items())),
-            ]
+            def _get_val_variations(k: str, v: str) -> list[str]:
+                var_list = [v, unquote(v), unquote_plus(v)]
+                if k == "user":
+                    try:
+                        u_obj = json.loads(unquote(v))
+                        c_json = json.dumps(u_obj, separators=(",", ":"))
+                        var_list.append(c_json)
+                        var_list.append(c_json.replace("/", r"\/"))
+                        var_list.append(c_json.replace(r"\/", "/"))
+                    except Exception:
+                        pass
+                    var_list.append(v.replace("/", r"\/"))
+                    var_list.append(v.replace(r"\/", "/"))
+                    var_list.append(unquote(v).replace("/", r"\/"))
+                    var_list.append(unquote(v).replace(r"\/", "/"))
+                return list(dict.fromkeys(var_list))
 
+            sorted_keys = sorted(data.keys())
+
+            # Fast direct match check (<1ms)
             matched = False
-            for check_str in check_variants:
-                for tok in tokens:
-                    secret_key = hmac.new(b"WebAppData", tok.encode(), hashlib.sha256).digest()
-                    calculated = hmac.new(secret_key, check_str.encode(), hashlib.sha256).hexdigest()
-                    if hmac.compare_digest(calculated, received_hash):
-                        matched = True
-                        break
-                if matched:
+            direct_check_str = "\n".join(f"{k}={data[k]}" for k in sorted_keys)
+            for secret_key in token_keys:
+                if hmac.compare_digest(hmac.new(secret_key, direct_check_str.encode(), hashlib.sha256).hexdigest(), received_hash):
+                    matched = True
                     break
 
-            calc_hashes = []
-            for tok in tokens:
-                secret_key = hmac.new(b"WebAppData", tok.encode(), hashlib.sha256).digest()
-                calc_h = hmac.new(secret_key, check_variants[0].encode(), hashlib.sha256).hexdigest()
-                calc_hashes.append(f"{tok[:8]}..->{calc_h[:8]}")
+            if not matched:
+                val_options = [_get_val_variations(k, data[k]) for k in sorted_keys]
+                import itertools
+                for val_tuple in itertools.product(*val_options):
+                    check_str = "\n".join(f"{k}={v}" for k, v in zip(sorted_keys, val_tuple))
+                    for secret_key in token_keys:
+                        calculated = hmac.new(secret_key, check_str.encode(), hashlib.sha256).hexdigest()
+                        if hmac.compare_digest(calculated, received_hash):
+                            matched = True
+                            break
+                    if matched:
+                        break
 
             if not matched:
                 last_debug = (
                     f"HMAC mismatch!\n"
                     f"Recv Hash: {received_hash}\n"
-                    f"Calc Hashes: {', '.join(calc_hashes)}\n"
-                    f"CheckStr:\n{check_variants[0]}\n"
                     f"RawCand:\n{cand_clean[:180]}"
                 )
                 logger.debug("[Auth Failure Details]\n%s", last_debug)
@@ -888,6 +936,17 @@ def verify_telegram_init_data(
             if not isinstance(user, dict) or not user.get("id"):
                 last_debug = f"user missing or invalid: {data.get('user')}"
                 continue
+
+            try:
+                uid_int = int(user["id"])
+                u_fn = user.get("first_name", "")
+                u_ln = user.get("last_name", "")
+                u_un = user.get("username", "")
+                u_display = f"{u_fn} {u_ln}".strip() or (f"@{u_un}" if u_un else f"User {uid_int}")
+                record_known_user(uid_int, u_un, u_display)
+                kv_json_set(f"cache:user:{uid_int}", user, ttl=86400 * 30)
+            except Exception:
+                pass
 
             logger.info("[Auth] Telegram session verified: user_id=%s username=%s", user.get("id"), user.get("username"))
             return user, "OK"
@@ -1062,25 +1121,51 @@ def telegram_post(endpoint: str, payload: dict) -> dict:
         return {"ok": False}
 
 
-def get_chat(chat_id: int) -> Optional[dict]:
-    # 1. Try memory / Redis cache
-    try:
-        cached_title = kv_get(f"cache:chat_title:{chat_id}")
-        if cached_title:
-            return {"id": chat_id, "title": str(cached_title)}
-        known = get_known_groups()
-        if known and isinstance(known, dict) and str(chat_id) in known:
-            return {"id": chat_id, "title": str(known[str(chat_id)])}
-    except Exception:
-        pass
+def get_chat(chat_id: int, force_refresh: bool = False) -> Optional[dict]:
+    # 1. Try memory / Redis cache (if not forcing refresh)
+    if not force_refresh:
+        try:
+            cached_title = kv_get(f"cache:chat_title:{chat_id}")
+            if cached_title and str(cached_title) != str(chat_id) and str(cached_title) != "Group":
+                return {"id": chat_id, "title": str(cached_title)}
+            known = get_known_groups()
+            if known and isinstance(known, dict) and str(chat_id) in known:
+                kt = str(known[str(chat_id)])
+                if kt and kt != str(chat_id) and kt != "Group":
+                    return {"id": chat_id, "title": kt}
+        except Exception:
+            pass
 
-    # 2. Telegram API fallback
+    # 2. Telegram API live fetch
     d = telegram_post("getChat", {"chat_id": chat_id})
     res = d.get("result") if d.get("ok") else None
-    if res and res.get("title"):
+    if res:
+        if res.get("title"):
+            try:
+                kv_set(f"cache:chat_title:{chat_id}", res["title"], ttl=86400)
+                record_known_group(chat_id, res["title"])
+            except Exception:
+                pass
+        elif res.get("first_name") or res.get("username"):
+            try:
+                fn = res.get("first_name", "")
+                ln = res.get("last_name", "")
+                un = res.get("username", "")
+                full_display = f"{fn} {ln}".strip() or (f"@{un}" if un else f"User {chat_id}")
+                record_known_user(chat_id, un, full_display)
+                kv_json_set(f"cache:user:{chat_id}", {"id": chat_id, "first_name": fn, "last_name": ln, "username": un}, ttl=86400 * 30)
+            except Exception:
+                pass
+        return res
+    elif not res:
+        # Fallback to cached title if Telegram API is unreachable or rate limited
         try:
-            kv_set(f"cache:chat_title:{chat_id}", res["title"], ttl=86400)
-            record_known_group(chat_id, res["title"])
+            cached_title = kv_get(f"cache:chat_title:{chat_id}")
+            if cached_title:
+                return {"id": chat_id, "title": str(cached_title)}
+            known = get_known_groups()
+            if known and isinstance(known, dict) and str(chat_id) in known:
+                return {"id": chat_id, "title": str(known[str(chat_id)])}
         except Exception:
             pass
     return res

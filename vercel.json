@@ -19,11 +19,11 @@
   ],
   "routes": [
     {
-      "src": "/api/dashboard",
+      "src": "/api/dashboard.*",
       "dest": "/api/dashboard.py"
     },
     {
-      "src": "/api/webapp",
+      "src": "/api/webapp.*",
       "dest": "/api/dashboard.py"
     },
     {

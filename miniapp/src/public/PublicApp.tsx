@@ -1,9 +1,8 @@
 import { useState, useLayoutEffect, useEffect, useRef } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link } from "react-router";
 import { Sun, Moon, Globe, ChevronDown, LayoutDashboard } from "lucide-react";
 import LogoMark from "@/shared/components/LogoMark";
 import { T, type Lang } from "@/public/i18n";
-import { getTelegramWebApp, getInitData } from "@/admin/api";
 import { safeStorage } from "@/shared/storage";
 import Hero from "@/public/components/Hero";
 import Features from "@/public/components/Features";
@@ -15,7 +14,6 @@ import LogoSplash from "@/public/components/LogoSplash";
 import FAQ from "@/public/components/FAQ";
 
 export default function PublicApp() {
-  const navigate = useNavigate();
   const [lang, setLang] = useState<Lang>(() => {
     return safeStorage.getItem("songket.lang") === "km" ? "km" : "en";
   });
@@ -23,74 +21,6 @@ export default function PublicApp() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const settingsRef = useRef<HTMLDivElement>(null);
   const [showSplash, setShowSplash] = useState(false);
-
-  // Auto-redirect to live dashboard when opened directly inside Telegram WebApp
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const search = window.location.search || "";
-    if (search.includes("home=1") || search.includes("preview=1")) {
-      return;
-    }
-
-    const checkAndRedirect = () => {
-      const tg = getTelegramWebApp();
-      const initData = getInitData();
-      const hash = window.location.hash || "";
-      const isTgClient = Boolean(
-        initData ||
-        tg?.initData ||
-        tg?.initDataUnsafe?.user?.id ||
-        (tg as any)?.platform ||
-        (window as any).TelegramWebviewProxy ||
-        hash.includes("tgWebAppData=") ||
-        search.includes("tgWebAppData=")
-      );
-
-      if (isTgClient) {
-        navigate(
-          {
-            pathname: "/dashboard",
-            search: window.location.search,
-            hash: window.location.hash,
-          },
-          { replace: true }
-        );
-        return true;
-      }
-      return false;
-    };
-
-    if (checkAndRedirect()) return;
-
-    // Listen for late-arriving Telegram Desktop setup event
-    const handleMsg = (e: MessageEvent) => {
-      try {
-        let d = e.data;
-        if (typeof d === "string") {
-          try { d = JSON.parse(d); } catch {}
-        }
-        if (d && d.eventType === "web_app_setup_data") {
-          checkAndRedirect();
-        }
-      } catch {}
-    };
-    window.addEventListener("message", handleMsg);
-
-    // Short polling interval for desktop webview handshake
-    const interval = setInterval(() => {
-      if (checkAndRedirect()) {
-        clearInterval(interval);
-      }
-    }, 150);
-
-    const timer = setTimeout(() => clearInterval(interval), 3000);
-
-    return () => {
-      window.removeEventListener("message", handleMsg);
-      clearInterval(interval);
-      clearTimeout(timer);
-    };
-  }, [navigate]);
 
   useLayoutEffect(() => {
     document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");

@@ -21,7 +21,7 @@ import {
 import LogoMark from "@/shared/components/LogoMark";
 import { G, type Nav, type Lang } from "@/admin/palette";
 import { t as T, kh } from "@/admin/i18n";
-import { fetchDashboardData, getCachedDashboardData, setupPin, loginPin, resetPin, resetPinWithTotp, setSessionToken, openTelegramDirect, getTelegramUser, getTelegramWebApp, saveUserDatePreferences } from "@/admin/api";
+import { fetchDashboardData, getCachedDashboardData, setupPin, loginPin, resetPin, resetPinWithTotp, setSessionToken, openTelegramDirect, getTelegramWebApp, saveUserDatePreferences, extractInitString, clearMiniAppCache } from "@/admin/api";
 import { safeStorage } from "@/shared/storage";
 import type { DashboardApiResponse, ThreatEvent } from "@/admin/types";
 import { mockUser } from "@/admin/data";
@@ -489,7 +489,7 @@ function PinGate({
   );
 }
 
-export default function AdminApp() {
+export default function AdminApp({ initialData }: { initialData?: DashboardApiResponse } = {}) {
   const [nav, setNav] = useState<Nav>("dashboard");
   const [dark, setDark] = useState<boolean>(() => {
     const v = safeStorage.getItem("songket.admin.dark") || safeStorage.getItem("songket.dark");
@@ -504,12 +504,12 @@ export default function AdminApp() {
   // Helper date functions
   const getToday = () => new Date().toISOString().split("T")[0];
 
-  // Dashboard API state (with instant cache-first render)
+  // Dashboard API state (with instant cache-first render or pre-fetched initialData)
   const [apiData, setApiData] = useState<DashboardApiResponse | null>(() => {
-    return getCachedDashboardData();
+    return initialData || getCachedDashboardData();
   });
   const [loading, setLoading] = useState<boolean>(() => {
-    return !getCachedDashboardData();
+    return !initialData && !getCachedDashboardData();
   });
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -653,6 +653,7 @@ export default function AdminApp() {
   const loadData = useCallback(async (isRefresh = false, queryDays = 90, isSilent = false) => {
     if (isRefresh) {
       setRefreshing(true);
+      clearMiniAppCache();
     } else if (!apiDataRef.current && !isSilent) {
       setLoading(true);
     }
@@ -676,6 +677,13 @@ export default function AdminApp() {
   }, []);
 
   useEffect(() => {
+    if (initialData) {
+      setApiData(initialData);
+      setLoading(false);
+    }
+  }, [initialData]);
+
+  useEffect(() => {
     let mounted = true;
     const tg = getTelegramWebApp();
     if (tg) {
@@ -683,18 +691,30 @@ export default function AdminApp() {
       try { tg.expand(); } catch {}
     }
 
-    // Fast initial load (silent if cached data is already displayed)
-    loadData(false, 90, Boolean(apiDataRef.current));
+    // Fast initial load (silent if cached or pre-fetched initial data is already displayed)
+    if (!initialData) {
+      loadData(false, 90, Boolean(apiDataRef.current));
+    }
 
-    // Listen for late Telegram Desktop webview handshake
+    // Progressive retry timers for Telegram Desktop & Web late handshake
+    const t1 = setTimeout(() => {
+      if (mounted && (!apiDataRef.current || !apiDataRef.current.authorized)) {
+        loadData(true, 90, true);
+      }
+    }, 400);
+
+    const t2 = setTimeout(() => {
+      if (mounted && (!apiDataRef.current || !apiDataRef.current.authorized)) {
+        loadData(true, 90, true);
+      }
+    }, 1100);
+
+    // Listen for late Telegram Desktop / Web webview handshake messages
     const handleMsg = (e: MessageEvent) => {
       try {
-        let d = e.data;
-        if (typeof d === "string") {
-          try { d = JSON.parse(d); } catch {}
-        }
-        if (d && d.eventType === "web_app_setup_data" && mounted) {
-          loadData(false, 90, true);
+        const str = extractInitString(e.data);
+        if (str && str.includes("hash=") && mounted) {
+          loadData(true, 90, false);
         }
       } catch {}
     };
@@ -702,9 +722,11 @@ export default function AdminApp() {
 
     return () => {
       mounted = false;
+      clearTimeout(t1);
+      clearTimeout(t2);
       window.removeEventListener("message", handleMsg);
     };
-  }, [loadData]);
+  }, [loadData, initialData]);
 
   // Periodic silent background auto-sync every 30 seconds when tab is active
   useEffect(() => {
@@ -722,8 +744,9 @@ export default function AdminApp() {
     loadData(false, 90);
   };
 
-  const tg = getTelegramWebApp();
-  const user = apiData?.user || getTelegramUser() || tg?.initDataUnsafe?.user || mockUser;
+  const isMock = Boolean(apiData?.isMock || !apiData?.authorized);
+  // In Preview/Demo mode, show generic mockUser so personal identities are never exposed in unauthenticated mode
+  const user = (!isMock && apiData?.user) ? apiData.user : mockUser;
   const isSuperAdmin = apiData?.is_super_admin ?? false;
 
   const NAV_ITEMS: { id: Nav; icon: React.ReactElement; label: string }[] = [
@@ -737,7 +760,6 @@ export default function AdminApp() {
 
   const currentLabel = NAV_ITEMS.find(n => n.id === nav)?.label ?? "";
   const dashboard = apiData?.dashboard || null;
-  const isMock = apiData?.isMock ?? (!apiData?.authorized);
 
   // Real Threat Events from backend (clean real alerts only)
   const rawThreatEvents = apiData?.threat_events || [];
@@ -931,20 +953,41 @@ export default function AdminApp() {
     <div style={{ display: "flex", flexDirection: "column", height: "100dvh", background: G.bg, color: G.text, fontFamily: "Outfit, sans-serif" }}>
       {upgradeOpen && <UpgradeModal onClose={() => setUpgradeOpen(false)} lang={lang} />}
 
-      <header style={{ padding: "12px 16px", borderBottom: `1px solid ${G.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: G.surface, flexShrink: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <Link to="/?home=1" state={{ fromAdmin: true }} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 7, border: `1px solid ${G.border}`, color: G.muted, textDecoration: "none" }} title="Landing Page">
-            <ArrowLeft size={13} />
+      <header style={{ padding: "10px 12px", borderBottom: `1px solid ${G.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: G.surface, flexShrink: 0, gap: 6, minWidth: 0, overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, flexShrink: 1, overflow: "hidden" }}>
+          <Link
+            to="/landing"
+            state={{ fromAdmin: true }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 3.5,
+              padding: "4px 7px",
+              borderRadius: 6,
+              border: `1px solid ${G.border}`,
+              background: "rgba(212,167,44,0.06)",
+              color: G.gold,
+              textDecoration: "none",
+              fontSize: 10,
+              fontWeight: 600,
+              cursor: "pointer",
+              flexShrink: 0,
+              whiteSpace: "nowrap",
+            }}
+            title={lang === "km" ? "ទំព័រដើម" : "Landing Page"}
+          >
+            <ArrowLeft size={11} />
+            <span className={kh(lang)} style={{ fontSize: 9.5 }}>{lang === "km" ? "ទំព័រដើម" : "Landing"}</span>
           </Link>
-          <LogoMark size={34} />
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ fontWeight: 800, fontSize: 13, color: G.gold }}>SongKet</span>
-              <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: isMock ? "rgba(224,160,32,0.18)" : "rgba(34,197,94,0.15)", color: isMock ? G.warn : G.safe, fontWeight: 700, letterSpacing: "0.04em" }}>
+          <LogoMark size={28} />
+          <div style={{ minWidth: 0, overflow: "hidden" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
+              <span style={{ fontWeight: 800, fontSize: 12, color: G.gold }}>SongKet</span>
+              <span style={{ fontSize: 8.5, padding: "1px 4px", borderRadius: 3, background: isMock ? "rgba(224,160,32,0.18)" : "rgba(34,197,94,0.15)", color: isMock ? G.warn : G.safe, fontWeight: 700, letterSpacing: "0.02em" }}>
                 {isMock ? "PREVIEW" : "LIVE"}
               </span>
             </div>
-            <div style={{ fontSize: 10, color: G.muted, letterSpacing: "0.06em", fontWeight: 600 }}>{currentLabel}</div>
+            <div style={{ fontSize: 9, color: G.muted, letterSpacing: "0.02em", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{currentLabel}</div>
           </div>
         </div>
 

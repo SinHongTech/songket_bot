@@ -40,23 +40,6 @@ if (typeof window !== "undefined") {
   } catch {}
 }
 
-if (typeof window !== "undefined") {
-  window.addEventListener("message", (event) => {
-    try {
-      let data = event.data;
-      if (typeof data === "string") {
-        try { data = JSON.parse(data); } catch {}
-      }
-      if (data && data.eventType === "web_app_setup_data" && data.eventData?.initData) {
-        _cachedInitData = data.eventData.initData;
-        try {
-          safeStorage.setItem("songket_init_data", data.eventData.initData);
-        } catch {}
-      }
-    } catch {}
-  });
-}
-
 export function getTelegramWebApp() {
   if (typeof window !== "undefined" && window.Telegram?.WebApp) {
     return window.Telegram.WebApp;
@@ -64,70 +47,189 @@ export function getTelegramWebApp() {
   return null;
 }
 
-export function getInitData(): string {
-  const tg = getTelegramWebApp();
-  if (tg?.initData) {
-    _cachedInitData = tg.initData;
+export function extractInitString(data: any): string {
+  if (!data) return "";
+  if (typeof data === "string") {
     try {
-      safeStorage.setItem("songket_init_data", tg.initData);
-    } catch {}
-    return tg.initData;
-  }
-
-  if (typeof window !== "undefined") {
-    // 1. Fallback from cached decoded session
-    try {
-      const saved = safeStorage.getItem("songket_init_data");
-      if (saved) {
-        _cachedInitData = saved;
-        return saved;
+      const parsed = JSON.parse(data);
+      if (parsed && typeof parsed === "object") {
+        return extractInitString(parsed);
       }
     } catch {}
+    if (data.includes("hash=")) return data;
+  }
+  if (typeof data === "object") {
+    const cand =
+      data.initData ||
+      (data.eventData && (typeof data.eventData === "string" ? data.eventData : data.eventData.initData)) ||
+      (data.data && data.data.initData) ||
+      (data.event_data && data.event_data.init_data) ||
+      "";
+    if (typeof cand === "string" && cand.includes("hash=")) {
+      return cand;
+    }
+  }
+  return "";
+}
 
-    // 2. Fallback from raw URL hash / search / boot storage
+if (typeof window !== "undefined") {
+  window.addEventListener("message", (event) => {
+    try {
+      const str = extractInitString(event.data);
+      if (str && str.includes("hash=")) {
+        _cachedInitData = str;
+        (window as any).__songket_init_data = str;
+        try {
+          safeStorage.setItem("songket_init_data", str);
+          sessionStorage.setItem("songket_init_data", str);
+          localStorage.setItem("songket_init_data", str);
+        } catch {}
+      }
+    } catch {}
+  });
+}
+
+export function getInitData(): string {
+  // 1. PRIMARY: Always prioritize live window.Telegram.WebApp.initData from Telegram runtime
+  const tg = getTelegramWebApp();
+  if (tg?.initData && tg.initData.trim().length > 0 && tg.initData.includes("hash=")) {
+    const liveData = tg.initData.trim();
+    _cachedInitData = liveData;
+    if (typeof window !== "undefined") (window as any).__songket_init_data = liveData;
+    try {
+      safeStorage.setItem("songket_init_data", liveData);
+      sessionStorage.setItem("songket_init_data", liveData);
+    } catch {}
+    return liveData;
+  }
+
+  // 2. Check live URL hash / search for tgWebAppData
+  if (typeof window !== "undefined") {
     const candidates = [
-      window.location.hash,
-      window.location.search,
+      (window as any).__songket_init_raw || "",
+      window.location.hash || "",
+      window.location.search || "",
       safeStorage.getItem("songket_init_raw") || "",
+      sessionStorage.getItem("songket_init_raw") || "",
+      localStorage.getItem("songket_init_raw") || "",
     ];
 
     for (const rawCandidate of candidates) {
       if (!rawCandidate) continue;
       const clean = rawCandidate.startsWith("#") || rawCandidate.startsWith("?") ? rawCandidate.slice(1) : rawCandidate;
       if (clean.includes("tgWebAppData=")) {
-        const params = new URLSearchParams(clean);
-        const rawVal = params.get("tgWebAppData");
-        if (rawVal) {
-          _cachedInitData = rawVal;
+        try {
+          const params = new URLSearchParams(clean);
+          const rawVal = params.get("tgWebAppData");
+          if (rawVal && rawVal.includes("hash=")) {
+            _cachedInitData = rawVal;
+            (window as any).__songket_init_data = rawVal;
+            return rawVal;
+          }
+        } catch {}
+        const m = clean.match(/tgWebAppData=([^&]+)/);
+        if (m && m[1]) {
           try {
-            safeStorage.setItem("songket_init_data", rawVal);
+            const decoded = decodeURIComponent(m[1]);
+            if (decoded.includes("hash=")) {
+              _cachedInitData = decoded;
+              (window as any).__songket_init_data = decoded;
+              return decoded;
+            }
           } catch {}
-          return rawVal;
         }
       }
       if (clean.includes("hash=") && (clean.includes("user=") || clean.includes("query_id=") || clean.includes("auth_date="))) {
         _cachedInitData = clean;
-        try {
-          safeStorage.setItem("songket_init_data", clean);
-        } catch {}
+        (window as any).__songket_init_data = clean;
         return clean;
       }
     }
   }
 
-  return _cachedInitData || "";
+  // 3. Check memory / message event cache
+  if (typeof window !== "undefined" && (window as any).__songket_init_data) {
+    const wData = String((window as any).__songket_init_data).trim();
+    if (wData.includes("hash=")) {
+      _cachedInitData = wData;
+      return wData;
+    }
+  }
+
+  if (_cachedInitData && _cachedInitData.includes("hash=")) {
+    return _cachedInitData;
+  }
+
+  // 4. Stored fallback
+  if (typeof window !== "undefined") {
+    try {
+      const saved =
+        safeStorage.getItem("songket_init_data") ||
+        sessionStorage.getItem("songket_init_data") ||
+        localStorage.getItem("songket_init_data");
+      if (saved && saved.includes("hash=")) {
+        _cachedInitData = saved;
+        (window as any).__songket_init_data = saved;
+        return saved;
+      }
+    } catch {}
+  }
+
+  return "";
 }
 
-export async function waitForTelegramInitData(timeoutMs: number = 100): Promise<string> {
+export async function waitForTelegramInitData(timeoutMs: number = 1500): Promise<string> {
   const initial = getInitData();
-  if (initial) return initial;
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    await new Promise((r) => setTimeout(r, 20));
-    const data = getInitData();
-    if (data) return data;
-  }
-  return getInitData();
+  if (initial && initial.includes("hash=")) return initial;
+
+  return new Promise((resolve) => {
+    let resolved = false;
+    let pollTimer: any = null;
+    let timeoutTimer: any = null;
+
+    const cleanup = () => {
+      resolved = true;
+      if (typeof window !== "undefined") {
+        window.removeEventListener("message", onMessage);
+      }
+      if (pollTimer) clearInterval(pollTimer);
+      if (timeoutTimer) clearTimeout(timeoutTimer);
+    };
+
+    const onMessage = (event: MessageEvent) => {
+      try {
+        const str = extractInitString(event.data);
+        if (str && str.includes("hash=")) {
+          _cachedInitData = str;
+          if (typeof window !== "undefined") (window as any).__songket_init_data = str;
+          try {
+            safeStorage.setItem("songket_init_data", str);
+          } catch {}
+          cleanup();
+          resolve(str);
+        }
+      } catch {}
+    };
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("message", onMessage);
+    }
+
+    pollTimer = setInterval(() => {
+      const data = getInitData();
+      if (data && data.includes("hash=")) {
+        cleanup();
+        resolve(data);
+      }
+    }, 25);
+
+    timeoutTimer = setTimeout(() => {
+      if (!resolved) {
+        cleanup();
+        resolve(getInitData());
+      }
+    }, timeoutMs);
+  });
 }
 
 function parseJsonSafely(str: string) {
@@ -208,12 +310,50 @@ export function getCachedDashboardData(): DashboardApiResponse | null {
     const saved = safeStorage.getItem("songket.admin.cachedDashboard");
     if (saved) {
       const parsed = JSON.parse(saved);
-      if (parsed && typeof parsed === "object" && parsed.dashboard) {
+      if (parsed && typeof parsed === "object" && parsed.authorized === true && !parsed.isMock && parsed.dashboard) {
         return parsed;
       }
     }
   } catch {}
   return null;
+}
+
+export function clearMiniAppCache() {
+  if (typeof window === "undefined") return;
+  try {
+    safeStorage.removeItem("songket.admin.cachedDashboard");
+    sessionStorage.removeItem("songket.admin.cachedDashboard");
+    localStorage.removeItem("songket.admin.cachedDashboard");
+    _inFlightDashboardPromise = null;
+  } catch {}
+}
+
+export function clearAllAuthData() {
+  if (typeof window === "undefined") return;
+  try {
+    clearMiniAppCache();
+    safeStorage.removeItem("songket_session_token");
+    safeStorage.removeItem("songket_init_data");
+    safeStorage.removeItem("songket_init_raw");
+    sessionStorage.removeItem("songket_init_data");
+    sessionStorage.removeItem("songket_init_raw");
+    localStorage.removeItem("songket_init_data");
+    localStorage.removeItem("songket_init_raw");
+    (window as any).__songket_init_data = "";
+    (window as any).__songket_init_raw = "";
+    _cachedInitData = "";
+    _sessionToken = "";
+  } catch {}
+}
+
+export async function refreshDashboardWithFreshAuth(days: number = 90): Promise<DashboardApiResponse> {
+  clearMiniAppCache();
+  const tg = getTelegramWebApp();
+  if (tg) {
+    try { tg.ready(); } catch {}
+    try { tg.expand(); } catch {}
+  }
+  return fetchDashboardData(days, true);
 }
 
 export function getAuthPayload(extra: Record<string, unknown> = {}) {
@@ -257,7 +397,10 @@ export function requestTelegramWriteAccess(): Promise<boolean> {
 let _inFlightDashboardPromise: Promise<DashboardApiResponse> | null = null;
 
 export async function fetchDashboardData(days: number = 90, force: boolean = false): Promise<DashboardApiResponse> {
-  if (_inFlightDashboardPromise && !force) {
+  if (force) {
+    _inFlightDashboardPromise = null;
+  }
+  if (_inFlightDashboardPromise) {
     return _inFlightDashboardPromise;
   }
 
@@ -272,12 +415,9 @@ export async function fetchDashboardData(days: number = 90, force: boolean = fal
       }
     }
 
-    // Fast check for initData (returns immediately if already present)
-    const initData = getInitData();
-    if (!initData) {
-      await waitForTelegramInitData(100);
-    }
-    const payload = getAuthPayload({ days });
+    // Wait for reactive Telegram handshake (returns immediately if already present)
+    const initData = await waitForTelegramInitData(1500);
+    const payload = getAuthPayload({ days, initData: initData || getInitData() });
 
     try {
       const response = await fetch("/api/dashboard", {
@@ -288,11 +428,18 @@ export async function fetchDashboardData(days: number = 90, force: boolean = fal
         body: JSON.stringify(payload),
       });
 
-      if (response.ok) {
-        const data: DashboardApiResponse = await response.json();
-        if (data && data.authorized) {
-          if ((data as any).session) {
-            setSessionToken((data as any).session);
+      const text = await response.text();
+      let data: any = null;
+      try {
+        data = JSON.parse(text);
+      } catch {
+        console.warn("[MiniApp] Server returned non-JSON response:", text.slice(0, 150));
+      }
+
+      if (response.ok && data && typeof data === "object") {
+        if (data.authorized) {
+          if (data.session) {
+            setSessionToken(data.session);
           }
           try {
             safeStorage.setItem("songket.admin.cachedDashboard", JSON.stringify(data));
@@ -310,10 +457,6 @@ export async function fetchDashboardData(days: number = 90, force: boolean = fal
       }
 
       if (response.status === 401) {
-        let data: any = null;
-        try {
-          data = await response.json();
-        } catch {}
         console.warn("[MiniApp] fetchDashboardData 401 Unauthorized:", data);
         return {
           authorized: false,
@@ -325,11 +468,11 @@ export async function fetchDashboardData(days: number = 90, force: boolean = fal
         };
       }
 
-      throw new Error(`Failed to fetch dashboard data (HTTP ${response.status})`);
+      throw new Error(data?.error || `Failed to fetch dashboard data (HTTP ${response.status})`);
     } catch (err: any) {
       console.warn("[MiniApp] Dashboard API request error:", err);
       const cached = getCachedDashboardData();
-      if (cached) return cached;
+      if (cached && cached.authorized) return cached;
       return {
         authorized: false,
         user: getTelegramUser() || mockUser,

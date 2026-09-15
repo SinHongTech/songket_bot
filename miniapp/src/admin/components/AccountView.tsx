@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Moon, Sun, LogOut, ShieldCheck, KeyRound, Clock, BellRing, Check, Calendar, Globe, FileText, Loader2 } from "lucide-react";
+import { Moon, Sun, LogOut, ShieldCheck, ShieldAlert, KeyRound, Clock, BellRing, Check, Calendar, Globe, FileText, Loader2, X } from "lucide-react";
 import { G, type Lang } from "../palette";
 import { t as T, kh } from "../i18n";
 import type { DashboardData, TelegramUser, UserSettings } from "../types";
@@ -106,6 +106,10 @@ export default function AccountView({
     safeStorage.setItem("songket.daily_report_time", cleanTime);
     safeStorage.setItem("songket.report_frequency", newFreq);
     safeStorage.setItem("songket.report_lang", newLang);
+    if (isMock) {
+      setPreviewModalOpen(true);
+      return;
+    }
     setSavingSettings(true);
     try {
       await saveUserSettings({
@@ -125,6 +129,10 @@ export default function AccountView({
   }
 
   async function handleTriggerReport(period: "daily" | "weekly" | "monthly") {
+    if (isMock) {
+      setPreviewModalOpen(true);
+      return;
+    }
     setSendingReport((prev) => ({ ...prev, [period]: true }));
     try {
       const res = await requestReport(period, reportLang);
@@ -193,6 +201,7 @@ export default function AccountView({
   const [totpEnabled, setTotpEnabled] = useState(false);
   const [totpModalOpen, setTotpModalOpen] = useState(false);
   const [totpModalMode, setTotpModalMode] = useState<"setup" | "disable">("setup");
+  const [previewModalOpen, setPreviewModalOpen] = useState(false);
 
   const isKm = lang === "km";
 
@@ -217,12 +226,14 @@ export default function AccountView({
   }, [notifPDF]);
 
   useEffect(() => {
-    getTotpStatus().then(res => {
-      if (res.ok && res.totp_enabled !== undefined) {
-        setTotpEnabled(res.totp_enabled);
-      }
-    });
-  }, []);
+    if (!isMock) {
+      getTotpStatus().then(res => {
+        if (res.ok && res.totp_enabled !== undefined) {
+          setTotpEnabled(res.totp_enabled);
+        }
+      });
+    }
+  }, [isMock]);
 
   const inputStyle = {
     background: G.surface2,
@@ -281,6 +292,96 @@ export default function AccountView({
         />
       )}
 
+      {previewModalOpen && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.82)",
+            backdropFilter: "blur(6px)",
+            zIndex: 200,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "16px",
+          }}
+          onClick={() => setPreviewModalOpen(false)}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: G.surface,
+              border: `1px solid ${G.warn}`,
+              borderRadius: 16,
+              width: "100%",
+              maxWidth: 380,
+              padding: "24px 20px",
+              boxShadow: "0 20px 50px rgba(0,0,0,0.6)",
+              textAlign: "center",
+              position: "relative",
+            }}
+          >
+            <button
+              onClick={() => setPreviewModalOpen(false)}
+              style={{
+                position: "absolute",
+                top: 14,
+                right: 14,
+                background: "transparent",
+                border: "none",
+                color: G.muted,
+                cursor: "pointer",
+                padding: 4,
+              }}
+            >
+              <X size={18} />
+            </button>
+            <div
+              style={{
+                width: 48,
+                height: 48,
+                borderRadius: "50%",
+                background: "rgba(224,160,32,0.15)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                margin: "0 auto 14px",
+              }}
+            >
+              <ShieldAlert size={26} color={G.warn} />
+            </div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: G.text, marginBottom: 8 }}>
+              <span className={kh(lang)}>
+                {isKm ? "ទាមទារសិទ្ធិអ្នកគ្រប់គ្រង (Admin)" : "Admin Authorization Required"}
+              </span>
+            </div>
+            <div style={{ fontSize: 13, color: G.textSec, lineHeight: 1.6, marginBottom: 20 }}>
+              <span className={kh(lang)}>
+                {isKm
+                  ? "អ្នកកំពុងមើលផ្ទាំងគ្រប់គ្រងក្នុងទម្រង់ Preview (គំរូ)។ ការភ្ជាប់ 2FA និងការកំណត់សុវត្ថិភាពអាចធ្វើទៅបានលុះត្រាតែអ្នកបើក MiniApp នេះផ្ទាល់ពី Telegram ជាមួយគណនី Admin ដែលមានសិទ្ធិ។"
+                  : "You are viewing the dashboard in Preview Mode. Two-Factor Authentication (2FA) and security settings can only be managed when launched directly inside Telegram with an authorized Administrator account."}
+              </span>
+            </div>
+            <button
+              onClick={() => setPreviewModalOpen(false)}
+              style={{
+                width: "100%",
+                background: G.gold,
+                color: "#1a1200",
+                border: "none",
+                borderRadius: 10,
+                padding: "11px 0",
+                fontSize: 13,
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              <span className={kh(lang)}>{isKm ? "យល់ព្រម (OK)" : "Understood"}</span>
+            </button>
+          </div>
+        </div>
+      )}
+
       <SectionHeader title={tx.account} sub={tx.accountSub} lang={lang} />
 
       {/* User Telegram Identity Card */}
@@ -293,11 +394,18 @@ export default function AccountView({
             <div style={{ fontWeight: 700, fontSize: 16, color: G.text }}>
               {userFullName}
             </div>
-            {user?.username ? (
-              <div style={{ fontSize: 12, color: G.muted, marginTop: 2 }}>
-                @{user.username.replace(/^@/, "")}
-              </div>
-            ) : null}
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
+              {user?.username ? (
+                <div style={{ fontSize: 12, color: G.muted }}>
+                  @{user.username.replace(/^@/, "")}
+                </div>
+              ) : null}
+              {user?.id ? (
+                <div style={{ fontSize: 11, color: G.muted, fontFamily: "monospace" }}>
+                  ({user.id})
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
       </div>

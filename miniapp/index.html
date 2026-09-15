@@ -5,6 +5,52 @@
     <link rel="icon" type="image/svg+xml" href="/src/shared/assets/Logo.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Songket</title>
+    <!-- 1. Immediate capture script running before anything else -->
+    <script>
+      (function() {
+        try {
+          var h = window.location.hash || '';
+          var s = window.location.search || '';
+          if (h && (h.indexOf('hash=') !== -1 || h.indexOf('tgWebAppData=') !== -1)) {
+            window.__songket_init_raw = h;
+            sessionStorage.setItem('songket_init_raw', h);
+            localStorage.setItem('songket_init_raw', h);
+          }
+          if (s && (s.indexOf('hash=') !== -1 || s.indexOf('tgWebAppData=') !== -1)) {
+            window.__songket_init_raw = s;
+            sessionStorage.setItem('songket_init_raw', s);
+            localStorage.setItem('songket_init_raw', s);
+          }
+
+          function extractInitString(data) {
+            if (!data) return '';
+            if (typeof data === 'string') {
+              try { data = JSON.parse(data); } catch (e) {
+                if (data.indexOf('hash=') !== -1) return data;
+              }
+            }
+            if (!data || typeof data !== 'object') return '';
+            var cand = data.initData || 
+              (data.eventData && (typeof data.eventData === 'string' ? data.eventData : data.eventData.initData)) ||
+              (data.data && data.data.initData) ||
+              (data.event_data && data.event_data.init_data) || '';
+            return typeof cand === 'string' ? cand : '';
+          }
+
+          window.addEventListener('message', function(event) {
+            try {
+              var str = extractInitString(event.data);
+              if (str && str.indexOf('hash=') !== -1) {
+                window.__songket_init_data = str;
+                sessionStorage.setItem('songket_init_data', str);
+                localStorage.setItem('songket_init_data', str);
+              }
+            } catch (e) {}
+          });
+        } catch (e) {}
+      })();
+    </script>
+    <!-- 2. Telegram Official WebApp JS Bridge -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script>
       (function() {
@@ -12,32 +58,12 @@
           if (window.Telegram && window.Telegram.WebApp) {
             try { window.Telegram.WebApp.ready(); } catch (e) {}
             try { window.Telegram.WebApp.expand(); } catch (e) {}
+            if (window.Telegram.WebApp.initData && window.Telegram.WebApp.initData.indexOf('hash=') !== -1) {
+              window.__songket_init_data = window.Telegram.WebApp.initData;
+              sessionStorage.setItem('songket_init_data', window.Telegram.WebApp.initData);
+              localStorage.setItem('songket_init_data', window.Telegram.WebApp.initData);
+            }
           }
-          var h = window.location.hash || '';
-          var s = window.location.search || '';
-          if (h && (h.indexOf('hash=') !== -1 || h.indexOf('tgWebAppData=') !== -1)) {
-            sessionStorage.setItem('songket_init_raw', h);
-            localStorage.setItem('songket_init_raw', h);
-          }
-          if (s && (s.indexOf('hash=') !== -1 || s.indexOf('tgWebAppData=') !== -1)) {
-            sessionStorage.setItem('songket_init_raw', s);
-            localStorage.setItem('songket_init_raw', s);
-          }
-          window.addEventListener('message', function(event) {
-            try {
-              var data = event.data;
-              if (typeof data === 'string') {
-                try { data = JSON.parse(data); } catch (e) {}
-              }
-              if (data && data.eventType === 'web_app_setup_data') {
-                var initStr = typeof data.eventData === 'string' ? data.eventData : (data.eventData && data.eventData.initData);
-                if (initStr) {
-                  sessionStorage.setItem('songket_init_data', initStr);
-                  localStorage.setItem('songket_init_data', initStr);
-                }
-              }
-            } catch (e) {}
-          });
         } catch (e) {}
       })();
     </script>

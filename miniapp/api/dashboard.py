@@ -28,6 +28,7 @@ try:
         kv_mget,
         kv_json_get,
         kv_json_mget,
+        kv_json_set,
         list_subscriptions,
         local_date,
         pin_exists,
@@ -71,6 +72,7 @@ try:
         remove_allowed_group,
         add_group_handler,
         record_known_group,
+        record_known_user,
         remove_known_group,
         unlink_group_for_user,
         unlink_group_completely,
@@ -108,6 +110,7 @@ except ImportError:
         kv_mget,
         kv_json_get,
         kv_json_mget,
+        kv_json_set,
         list_subscriptions,
         local_date,
         pin_exists,
@@ -151,6 +154,7 @@ except ImportError:
         remove_allowed_group,
         add_group_handler,
         record_known_group,
+        record_known_user,
         remove_known_group,
         unlink_group_for_user,
         unlink_group_completely,
@@ -215,11 +219,16 @@ def build_dashboard(user_id: int, days: int = 90, allowed_groups: list = None, k
             daily.append(row)
             for k in totals:
                 totals[k] += row[k]
+        # Prioritize live known group title over historical daily reports
+        title = known_groups.get(str(gid)) or known_groups.get(gid)
         if not title or title == str(gid) or title == "Group":
-            title = known_groups.get(str(gid)) or known_groups.get(gid)
-            if not title or title == str(gid) or title == "Group":
-                chat = get_chat(gid)
-                title = (chat or {}).get("title") or known_groups.get(str(gid)) or str(gid)
+            cached_t = kv_get(f"cache:chat_title:{gid}")
+            if cached_t and str(cached_t) != str(gid) and str(cached_t) != "Group":
+                title = str(cached_t)
+        if not title or title == str(gid) or title == "Group":
+            chat = get_chat(gid)
+            title = (chat or {}).get("title") or known_groups.get(str(gid)) or str(gid)
+
         if title and title != str(gid) and title != "Group":
             record_known_group(gid, title)
         groups.append({"id": gid, "title": title, "daily": daily})
@@ -292,9 +301,19 @@ class handler(BaseHTTPRequestHandler):
                 if session_tok:
                     s_uid = validate_session(session_tok)
                     if s_uid and (s_uid in super_admin_ids() or s_uid in whitelist_ids()):
-                        user = {"id": s_uid, "first_name": f"Admin_{s_uid}", "username": "admin"}
+                        cached_u = kv_json_get(f"cache:user:{s_uid}") or {}
+                        k_info = get_known_users().get(str(s_uid), {})
+                        u_name = cached_u.get("username") or k_info.get("username", "")
+                        f_name = cached_u.get("first_name") or k_info.get("name") or (f"Admin_{s_uid}" if not u_name else u_name)
+                        l_name = cached_u.get("last_name") or ""
+                        user = {
+                            "id": s_uid,
+                            "first_name": f_name,
+                            "last_name": l_name,
+                            "username": u_name,
+                        }
                         debug_str = "OK (session)"
-                        logger.info("[Dashboard API] Telegram session authenticated via active PIN session for uid=%d", s_uid)
+                        logger.info("[Dashboard API] Telegram session authenticated via active PIN session for uid=%d (%s)", s_uid, f_name)
 
             if not user:
                 logger.warning("[Dashboard API] Rejected POST request: %s (len=%d, platform=%s)", debug_str, init_len, platform)
@@ -302,13 +321,7 @@ class handler(BaseHTTPRequestHandler):
                     401,
                     {
                         "authorized": False,
-                        "error": f"Auth failed: {debug_str}",
-                        "debug": {
-                            "platform": platform,
-                            "initData_len": init_len,
-                            "has_raw_hash": bool(raw_hash),
-                            "has_unsafe_user": bool(unsafe_user),
-                        },
+                        "error": "Authentication required. Please launch this MiniApp from Telegram with an authorized administrator account.",
                     },
                 )
 
@@ -762,6 +775,7 @@ class handler(BaseHTTPRequestHandler):
             return self._json(500, {"authorized": False, "error": "Server error"})
 
     def _full_payload(self, uid: int, user: dict, super_admin: bool, body: dict, session: str = "") -> dict:
+        super_admin = bool(super_admin or is_super_admin(uid, (user or {}).get("username")))
         tok = session or body.get("session") or create_session(uid)
         days = max(1, min(90, int(body.get("days") or 90)))
 
@@ -852,22 +866,72 @@ class handler(BaseHTTPRequestHandler):
             }
 
         known_users = get_known_users()
+        cached_u = kv_json_get(f"cache:user:{uid}") or {}
+
+        first_name = user.get("first_name") or cached_u.get("first_name", "")
+        last_name = user.get("last_name") or cached_u.get("last_name", "")
+        u_name = user.get("username") or cached_u.get("username", "")
+
+        # Strip default/placeholder strings
+        if str(first_name).startswith("Admin_") or str(first_name).startswith("User "):
+            first_name = ""
+        if u_name == "admin":
+            u_name = ""
+
+        # Check known_info fallback
         known_info = known_users.get(str(uid), {})
-        first_name = user.get("first_name", "")
-        last_name = user.get("last_name", "")
-        u_name = user.get("username") or known_info.get("username", "")
+        if not u_name and known_info.get("username"):
+            u_name = known_info["username"]
 
-        full_name = f"{first_name} {last_name}".strip()
-        if not full_name:
-            full_name = known_info.get("name", "")
-        if not full_name:
-            full_name = f"@{u_name}" if u_name else f"Admin_{uid}"
+        known_name = known_info.get("name", "")
+        if known_name and not (known_name.startswith("Admin_") or known_name.startswith("User ")):
+            full_name = known_name
+            if not first_name:
+                parts = known_name.split(" ", 1)
+                first_name = parts[0]
+                if len(parts) > 1 and not last_name:
+                    last_name = parts[1]
+        else:
+            full_name = f"{first_name} {last_name}".strip()
+            if not full_name:
+                full_name = f"@{u_name}" if u_name else f"Admin ({uid})"
 
-        if not first_name and full_name:
-            parts = full_name.split(" ", 1)
-            first_name = parts[0]
-            if len(parts) > 1 and not last_name:
-                last_name = parts[1]
+        # If we have a valid human name, update known_users and cache:user:uid
+        if full_name and not (full_name.startswith("Admin (") or full_name.startswith("User ")):
+            record_known_user(uid, u_name, full_name)
+            known_users[str(uid)] = {"username": u_name, "name": full_name}
+            cached_u.update({"id": uid, "first_name": first_name, "last_name": last_name, "username": u_name, "name": full_name})
+            kv_json_set(f"cache:user:{uid}", cached_u, ttl=86400 * 30)
+
+        # Enrich known_users for all super admins, whitelist users, and group members
+        all_relevant_uids = set(super_admin_ids()) | set(whitelist_ids()) | {uid}
+        for gd in group_details.values():
+            for wu in gd.get("whitelisted_users", []):
+                if isinstance(wu, dict) and wu.get("user_id"):
+                    all_relevant_uids.add(int(wu["user_id"]))
+                elif str(wu).lstrip("-").isdigit():
+                    all_relevant_uids.add(int(wu))
+
+        for target_uid in all_relevant_uids:
+            uid_str = str(target_uid)
+            info = known_users.get(uid_str, {})
+            t_uname = info.get("username", "")
+            t_dname = info.get("name", "")
+            if not t_uname or not t_dname or t_dname.startswith("User ") or t_dname.startswith("Admin_"):
+                c_user = kv_json_get(f"cache:user:{target_uid}")
+                if not c_user or not isinstance(c_user, dict):
+                    try:
+                        c_user = get_chat(target_uid)
+                    except Exception:
+                        c_user = None
+                if c_user and isinstance(c_user, dict):
+                    fn = c_user.get("first_name", "")
+                    ln = c_user.get("last_name", "")
+                    un = c_user.get("username", "")
+                    disp = f"{fn} {ln}".strip() or (f"@{un}" if un else "")
+                    if disp and not disp.startswith("Admin_") and not disp.startswith("User "):
+                        known_users[uid_str] = {"username": un, "name": disp}
+                        record_known_user(target_uid, un, disp)
 
         payload = {
             "authorized": True,
