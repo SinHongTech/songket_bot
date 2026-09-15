@@ -1207,17 +1207,13 @@ export default function AdminApp() {
               display: "inline-flex",
               alignItems: "center",
               gap: 4,
-              padding: "4px 8px",
+              padding: "2px 6px",
               borderRadius: 7,
               border: `1px solid ${G.border}`,
               background: G.surface2,
               color: G.textSec,
               textDecoration: "none",
-              fontSize: 11,
-              fontWeight: 600,
-              whiteSpace: "nowrap",
               flexShrink: 0,
-              lineHeight: 1,
               transition: "all 0.15s ease",
             }}
             onMouseEnter={(e) => {
@@ -1230,10 +1226,20 @@ export default function AdminApp() {
             }}
             title={lang === "km" ? "ទំព័រដើម (Landing Page)" : "Landing Page"}
           >
-            <ArrowLeft size={12} style={{ flexShrink: 0 }} />
-            <span className={kh(lang)} style={{ fontSize: 11, fontWeight: 600 }}>
-              {lang === "km" ? "ទំព័រដើម" : "Landing Page"}
-            </span>
+            <ArrowLeft size={11} style={{ flexShrink: 0 }} />
+            <div style={{ display: "flex", flexDirection: "column", lineHeight: 1.05, textAlign: "left" }}>
+              {lang === "km" ? (
+                <>
+                  <span className={kh(lang)} style={{ fontSize: 8.5, fontWeight: 700 }}>ទំព័រ</span>
+                  <span className={kh(lang)} style={{ fontSize: 8.5, fontWeight: 700 }}>ដើម</span>
+                </>
+              ) : (
+                <>
+                  <span style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: "0.02em" }}>Landing</span>
+                  <span style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: "0.02em" }}>Page</span>
+                </>
+              )}
+            </div>
           </Link>
           <LogoMark size={30} />
           <div>
