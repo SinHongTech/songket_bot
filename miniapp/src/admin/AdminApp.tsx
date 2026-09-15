@@ -951,39 +951,41 @@ export default function AdminApp({ initialData }: { initialData?: DashboardApiRe
     <div style={{ display: "flex", flexDirection: "column", height: "100dvh", background: G.bg, color: G.text, fontFamily: "Outfit, sans-serif" }}>
       {upgradeOpen && <UpgradeModal onClose={() => setUpgradeOpen(false)} lang={lang} />}
 
-      <header style={{ padding: "12px 16px", borderBottom: `1px solid ${G.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: G.surface, flexShrink: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <header style={{ padding: "10px 12px", borderBottom: `1px solid ${G.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: G.surface, flexShrink: 0, gap: 6, minWidth: 0, overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, flexShrink: 1, overflow: "hidden" }}>
           <Link
             to="/landing"
             state={{ fromAdmin: true }}
             style={{
               display: "flex",
               alignItems: "center",
-              gap: 5,
-              padding: "5px 9px",
-              borderRadius: 8,
+              gap: 3.5,
+              padding: "4px 7px",
+              borderRadius: 6,
               border: `1px solid ${G.border}`,
               background: "rgba(212,167,44,0.06)",
               color: G.gold,
               textDecoration: "none",
-              fontSize: 11,
-              fontWeight: 700,
+              fontSize: 10,
+              fontWeight: 600,
               cursor: "pointer",
+              flexShrink: 0,
+              whiteSpace: "nowrap",
             }}
-            title={tx.landingPage || "Landing Page"}
+            title={lang === "km" ? "ទំព័រដើម" : "Landing Page"}
           >
-            <ArrowLeft size={13} />
-            <span className={kh(lang)} style={{ fontSize: 11 }}>{tx.landingPage || "Landing Page"}</span>
+            <ArrowLeft size={11} />
+            <span className={kh(lang)} style={{ fontSize: 9.5 }}>{lang === "km" ? "ទំព័រដើម" : "Landing"}</span>
           </Link>
-          <LogoMark size={34} />
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ fontWeight: 800, fontSize: 13, color: G.gold }}>SongKet</span>
-              <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: isMock ? "rgba(224,160,32,0.18)" : "rgba(34,197,94,0.15)", color: isMock ? G.warn : G.safe, fontWeight: 700, letterSpacing: "0.04em" }}>
+          <LogoMark size={28} />
+          <div style={{ minWidth: 0, overflow: "hidden" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
+              <span style={{ fontWeight: 800, fontSize: 12, color: G.gold }}>SongKet</span>
+              <span style={{ fontSize: 8.5, padding: "1px 4px", borderRadius: 3, background: isMock ? "rgba(224,160,32,0.18)" : "rgba(34,197,94,0.15)", color: isMock ? G.warn : G.safe, fontWeight: 700, letterSpacing: "0.02em" }}>
                 {isMock ? "PREVIEW" : "LIVE"}
               </span>
             </div>
-            <div style={{ fontSize: 10, color: G.muted, letterSpacing: "0.06em", fontWeight: 600 }}>{currentLabel}</div>
+            <div style={{ fontSize: 9, color: G.muted, letterSpacing: "0.02em", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{currentLabel}</div>
           </div>
         </div>
 
