@@ -738,6 +738,7 @@ def verify_telegram_init_data(
     max_age_seconds: int = 7 * 86400,
 ) -> tuple[Optional[dict], str]:
     """Validate Telegram WebApp initData using the official HMAC scheme across all encoding formats."""
+    from urllib.parse import parse_qsl, unquote, unquote_plus
     tokens = list(dict.fromkeys([t.strip() for t in [
         BOT_TOKEN,
         os.environ.get("BOT_TOKEN", ""),
@@ -758,9 +759,22 @@ def verify_telegram_init_data(
             continue
         if clean not in candidates:
             candidates.append(clean)
+        
+        # Add multiple unquoted levels
+        curr = clean
+        for _ in range(3):
+            curr_unq = unquote(curr)
+            if curr_unq and curr_unq not in candidates:
+                candidates.append(curr_unq)
+            curr_plus = unquote_plus(curr)
+            if curr_plus and curr_plus not in candidates:
+                candidates.append(curr_plus)
+            if curr_unq == curr:
+                break
+            curr = curr_unq
+
         if "tgWebAppData=" in clean:
             import re
-            from urllib.parse import unquote, unquote_plus
             m = re.search(r"tgWebAppData=([^&]+)", clean)
             if m:
                 val = m.group(1)
@@ -775,7 +789,6 @@ def verify_telegram_init_data(
     last_debug = "No valid candidate found"
     for cand in candidates:
         cand_clean = cand.lstrip("#?").strip()
-        from urllib.parse import parse_qsl, unquote, unquote_plus
         
         # 1. Direct raw parameter split without parsing
         raw_items = [p for p in cand_clean.split("&") if "=" in p]
@@ -797,6 +810,8 @@ def verify_telegram_init_data(
                 "\n".join(f"{k}={unquote(raw_map[k])}" for k in sorted(raw_map.keys())),
                 "\n".join(f"{k}={unquote_plus(raw_map[k])}" for k in sorted(raw_map.keys())),
                 "\n".join(_compact_user_fmt(k, raw_map[k]) for k in sorted(raw_map.keys())),
+                "\n".join(f"{k}={unquote(raw_map[k])}".replace("/", r"\/") if k == "user" else f"{k}={raw_map[k]}" for k in sorted(raw_map.keys())),
+                "\n".join(_compact_user_fmt(k, raw_map[k]).replace("/", r"\/") if k == "user" else f"{k}={raw_map[k]}" for k in sorted(raw_map.keys())),
             ]
             for cs in raw_variants:
                 for tok in tokens:
@@ -853,6 +868,8 @@ def verify_telegram_init_data(
                 "\n".join(f"{k}={unquote(v)}" for k, v in sorted(data.items())),
                 "\n".join(f"{k}={unquote_plus(v)}" for k, v in sorted(data.items())),
                 "\n".join(_compact_user_fmt(k, v) for k, v in sorted(data.items())),
+                "\n".join(f"{k}={unquote(v)}".replace("/", r"\/") if k == "user" else f"{k}={v}" for k, v in sorted(data.items())),
+                "\n".join(_compact_user_fmt(k, v).replace("/", r"\/") if k == "user" else f"{k}={v}" for k, v in sorted(data.items())),
             ]
 
             matched = False

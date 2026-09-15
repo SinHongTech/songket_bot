@@ -944,6 +944,7 @@ export default function AdminApp({ initialData }: { initialData?: DashboardApiRe
         setLang={setLang}
         onLogout={handleLogout}
         onRefresh={() => loadData(true, 90)}
+        isMock={isMock}
       />
     ),
   };
