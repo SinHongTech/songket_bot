@@ -1198,12 +1198,44 @@ export default function AdminApp() {
         />
       )}
 
-      <header style={{ padding: "12px 16px", borderBottom: `1px solid ${G.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: G.surface, flexShrink: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <Link to="/?home=1" state={{ fromAdmin: true }} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 7, border: `1px solid ${G.border}`, color: G.muted, textDecoration: "none" }} title="Landing Page">
-            <ArrowLeft size={13} />
+      <header style={{ padding: "10px 14px", borderBottom: `1px solid ${G.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", background: G.surface, flexShrink: 0, gap: 8, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0, flexShrink: 1 }}>
+          <Link
+            to="/?home=1"
+            state={{ fromAdmin: true }}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              padding: "4px 8px",
+              borderRadius: 7,
+              border: `1px solid ${G.border}`,
+              background: G.surface2,
+              color: G.textSec,
+              textDecoration: "none",
+              fontSize: 11,
+              fontWeight: 600,
+              whiteSpace: "nowrap",
+              flexShrink: 0,
+              lineHeight: 1,
+              transition: "all 0.15s ease",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = G.goldBorder;
+              e.currentTarget.style.color = G.gold;
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = G.border;
+              e.currentTarget.style.color = G.textSec;
+            }}
+            title={lang === "km" ? "ទំព័រដើម (Landing Page)" : "Landing Page"}
+          >
+            <ArrowLeft size={12} style={{ flexShrink: 0 }} />
+            <span className={kh(lang)} style={{ fontSize: 11, fontWeight: 600 }}>
+              {lang === "km" ? "ទំព័រដើម" : "Landing Page"}
+            </span>
           </Link>
-          <LogoMark size={34} />
+          <LogoMark size={30} />
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ fontWeight: 800, fontSize: 13, color: G.gold }}>SongKet</span>
