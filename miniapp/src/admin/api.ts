@@ -66,19 +66,19 @@ export function getTelegramWebApp() {
 
 export function getInitData(): string {
   const tg = getTelegramWebApp();
-  if (tg?.initData) {
-    _cachedInitData = tg.initData;
+  if (tg?.initData && tg.initData.trim().length > 0) {
+    _cachedInitData = tg.initData.trim();
     try {
-      safeStorage.setItem("songket_init_data", tg.initData);
+      safeStorage.setItem("songket_init_data", _cachedInitData);
     } catch {}
-    return tg.initData;
+    return _cachedInitData;
   }
 
   if (typeof window !== "undefined") {
     // 1. Fallback from cached decoded session
     try {
       const saved = safeStorage.getItem("songket_init_data");
-      if (saved) {
+      if (saved && saved.includes("hash=")) {
         _cachedInitData = saved;
         return saved;
       }
@@ -86,23 +86,39 @@ export function getInitData(): string {
 
     // 2. Fallback from raw URL hash / search / boot storage
     const candidates = [
-      window.location.hash,
-      window.location.search,
+      window.location.hash || "",
+      window.location.search || "",
       safeStorage.getItem("songket_init_raw") || "",
+      (typeof sessionStorage !== "undefined" ? sessionStorage.getItem("songket_init_raw") : "") || "",
     ];
 
     for (const rawCandidate of candidates) {
       if (!rawCandidate) continue;
       const clean = rawCandidate.startsWith("#") || rawCandidate.startsWith("?") ? rawCandidate.slice(1) : rawCandidate;
       if (clean.includes("tgWebAppData=")) {
-        const params = new URLSearchParams(clean);
-        const rawVal = params.get("tgWebAppData");
-        if (rawVal) {
-          _cachedInitData = rawVal;
+        try {
+          const params = new URLSearchParams(clean);
+          const rawVal = params.get("tgWebAppData");
+          if (rawVal && rawVal.includes("hash=")) {
+            _cachedInitData = rawVal;
+            try {
+              safeStorage.setItem("songket_init_data", rawVal);
+            } catch {}
+            return rawVal;
+          }
+        } catch {}
+        const m = clean.match(/tgWebAppData=([^&]+)/);
+        if (m && m[1]) {
           try {
-            safeStorage.setItem("songket_init_data", rawVal);
+            const decoded = decodeURIComponent(m[1]);
+            if (decoded.includes("hash=")) {
+              _cachedInitData = decoded;
+              try {
+                safeStorage.setItem("songket_init_data", decoded);
+              } catch {}
+              return decoded;
+            }
           } catch {}
-          return rawVal;
         }
       }
       if (clean.includes("hash=") && (clean.includes("user=") || clean.includes("query_id=") || clean.includes("auth_date="))) {
@@ -118,12 +134,12 @@ export function getInitData(): string {
   return _cachedInitData || "";
 }
 
-export async function waitForTelegramInitData(timeoutMs: number = 100): Promise<string> {
+export async function waitForTelegramInitData(timeoutMs: number = 800): Promise<string> {
   const initial = getInitData();
   if (initial) return initial;
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 30));
     const data = getInitData();
     if (data) return data;
   }

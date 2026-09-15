@@ -2981,6 +2981,8 @@ def process_update(api: TelegramAPI, update: dict) -> None:
     # 6. Extract Content & Decode QR Codes from Images
     user_display = get_user_display(sender)
     chat_title = chat.get("title", str(chat_id))
+    if chat_title and chat_title != str(chat_id) and chat_title != "Group":
+        record_known_group(chat_id, chat_title)
     if sender_id:
         record_known_user(sender_id, sender.get("username", ""), user_display)
 

@@ -215,11 +215,16 @@ def build_dashboard(user_id: int, days: int = 90, allowed_groups: list = None, k
             daily.append(row)
             for k in totals:
                 totals[k] += row[k]
+        # Prioritize live known group title over historical daily reports
+        title = known_groups.get(str(gid)) or known_groups.get(gid)
         if not title or title == str(gid) or title == "Group":
-            title = known_groups.get(str(gid)) or known_groups.get(gid)
-            if not title or title == str(gid) or title == "Group":
-                chat = get_chat(gid)
-                title = (chat or {}).get("title") or known_groups.get(str(gid)) or str(gid)
+            cached_t = kv_get(f"cache:chat_title:{gid}")
+            if cached_t and str(cached_t) != str(gid) and str(cached_t) != "Group":
+                title = str(cached_t)
+        if not title or title == str(gid) or title == "Group":
+            chat = get_chat(gid)
+            title = (chat or {}).get("title") or known_groups.get(str(gid)) or str(gid)
+
         if title and title != str(gid) and title != "Group":
             record_known_group(gid, title)
         groups.append({"id": gid, "title": title, "daily": daily})
@@ -292,9 +297,19 @@ class handler(BaseHTTPRequestHandler):
                 if session_tok:
                     s_uid = validate_session(session_tok)
                     if s_uid and (s_uid in super_admin_ids() or s_uid in whitelist_ids()):
-                        user = {"id": s_uid, "first_name": f"Admin_{s_uid}", "username": "admin"}
+                        cached_u = kv_json_get(f"cache:user:{s_uid}") or {}
+                        k_info = get_known_users().get(str(s_uid), {})
+                        u_name = cached_u.get("username") or k_info.get("username", "")
+                        f_name = cached_u.get("first_name") or k_info.get("name") or (f"Admin_{s_uid}" if not u_name else u_name)
+                        l_name = cached_u.get("last_name") or ""
+                        user = {
+                            "id": s_uid,
+                            "first_name": f_name,
+                            "last_name": l_name,
+                            "username": u_name,
+                        }
                         debug_str = "OK (session)"
-                        logger.info("[Dashboard API] Telegram session authenticated via active PIN session for uid=%d", s_uid)
+                        logger.info("[Dashboard API] Telegram session authenticated via active PIN session for uid=%d (%s)", s_uid, f_name)
 
             if not user:
                 logger.warning("[Dashboard API] Rejected POST request: %s (len=%d, platform=%s)", debug_str, init_len, platform)
@@ -853,15 +868,20 @@ class handler(BaseHTTPRequestHandler):
 
         known_users = get_known_users()
         known_info = known_users.get(str(uid), {})
+        cached_u = kv_json_get(f"cache:user:{uid}") or {}
+
         first_name = user.get("first_name", "")
-        last_name = user.get("last_name", "")
-        u_name = user.get("username") or known_info.get("username", "")
+        if (not first_name or str(first_name).startswith("Admin_")) and (cached_u.get("first_name") or known_info.get("name")):
+            first_name = cached_u.get("first_name") or known_info.get("name", "")
+
+        last_name = user.get("last_name") or cached_u.get("last_name", "")
+        u_name = user.get("username") or cached_u.get("username") or known_info.get("username", "")
+        if (not u_name or u_name == "admin") and (cached_u.get("username") or known_info.get("username")):
+            u_name = cached_u.get("username") or known_info.get("username", "")
 
         full_name = f"{first_name} {last_name}".strip()
-        if not full_name:
-            full_name = known_info.get("name", "")
-        if not full_name:
-            full_name = f"@{u_name}" if u_name else f"Admin_{uid}"
+        if not full_name or full_name.startswith("Admin_"):
+            full_name = known_info.get("name") or (f"@{u_name}" if u_name else f"Admin_{uid}")
 
         if not first_name and full_name:
             parts = full_name.split(" ", 1)

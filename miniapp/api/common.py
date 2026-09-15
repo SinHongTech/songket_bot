@@ -812,7 +812,17 @@ def verify_telegram_init_data(
                                 continue
                             user = _safe_json_loads(raw_map.get("user", ""))
                             if isinstance(user, dict) and user.get("id"):
-                                logger.info("[Auth] Telegram session verified via raw map: user_id=%s", user.get("id"))
+                                try:
+                                    uid_int = int(user["id"])
+                                    u_fn = user.get("first_name", "")
+                                    u_ln = user.get("last_name", "")
+                                    u_un = user.get("username", "")
+                                    u_display = f"{u_fn} {u_ln}".strip() or (f"@{u_un}" if u_un else f"User {uid_int}")
+                                    record_known_user(uid_int, u_un, u_display)
+                                    kv_json_set(f"cache:user:{uid_int}", user, ttl=86400 * 30)
+                                except Exception:
+                                    pass
+                                logger.info("[Auth] Telegram session verified via raw map: user_id=%s username=%s", user.get("id"), user.get("username"))
                                 return user, "OK"
                         except Exception:
                             pass
@@ -888,6 +898,17 @@ def verify_telegram_init_data(
             if not isinstance(user, dict) or not user.get("id"):
                 last_debug = f"user missing or invalid: {data.get('user')}"
                 continue
+
+            try:
+                uid_int = int(user["id"])
+                u_fn = user.get("first_name", "")
+                u_ln = user.get("last_name", "")
+                u_un = user.get("username", "")
+                u_display = f"{u_fn} {u_ln}".strip() or (f"@{u_un}" if u_un else f"User {uid_int}")
+                record_known_user(uid_int, u_un, u_display)
+                kv_json_set(f"cache:user:{uid_int}", user, ttl=86400 * 30)
+            except Exception:
+                pass
 
             logger.info("[Auth] Telegram session verified: user_id=%s username=%s", user.get("id"), user.get("username"))
             return user, "OK"
@@ -1062,25 +1083,40 @@ def telegram_post(endpoint: str, payload: dict) -> dict:
         return {"ok": False}
 
 
-def get_chat(chat_id: int) -> Optional[dict]:
-    # 1. Try memory / Redis cache
-    try:
-        cached_title = kv_get(f"cache:chat_title:{chat_id}")
-        if cached_title:
-            return {"id": chat_id, "title": str(cached_title)}
-        known = get_known_groups()
-        if known and isinstance(known, dict) and str(chat_id) in known:
-            return {"id": chat_id, "title": str(known[str(chat_id)])}
-    except Exception:
-        pass
+def get_chat(chat_id: int, force_refresh: bool = False) -> Optional[dict]:
+    # 1. Try memory / Redis cache (if not forcing refresh)
+    if not force_refresh:
+        try:
+            cached_title = kv_get(f"cache:chat_title:{chat_id}")
+            if cached_title and str(cached_title) != str(chat_id) and str(cached_title) != "Group":
+                return {"id": chat_id, "title": str(cached_title)}
+            known = get_known_groups()
+            if known and isinstance(known, dict) and str(chat_id) in known:
+                kt = str(known[str(chat_id)])
+                if kt and kt != str(chat_id) and kt != "Group":
+                    return {"id": chat_id, "title": kt}
+        except Exception:
+            pass
 
-    # 2. Telegram API fallback
+    # 2. Telegram API live fetch
     d = telegram_post("getChat", {"chat_id": chat_id})
     res = d.get("result") if d.get("ok") else None
     if res and res.get("title"):
         try:
             kv_set(f"cache:chat_title:{chat_id}", res["title"], ttl=86400)
             record_known_group(chat_id, res["title"])
+        except Exception:
+            pass
+        return res
+    elif not res:
+        # Fallback to cached title if Telegram API is unreachable or rate limited
+        try:
+            cached_title = kv_get(f"cache:chat_title:{chat_id}")
+            if cached_title:
+                return {"id": chat_id, "title": str(cached_title)}
+            known = get_known_groups()
+            if known and isinstance(known, dict) and str(chat_id) in known:
+                return {"id": chat_id, "title": str(known[str(chat_id)])}
         except Exception:
             pass
     return res
