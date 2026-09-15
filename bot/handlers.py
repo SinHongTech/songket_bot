@@ -23,12 +23,14 @@ from bot.redis_client import (
     add_allowed_group,
     remove_allowed_group,
     add_domain_whitelist,
+    add_group_banned_user,
     add_group_handler,
     add_group_muted_user,
     add_group_whitelisted_file,
     add_group_whitelisted_user,
     clear_pending,
     get_daily_scan_usage,
+    get_group_banned_users,
     get_group_inviter,
     get_group_lang,
     get_group_muted_users,
@@ -61,6 +63,7 @@ from bot.redis_client import (
     unlink_group_completely,
     record_known_user,
     record_threat_event,
+    remove_group_banned_user,
     remove_group_muted_user,
     remove_group_whitelisted_file,
     remove_group_whitelisted_user,
@@ -298,6 +301,32 @@ def get_msg_suspicious_file(lang: str, user: str, filename: str) -> str:
         f"🔹 <b>ឯកសារ (File) :</b> <code>{filename}</code>\n\n"
         "⚠️ <b>ការណែនាំ | Safety Notice:</b>\n"
         "• ឯកសារនេះអាចមានមេរោគ សូមកុំបើក ឬ Run ដាច់ខាត (May contain malware, do not open or run)."
+    )
+
+
+def get_msg_scan_error(lang: str, user: str, filename: str) -> str:
+    if lang == "kh":
+        return (
+            "⚠️ <b>មិនអាចស្កេនឯកសារបានឡើយ (Scan Failed)</b>\n\n"
+            f"🔹 <b>អ្នកផ្ញើរ :</b> {user}\n"
+            f"🔹 <b>ឯកសារ :</b> <code>{filename}</code>\n\n"
+            "⚠️ <b>មូលហេតុ៖</b> មានបញ្ហាក្នុងការទាញយក ឬប្រព័ន្ធស្កេនជាប់រវល់។\n"
+            "🔄 សូមសាកល្បងផ្ញើឯកសារម្តងទៀតនៅពេលក្រោយ ឬប្រុងប្រយ័ត្នមុននឹងបើកវា!"
+        )
+    if lang == "en":
+        return (
+            "⚠️ <b>File Scan Failed</b>\n\n"
+            f"🔹 <b>Sender :</b> {user}\n"
+            f"🔹 <b>File :</b> <code>{filename}</code>\n\n"
+            "⚠️ <b>Reason:</b> Download timed out or security scanner is temporarily busy.\n"
+            "🔄 Please try uploading the file again, or exercise caution before opening it!"
+        )
+    return (
+        "⚠️ <b>មិនអាចស្កេនឯកសារបានឡើយ | File Scan Failed</b>\n\n"
+        f"🔹 <b>អ្នកផ្ញើរ (Sender) :</b> {user}\n"
+        f"🔹 <b>ឯកសារ (File) :</b> <code>{filename}</code>\n\n"
+        "⚠️ <b>មូលហេតុ (Reason) :</b> មានបញ្ហាក្នុងការទាញយក ឬម៉ាស៊ីនស្កេនរវល់ (Download timeout or scanner busy).\n"
+        "🔄 សូមសាកល្បងផ្ញើម្តងទៀត ឬប្រុងប្រយ័ត្ន (Please try uploading again or exercise caution)!"
     )
 
 
@@ -1382,6 +1411,7 @@ def _build_group_settings_view(api: TelegramAPI, group_id: int) -> tuple[str, di
 
     wl_users = get_group_whitelisted_users(group_id)
     muted_users = get_group_muted_users(group_id)
+    banned_users = get_group_banned_users(group_id)
     wl_files = get_group_whitelisted_files(group_id)
 
     lang_labels = {
@@ -1398,7 +1428,8 @@ def _build_group_settings_view(api: TelegramAPI, group_id: int) -> tuple[str, di
         f"🔹 <b>ភាសា (Language):</b> {lang_display}\n"
         f"🔹 <b>សារសុវត្ថិភាព (Safe Message):</b> {timer_display}\n"
         f"🔹 <b>Whitelist Users:</b> {len(wl_users)} នាក់ (members)\n"
-        f"🔹 <b>Muted / Blocklist:</b> {len(muted_users)} នាក់ (members)\n"
+        f"🔹 <b>Muted Users:</b> {len(muted_users)} នាក់ (members)\n"
+        f"🔹 <b>Banned Users:</b> {len(banned_users)} នាក់ (members)\n"
         f"🔹 <b>Approved Files:</b> {len(wl_files)} ឯកសារ (files)\n\n"
         f"<i>ចុចប៊ូតុងខាងក្រោមដើម្បីកែប្រែ ឬគ្រប់គ្រងការកំណត់ភ្លាមៗ៖</i>"
     )
@@ -1416,7 +1447,7 @@ def _build_group_settings_view(api: TelegramAPI, group_id: int) -> tuple[str, di
             {"text": f"{'✅ ' if not show_safe or timer == 0 else ''}❌ Off", "callback_data": f"adm_timer:{group_id}:0"},
         ],
         [
-            {"text": f"👥 Whitelist / Mute Users ({len(wl_users)}/{len(muted_users)})", "callback_data": f"adm_users:{group_id}"},
+            {"text": f"👥 Users ({len(wl_users)} WL / {len(muted_users)} Mute / {len(banned_users)} Ban)", "callback_data": f"adm_users:{group_id}"},
             {"text": f"📁 Whitelist Files ({len(wl_files)})", "callback_data": f"adm_files:{group_id}"},
         ],
         [
@@ -1434,6 +1465,7 @@ def _build_group_users_view(api: TelegramAPI, group_id: int) -> tuple[str, dict]
 
     wl_users = get_group_whitelisted_users(group_id)
     muted_users = get_group_muted_users(group_id)
+    banned_users = get_group_banned_users(group_id)
 
     lines = [
         f"👥 <b>ការគ្រប់គ្រងអ្នកប្រើប្រាស់ / Users Management:</b>",
@@ -1447,7 +1479,7 @@ def _build_group_users_view(api: TelegramAPI, group_id: int) -> tuple[str, dict]
             uname = f"@{u['username']}" if u.get("username") else u.get("name") or "User"
             lines.append(f"{idx}. {esc(uname)}")
 
-    lines.append(f"\n🔇 <b>Muted / Blocklisted Users (អ្នកត្រូវ Mute):</b>")
+    lines.append(f"\n🔇 <b>Muted Users (អ្នកត្រូវ Mute):</b>")
     if not muted_users:
         lines.append("<i>គ្មានសមាជិកដែលត្រូវ Mute ឡើយ (No muted members)</i>")
     else:
@@ -1456,6 +1488,15 @@ def _build_group_users_view(api: TelegramAPI, group_id: int) -> tuple[str, dict]
             strikes = u.get("strikes", 3)
             lines.append(f"{idx}. {esc(uname)} · Strikes: {strikes}")
 
+    lines.append(f"\n🔨 <b>Banned Users (អ្នកត្រូវ Ban):</b>")
+    if not banned_users:
+        lines.append("<i>គ្មានសមាជិកដែលត្រូវ Ban ឡើយ (No banned members)</i>")
+    else:
+        for idx, u in enumerate(banned_users, 1):
+            uname = f"@{u['username']}" if u.get("username") else u.get("name") or "User"
+            reason = u.get("reason", "Malicious activity")
+            lines.append(f"{idx}. {esc(uname)} · {esc(reason)}")
+
     keyboard = []
     # Action buttons for muted users
     for u in muted_users[:5]:
@@ -1463,6 +1504,14 @@ def _build_group_users_view(api: TelegramAPI, group_id: int) -> tuple[str, dict]
         uname = f"@{u['username']}" if u.get("username") else str(uid)
         keyboard.append([
             {"text": f"🔊 Unmute {uname}", "callback_data": f"unmute:{group_id}:{uid}"}
+        ])
+
+    # Action buttons for banned users
+    for u in banned_users[:5]:
+        uid = u.get("user_id")
+        uname = f"@{u['username']}" if u.get("username") else str(uid)
+        keyboard.append([
+            {"text": f"🔓 Unban {uname}", "callback_data": f"unban:{group_id}:{uid}"}
         ])
 
     # Action buttons to remove whitelisted users
@@ -2331,6 +2380,8 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
                 api.send_message(gid, f"🛡️ <b>File Whitelisted:</b> File approved by admin.")
             else:
                 api.send_message(chat_id, f"🛡️ <b>File Whitelisted:</b> File approved for <b>{esc(g_title)}</b>.")
+            if msg_id and chat_id:
+                api.edit_message_reply_markup(chat_id, msg_id, reply_markup=None)
             return
 
     if data.startswith("del_f:") or data.startswith("delete_file:"):
@@ -2343,10 +2394,11 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
                 return
             api.delete_message(gid, mid)
             api.answer_callback_query(query_id, text="🗑️ File deleted.")
-            return
+            if msg_id and chat_id:
+                api.edit_message_reply_markup(chat_id, msg_id, reply_markup=None)
             return
 
-    # 0.65 1-Click Group Admin Inline Actions (Unmute / Kick / Ban / Whitelist)
+    # 0.65 1-Click Group Admin Inline Actions (Unmute / Unban / Kick / Ban / Mute / Whitelist)
     if data.startswith("unmute:"):
         parts = data.split(":")
         if len(parts) == 3:
@@ -2367,6 +2419,39 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
                     api.send_message(chat_id, "🔊 Member unmuted in group successfully.")
             else:
                 api.answer_callback_query(query_id, text="⚠️ Failed to unmute member. Check bot admin permissions.", show_alert=True)
+            if msg_id and chat_id:
+                msg_text = msg.get("text", "")
+                if "Users Management" in msg_text or "ការគ្រប់គ្រងអ្នកប្រើប្រាស់" in msg_text:
+                    text, markup = _build_group_users_view(api, gid)
+                    api.edit_message_text(chat_id, msg_id, text, reply_markup=markup)
+                else:
+                    api.edit_message_reply_markup(chat_id, msg_id, reply_markup=None)
+            return
+
+    if data.startswith("unban:"):
+        parts = data.split(":")
+        if len(parts) == 3:
+            gid = int(parts[1])
+            target_uid = int(parts[2])
+            if not (is_super_admin(user_id) or user_id in _get_admin_chat_ids(gid) or api.is_group_admin(user_id, gid)):
+                api.answer_callback_query(query_id, text="❌ Admin only / សម្រាប់តែ Admin ក្រុមប៉ុណ្ណោះ", show_alert=True)
+                return
+            remove_group_banned_user(gid, target_uid)
+            unbanned = api.unban_chat_member(gid, target_uid)
+            if unbanned:
+                api.answer_callback_query(query_id, text="🔓 User unbanned / បានដកការ Ban ជោគជ័យ!", show_alert=True)
+                api.send_message(gid, "🔓 <b>Admin Action:</b> Member was unbanned by admin.")
+                if chat_id > 0:
+                    api.send_message(chat_id, "🔓 Member unbanned in group successfully.")
+            else:
+                api.answer_callback_query(query_id, text="⚠️ Failed to unban member. Check bot admin permissions.", show_alert=True)
+            if msg_id and chat_id:
+                msg_text = msg.get("text", "")
+                if "Users Management" in msg_text or "ការគ្រប់គ្រងអ្នកប្រើប្រាស់" in msg_text:
+                    text, markup = _build_group_users_view(api, gid)
+                    api.edit_message_text(chat_id, msg_id, text, reply_markup=markup)
+                else:
+                    api.edit_message_reply_markup(chat_id, msg_id, reply_markup=None)
             return
 
     if data.startswith("kick:"):
@@ -2382,6 +2467,7 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
                 return
             api.ban_chat_member(gid, target_uid)
             kicked = api.unban_chat_member(gid, target_uid)
+            remove_group_muted_user(gid, target_uid)
             if kicked:
                 api.answer_callback_query(query_id, text="👢 User kicked / បានទាត់អ្នកប្រើប្រាស់ចេញពីក្រុម!", show_alert=True)
                 api.send_message(gid, "👢 <b>Admin Action:</b> Member was removed from group by admin.")
@@ -2389,6 +2475,13 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
                     api.send_message(chat_id, "👢 Member removed from group.")
             else:
                 api.answer_callback_query(query_id, text="⚠️ Failed to kick member. Check bot admin permissions.", show_alert=True)
+            if msg_id and chat_id:
+                msg_text = msg.get("text", "")
+                if "Users Management" in msg_text or "ការគ្រប់គ្រងអ្នកប្រើប្រាស់" in msg_text:
+                    text, markup = _build_group_users_view(api, gid)
+                    api.edit_message_text(chat_id, msg_id, text, reply_markup=markup)
+                else:
+                    api.edit_message_reply_markup(chat_id, msg_id, reply_markup=None)
             return
 
     if data.startswith("ban:"):
@@ -2404,12 +2497,21 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
                 return
             banned = api.ban_chat_member(gid, target_uid)
             if banned:
+                add_group_banned_user(gid, target_uid, reason="Banned by admin")
+                remove_group_muted_user(gid, target_uid)
                 api.answer_callback_query(query_id, text="🔨 Spammer banned / បាន Ban អ្នកផ្ញើជោគជ័យ!", show_alert=True)
                 api.send_message(gid, "🔨 <b>Admin Action:</b> User was banned by admin.")
                 if chat_id > 0:
                     api.send_message(chat_id, "🔨 Member banned from group.")
             else:
                 api.answer_callback_query(query_id, text="⚠️ Failed to ban member. Check bot admin permissions.", show_alert=True)
+            if msg_id and chat_id:
+                msg_text = msg.get("text", "")
+                if "Users Management" in msg_text or "ការគ្រប់គ្រងអ្នកប្រើប្រាស់" in msg_text:
+                    text, markup = _build_group_users_view(api, gid)
+                    api.edit_message_text(chat_id, msg_id, text, reply_markup=markup)
+                else:
+                    api.edit_message_reply_markup(chat_id, msg_id, reply_markup=None)
             return
 
     if data.startswith("mute:"):
@@ -2426,12 +2528,20 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
             until_date = int(time.time()) + 86400
             muted = api.restrict_chat_member(gid, target_uid, can_send_messages=False, until_date=until_date)
             if muted:
+                add_group_muted_user(gid, target_uid, strikes=1)
                 api.answer_callback_query(query_id, text="🔇 User muted for 24h / បានផ្អាកសិទ្ធិផ្ញើសារ 24 ម៉ោង!", show_alert=True)
                 api.send_message(gid, "🔇 <b>Admin Action:</b> Member has been muted for 24 hours.")
                 if chat_id > 0:
                     api.send_message(chat_id, "🔇 Member muted for 24 hours in group.")
             else:
                 api.answer_callback_query(query_id, text="⚠️ Failed to mute member. Check bot admin permissions.", show_alert=True)
+            if msg_id and chat_id:
+                msg_text = msg.get("text", "")
+                if "Users Management" in msg_text or "ការគ្រប់គ្រងអ្នកប្រើប្រាស់" in msg_text:
+                    text, markup = _build_group_users_view(api, gid)
+                    api.edit_message_text(chat_id, msg_id, text, reply_markup=markup)
+                else:
+                    api.edit_message_reply_markup(chat_id, msg_id, reply_markup=None)
             return
 
     if data.startswith("wl_dom:"):
@@ -2454,6 +2564,8 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
                 api.send_message(gid, f"🛡️ <b>Trusted Domain:</b> <code>{esc(domain_to_add)}</code> was added to the trusted whitelist.")
             else:
                 api.send_message(chat_id, f"🛡️ <b>Trusted Domain:</b> <code>{esc(domain_to_add)}</code> added to whitelist.")
+            if msg_id and chat_id:
+                api.edit_message_reply_markup(chat_id, msg_id, reply_markup=None)
             return
 
     if data in {"explain_threat", "explain_suspicious"}:
@@ -3212,15 +3324,10 @@ def process_update(api: TelegramAPI, update: dict) -> None:
         return
 
     if not decision.ok:
-        if decision.reason == "download_failed":
-            logger.error("File download failed for %s | chat=%s", filename, chat_id)
-            record_report(chat_id, chat_title, "errors")
-            delete_notice()
-            return
-        if scanned_clean_targets:
-            display_safe_feedback(", ".join(scanned_clean_targets + [filename]))
-        else:
-            display_safe_feedback(filename)
+        logger.error("File download/validation failed for %s | chat=%s (reason: %s)", filename, chat_id, decision.reason)
+        record_report(chat_id, chat_title, "errors")
+        delete_notice()
+        api.send_message(chat_id, get_msg_scan_error(lang, sender_label, esc(filename)))
         return
 
     # Group-isolated whitelist (doc section 4): approved hash skips re-scan
@@ -3237,6 +3344,7 @@ def process_update(api: TelegramAPI, update: dict) -> None:
         logger.error("File scan error | %s | %s", filename, result["error"])
         record_report(chat_id, chat_title, "errors")
         delete_notice()
+        api.send_message(chat_id, get_msg_scan_error(lang, sender_label, esc(filename)))
         return
 
     malicious = result.get("malicious", 0)

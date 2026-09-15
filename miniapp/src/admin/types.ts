@@ -75,6 +75,8 @@ export interface GroupUserEntry {
   strikes?: number;
   added_at?: number;
   muted_at?: number;
+  banned_at?: number;
+  reason?: string;
 }
 
 export interface GroupFileEntry {
@@ -95,6 +97,7 @@ export interface GroupDetail {
   settings: GroupSettings;
   whitelisted_users: GroupUserEntry[];
   muted_users: GroupUserEntry[];
+  banned_users?: GroupUserEntry[];
   whitelisted_files: GroupFileEntry[];
 }
 

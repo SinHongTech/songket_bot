@@ -666,6 +666,14 @@ export async function unmuteGroupUser(groupId: number, targetUserId: number) {
   });
 }
 
+export async function unbanGroupUser(groupId: number, targetUserId: number) {
+  return postAction({
+    action: "unban_group_user",
+    group_id: groupId,
+    target_user_id: targetUserId,
+  });
+}
+
 export async function addGroupWhitelistFile(groupId: number, sha256: string, filename?: string) {
   return postAction({
     action: "add_group_whitelist_file",

@@ -45,6 +45,7 @@ import {
   addGroupWhitelistUser,
   removeGroupWhitelistUser,
   unmuteGroupUser,
+  unbanGroupUser,
   addGroupWhitelistFile,
   removeGroupWhitelistFile,
   addManagedGroup,
@@ -158,6 +159,7 @@ export default function ManageView({
       settings: { lang: "both", safe_timeout: 10, show_safe: true },
       whitelisted_users: [],
       muted_users: [],
+      banned_users: [],
       whitelisted_files: [],
     };
   }, [groupDetails, selectedGid]);
@@ -168,6 +170,7 @@ export default function ManageView({
 
   const [groupWlUsers, setGroupWlUsers] = useState<GroupUserEntry[]>([]);
   const [groupMutedUsers, setGroupMutedUsers] = useState<GroupUserEntry[]>([]);
+  const [groupBannedUsers, setGroupBannedUsers] = useState<GroupUserEntry[]>([]);
   const [groupWlFiles, setGroupWlFiles] = useState<GroupFileEntry[]>([]);
 
   // Forms in group tab
@@ -190,6 +193,7 @@ export default function ManageView({
       setGroupShowSafe((activeDetail.settings?.show_safe ?? true) && timeout > 0);
       setGroupWlUsers(activeDetail.whitelisted_users || []);
       setGroupMutedUsers(activeDetail.muted_users || []);
+      setGroupBannedUsers(activeDetail.banned_users || []);
       setGroupWlFiles(activeDetail.whitelisted_files || []);
     }
   }, [activeDetail]);
@@ -440,6 +444,18 @@ export default function ManageView({
       onRefresh();
     } catch (e: any) {
       setErrorMsg(e?.message || "Failed to unmute user");
+    }
+  }
+
+  // ── Group Banned Users Operations (Unban) ──────────────────────────────────
+  async function handleUnbanGroupUser(uid: number) {
+    setGroupBannedUsers((prev) => prev.filter((u) => u.user_id !== uid));
+    try {
+      await unbanGroupUser(selectedGid, uid);
+      triggerGroupToast(isKm ? "បានដកការ Ban (Unbanned)" : "User unbanned successfully");
+      onRefresh();
+    } catch (e: any) {
+      setErrorMsg(e?.message || "Failed to unban user");
     }
   }
 
@@ -1499,6 +1515,86 @@ export default function ManageView({
                       >
                         <Volume2 size={12} />
                         <span className={kh(lang)}>{isKm ? "បើកសិទ្ធិ" : "Unmute"}</span>
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          {/* 3.5 Group Banned Users Sub-card */}
+          <div style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 14, padding: "18px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <ShieldAlert size={16} color={G.danger} />
+                <div style={{ fontSize: 14, fontWeight: 700, color: G.text }}>
+                  <span className={kh(lang)}>{isKm ? "សមាជិកដែលត្រូវ Ban (Banned Users)" : "Banned Users"}</span>
+                </div>
+              </div>
+              <span style={{ fontSize: 11, color: G.danger, fontWeight: 700, background: "rgba(224,64,64,0.12)", padding: "2px 8px", borderRadius: 10 }}>
+                {groupBannedUsers.length}
+              </span>
+            </div>
+            <div style={{ fontSize: 11, color: G.muted, marginBottom: 14 }}>
+              <span className={kh(lang)}>
+                {isKm
+                  ? "សមាជិកដែលត្រូវបាន Ban ចេញពីក្រុមដោយសារការផ្ញើមេរោគ ឬសារឥតបានការ។"
+                  : "Members banned from the group due to malicious file / spam activity."}
+              </span>
+            </div>
+
+            {/* List */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {groupBannedUsers.length === 0 ? (
+                <div style={{ fontSize: 12, color: G.muted, fontStyle: "italic", padding: "6px 0" }}>
+                  {isKm ? "គ្មានសមាជិកដែលត្រូវ Ban ឡើយ" : "No banned members in this group."}
+                </div>
+              ) : (
+                groupBannedUsers.map((u) => {
+                  const formatted = formatUser(u.user_id, u.username, u.name, isSuperAdmin);
+                  return (
+                    <div
+                      key={u.user_id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        background: G.surface2,
+                        border: `1px solid ${G.border}`,
+                        borderRadius: 8,
+                        padding: "8px 12px",
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: G.text }}>{formatted.title}</div>
+                        <div style={{ fontSize: 10, color: G.danger, display: "flex", gap: 8, marginTop: 2 }}>
+                          <span>{u.reason || (isKm ? "បាន Ban ដោយ Admin" : "Banned by Admin")}</span>
+                          {formatted.subtitle && (
+                            <span style={{ color: G.muted, fontFamily: "JetBrains Mono, monospace" }}>
+                              {formatted.subtitle}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleUnbanGroupUser(u.user_id)}
+                        style={{
+                          background: "rgba(42,170,90,0.15)",
+                          border: `1px solid ${G.safe}`,
+                          color: G.safe,
+                          borderRadius: 6,
+                          padding: "6px 10px",
+                          fontSize: 11,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 4,
+                        }}
+                      >
+                        <Volume2 size={12} />
+                        <span className={kh(lang)}>{isKm ? "ដក Ban" : "Unban"}</span>
                       </button>
                     </div>
                   );
