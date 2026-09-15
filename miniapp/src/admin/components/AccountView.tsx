@@ -18,6 +18,7 @@ interface AccountViewProps {
   setLang: (l: Lang) => void;
   onLogout: () => void;
   onRefresh?: () => void;
+  isMock?: boolean;
 }
 
 export default function AccountView({
@@ -30,8 +31,10 @@ export default function AccountView({
   setLang,
   onLogout,
   onRefresh,
+  isMock = false,
 }: AccountViewProps) {
   const tx = T(lang);
+  const [previewAlertOpen, setPreviewAlertOpen] = useState(false);
   const [dailyReportEnabled, setDailyReportEnabled] = useState<boolean>(() => {
     if (userSettings?.daily_report_enabled !== undefined) return userSettings.daily_report_enabled;
     if (userSettings?.enabled !== undefined) return userSettings.enabled;
@@ -146,11 +149,12 @@ export default function AccountView({
       setSendingReport((prev) => ({ ...prev, [period]: false }));
     }
   }
-  const userFullName =
+  const rawFullName =
     [user?.first_name, user?.last_name].filter(Boolean).join(" ").trim() ||
-    user?.name ||
+    (user?.name && !user.name.startsWith("Admin_") && !user.name.startsWith("User ") ? user.name : "") ||
     user?.first_name ||
     (user?.username ? `@${user.username.replace(/^@/, "")}` : "Admin User");
+  const userFullName = rawFullName.startsWith("Admin_") ? "Admin User" : rawFullName;
 
   const avatarInitials = (() => {
     if (user?.first_name && user?.last_name) {
@@ -338,6 +342,10 @@ export default function AccountView({
         {totpEnabled ? (
           <button
             onClick={() => {
+              if (isMock) {
+                setPreviewAlertOpen(true);
+                return;
+              }
               setTotpModalMode("disable");
               setTotpModalOpen(true);
             }}
@@ -357,6 +365,10 @@ export default function AccountView({
         ) : (
           <button
             onClick={() => {
+              if (isMock) {
+                setPreviewAlertOpen(true);
+                return;
+              }
               setTotpModalMode("setup");
               setTotpModalOpen(true);
             }}
@@ -379,6 +391,42 @@ export default function AccountView({
           </button>
         )}
       </div>
+
+      {previewAlertOpen && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div style={{ background: G.surface, border: `1px solid ${G.goldBorder}`, borderRadius: 16, padding: "22px 20px", maxWidth: 360, width: "100%", textAlign: "center" }}>
+            <div style={{ width: 48, height: 48, borderRadius: "50%", background: "rgba(212,167,44,0.15)", color: G.gold, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px" }}>
+              <KeyRound size={24} />
+            </div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: G.text, marginBottom: 8 }}>
+              <span className={kh(lang)}>{isKm ? "ទាមទារសិទ្ធិអ្នកគ្រប់គ្រង (Admin)" : "Administrator Access Required"}</span>
+            </div>
+            <p style={{ fontSize: 13, color: G.textSec, lineHeight: 1.6, margin: "0 0 18px" }}>
+              <span className={kh(lang)}>
+                {isKm
+                  ? "មុខងារផ្ទៀងផ្ទាត់ ២ ជាន់ (2FA / Google Authenticator) ដំណើរការសម្រាប់តែគណនី Admin ផ្លូវការប៉ុណ្ណោះ។ សូមបើក Bot នៅក្នុង Telegram ជាមួយគណនី Admin ដើម្បីកំណត់ 2FA។"
+                  : "Two-factor authentication (2FA / Google Authenticator) requires connecting with an authorized administrator account in Telegram. Please launch the bot in Telegram as an admin."}
+              </span>
+            </p>
+            <button
+              onClick={() => setPreviewAlertOpen(false)}
+              style={{
+                width: "100%",
+                background: G.gold,
+                color: "#1a1200",
+                border: "none",
+                borderRadius: 10,
+                padding: "10px",
+                fontSize: 13,
+                fontWeight: 700,
+                cursor: "pointer",
+              }}
+            >
+              <span className={kh(lang)}>{isKm ? "យល់ព្រម" : "Understood"}</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       <div style={{ background: G.surface, border: `1px solid ${G.border}`, borderRadius: 14, padding: "18px" }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: G.textSec, marginBottom: 14 }}>
