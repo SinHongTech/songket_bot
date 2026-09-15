@@ -119,7 +119,7 @@ export default function About({ isKm, bodyFont }: AboutProps) {
         </p>
       </div>
 
-      <div style={{ marginBottom: 28 }}>
+      <div id="team" style={{ marginBottom: 28 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
           <Code size={16} color="var(--gold)" />
           <p style={{ fontSize: 14, fontWeight: 700, fontFamily: bodyFont }}>{isKm ? "ក្រុមការងាររបស់យើង" : "Who We Are"}</p>
@@ -246,22 +246,38 @@ export default function About({ isKm, bodyFont }: AboutProps) {
             {isKm ? "ភ្នំពេញ\nកម្ពុជា 🇰🇭" : "Phnom Penh,\nCambodia 🇰🇭"}
           </p>
         </div>
-        <div style={{ borderRadius: 12, padding: "16px", background: "var(--surface)", border: "1px solid var(--border)" }}>
+        <div id="contact" style={{ borderRadius: 12, padding: "16px", background: "var(--surface)", border: "1px solid var(--border)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 10 }}>
             <Mail size={14} color="var(--gold)" />
             <p style={{ fontSize: 13, fontWeight: 700, fontFamily: bodyFont }}>{isKm ? "ទំនាក់ទំនង" : "Contact"}</p>
           </div>
-          <div style={{ display: "grid", gap: 6 }}>
+          <div style={{ display: "grid", gap: 8 }}>
             {[
-              { icon: <Send size={11} color="var(--muted)" />, label: "@songket_beyda_bot" },
-              { icon: <Mail size={11} color="var(--muted)" />, label: "Songketteam@gmail.com" },
+              { icon: <Send size={11} color="var(--muted)" />, label: "@songket_beyda_bot", href: "https://t.me/songket_beyda_bot" },
+              { icon: <Mail size={11} color="var(--muted)" />, label: "Songketteam@gmail.com", href: "https://mail.google.com/mail/?view=cm&fs=1&to=Songketteam@gmail.com" },
             ].map((c) => (
-              <div key={c.label} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <a
+                key={c.label}
+                href={c.href}
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  textDecoration: "none",
+                  color: "inherit",
+                  transition: "opacity 0.2s ease",
+                  cursor: "pointer",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.opacity = "0.75"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.opacity = "1"; }}
+              >
                 {c.icon}
                 <span className="mono" style={{ fontSize: 10, color: "var(--text-secondary)" }}>
                   {c.label}
                 </span>
-              </div>
+              </a>
             ))}
           </div>
         </div>

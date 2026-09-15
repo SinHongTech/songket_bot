@@ -285,7 +285,7 @@ def _async_submit_vt_url(url: str) -> None:
         pass
 
 
-def vt_scan_url(url: str) -> dict:
+def vt_scan_url(url: str, chat_id: Optional[int] = None, user_id: Optional[int] = None) -> dict:
     # 1. Quick Redis Cache Check (<1ms)
     key = _make_cache_key(url)
     cached = cache_get(key)
@@ -294,10 +294,8 @@ def vt_scan_url(url: str) -> dict:
 
     # 2. Check Trusted Domain Whitelist (<1ms)
     from bot.redis_client import is_domain_whitelisted
-    if is_domain_whitelisted(url):
-        res = {"malicious": 0, "suspicious": 0, "harmless": 100, "undetected": 0, "whitelisted": True}
-        cache_set(key, res, ttl=config.URL_CACHE_TTL_SECONDS)
-        return res
+    if is_domain_whitelisted(url, chat_id=chat_id, user_id=user_id):
+        return {"malicious": 0, "suspicious": 0, "harmless": 100, "undetected": 0, "whitelisted": True}
 
     # 3. Check Fast Local Heuristics (<1ms)
     heuristic_hit = check_telegram_phishing_heuristics(url)
@@ -315,10 +313,8 @@ def vt_scan_url(url: str) -> dict:
             cached_final = cache_get(_make_cache_key(final_url))
             if cached_final:
                 return cached_final
-            if is_domain_whitelisted(final_url):
-                res = {"malicious": 0, "suspicious": 0, "harmless": 100, "undetected": 0, "whitelisted": True}
-                cache_set(key, res, ttl=config.URL_CACHE_TTL_SECONDS)
-                return res
+            if is_domain_whitelisted(final_url, chat_id=chat_id, user_id=user_id):
+                return {"malicious": 0, "suspicious": 0, "harmless": 100, "undetected": 0, "whitelisted": True}
             h_hit = check_telegram_phishing_heuristics(final_url)
             if h_hit:
                 cache_set(key, h_hit, ttl=config.URL_CACHE_TTL_SECONDS)
