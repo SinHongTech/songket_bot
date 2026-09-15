@@ -221,12 +221,12 @@ export default function ManageView({
     if (subscriptions) setSubs(subscriptions);
   }, [subscriptions]);
 
-  // ── Helper: Format User Display (Privacy Standard: NEVER show numeric ID) ──
+  // ── Helper: Format User Display (Role-Based Standard) ──────────────────────
   function formatUser(
     userId: number | string,
     fallbackUsername?: string,
     fallbackName?: string,
-    _showId: boolean = false
+    showId: boolean = false
   ): { title: string; subtitle?: string } {
     const idStr = String(userId || "").trim();
     const hasValidId = idStr && idStr !== "0";
@@ -236,6 +236,33 @@ export default function ManageView({
     const dname = rawDname && !rawDname.startsWith("User ") && !rawDname.startsWith("Admin_") && !rawDname.startsWith("Admin (") ? rawDname : "";
     const cleanUname = uname ? (uname.startsWith("@") ? uname : `@${uname}`) : "";
 
+    // For Super Admin Tab and Plan Tab (showId === true): show Name (@username) and ID
+    if (showId && hasValidId) {
+      if (dname && cleanUname) {
+        return {
+          title: `${dname} (${cleanUname})`,
+          subtitle: `ID: (${idStr})`,
+        };
+      }
+      if (dname) {
+        return {
+          title: dname,
+          subtitle: `ID: (${idStr})`,
+        };
+      }
+      if (cleanUname) {
+        return {
+          title: cleanUname,
+          subtitle: `ID: (${idStr})`,
+        };
+      }
+      return {
+        title: `User (${idStr})`,
+        subtitle: `ID: (${idStr})`,
+      };
+    }
+
+    // For Group Security / Group Manage Tab and Regular Admin view (showId === false): show Name (@username) ONLY without ID
     if (dname && cleanUname) {
       return {
         title: `${dname} (${cleanUname})`,
@@ -1402,7 +1429,7 @@ export default function ManageView({
                 </div>
               ) : (
                 groupWlUsers.map((u, idx) => {
-                  const formatted = formatUser(u.user_id, u.username, u.name, isSuperAdmin);
+                  const formatted = formatUser(u.user_id, u.username, u.name, false);
                   return (
                     <div
                       key={u.user_id ? String(u.user_id) : (u.username || `wl_${idx}`)}
@@ -1508,7 +1535,7 @@ export default function ManageView({
                 </div>
               ) : (
                 groupMutedUsers.map((u, idx) => {
-                  const formatted = formatUser(u.user_id, u.username, u.name, isSuperAdmin);
+                  const formatted = formatUser(u.user_id, u.username, u.name, false);
                   return (
                     <div
                       key={u.user_id ? String(u.user_id) : (u.username || `muted_${idx}`)}
@@ -1588,7 +1615,7 @@ export default function ManageView({
                 </div>
               ) : (
                 groupBannedUsers.map((u, idx) => {
-                  const formatted = formatUser(u.user_id, u.username, u.name, isSuperAdmin);
+                  const formatted = formatUser(u.user_id, u.username, u.name, false);
                   return (
                     <div
                       key={u.user_id ? String(u.user_id) : (u.username || `banned_${idx}`)}

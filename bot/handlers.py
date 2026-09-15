@@ -3380,6 +3380,21 @@ def process_update(api: TelegramAPI, update: dict) -> None:
     user_display = get_user_display(sender)
     sender_uname = sender.get("username", "")
     chat_title = chat.get("title", str(chat_id))
+    if chat_type in ("group", "supergroup") and chat.get("title"):
+        record_known_group(chat_id, chat.get("title"))
+        try:
+            kv_set(f"cache:chat_title:{chat_id}", chat.get("title"), ttl=300)
+        except Exception:
+            pass
+    if message.get("new_chat_title"):
+        new_t = message.get("new_chat_title")
+        chat_title = new_t
+        record_known_group(chat_id, new_t)
+        try:
+            kv_set(f"cache:chat_title:{chat_id}", new_t, ttl=300)
+        except Exception:
+            pass
+
     if sender_id:
         record_known_user(sender_id, sender_uname, user_display)
 

@@ -1109,24 +1109,30 @@ def unban_chat_member(chat_id: int, user_id: int, only_if_banned: bool = False) 
 def get_chat(chat_id: int) -> Optional[dict]:
     # 1. Try memory / Redis cache
     try:
-        cached_title = kv_get(f"cache:chat_title:{chat_id}")
-        if cached_title:
+        cached_title = kv_get(f"cache:chat_title:{chat_id}", max_age=300.0)
+        if cached_title and str(cached_title) not in (str(chat_id), "Group", "Selected Group"):
             return {"id": chat_id, "title": str(cached_title)}
+    except Exception:
+        pass
+
+    # 2. Telegram API live fetch
+    d = telegram_post("getChat", {"chat_id": chat_id})
+    res = d.get("result") if d.get("ok") else None
+    if res and res.get("title"):
+        try:
+            kv_set(f"cache:chat_title:{chat_id}", res["title"], ttl=300)
+            record_known_group(chat_id, res["title"])
+        except Exception:
+            pass
+        return res
+
+    # 3. Fallback to known_groups if telegram_post fails
+    try:
         known = get_known_groups()
         if known and isinstance(known, dict) and str(chat_id) in known:
             return {"id": chat_id, "title": str(known[str(chat_id)])}
     except Exception:
         pass
-
-    # 2. Telegram API fallback
-    d = telegram_post("getChat", {"chat_id": chat_id})
-    res = d.get("result") if d.get("ok") else None
-    if res and res.get("title"):
-        try:
-            kv_set(f"cache:chat_title:{chat_id}", res["title"], ttl=86400)
-            record_known_group(chat_id, res["title"])
-        except Exception:
-            pass
     return res
 
 
