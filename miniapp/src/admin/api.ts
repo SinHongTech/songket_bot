@@ -40,23 +40,6 @@ if (typeof window !== "undefined") {
   } catch {}
 }
 
-if (typeof window !== "undefined") {
-  window.addEventListener("message", (event) => {
-    try {
-      let data = event.data;
-      if (typeof data === "string") {
-        try { data = JSON.parse(data); } catch {}
-      }
-      if (data && data.eventType === "web_app_setup_data" && data.eventData?.initData) {
-        _cachedInitData = data.eventData.initData;
-        try {
-          safeStorage.setItem("songket_init_data", data.eventData.initData);
-        } catch {}
-      }
-    } catch {}
-  });
-}
-
 export function getTelegramWebApp() {
   if (typeof window !== "undefined" && window.Telegram?.WebApp) {
     return window.Telegram.WebApp;
@@ -64,32 +47,97 @@ export function getTelegramWebApp() {
   return null;
 }
 
+export function extractInitString(data: any): string {
+  if (!data) return "";
+  if (typeof data === "string") {
+    try {
+      const parsed = JSON.parse(data);
+      if (parsed && typeof parsed === "object") {
+        return extractInitString(parsed);
+      }
+    } catch {}
+    if (data.includes("hash=")) return data;
+  }
+  if (typeof data === "object") {
+    const cand =
+      data.initData ||
+      (data.eventData && (typeof data.eventData === "string" ? data.eventData : data.eventData.initData)) ||
+      (data.data && data.data.initData) ||
+      (data.event_data && data.event_data.init_data) ||
+      "";
+    if (typeof cand === "string" && cand.includes("hash=")) {
+      return cand;
+    }
+  }
+  return "";
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("message", (event) => {
+    try {
+      const str = extractInitString(event.data);
+      if (str && str.includes("hash=")) {
+        _cachedInitData = str;
+        (window as any).__songket_init_data = str;
+        try {
+          safeStorage.setItem("songket_init_data", str);
+          sessionStorage.setItem("songket_init_data", str);
+          localStorage.setItem("songket_init_data", str);
+        } catch {}
+      }
+    } catch {}
+  });
+}
+
 export function getInitData(): string {
+  // 1. Check window global / memory cache
+  if (typeof window !== "undefined" && (window as any).__songket_init_data) {
+    const wData = String((window as any).__songket_init_data).trim();
+    if (wData.includes("hash=")) {
+      _cachedInitData = wData;
+      return wData;
+    }
+  }
+
+  if (_cachedInitData && _cachedInitData.includes("hash=")) {
+    return _cachedInitData;
+  }
+
+  // 2. Check window.Telegram.WebApp.initData
   const tg = getTelegramWebApp();
-  if (tg?.initData && tg.initData.trim().length > 0) {
+  if (tg?.initData && tg.initData.trim().length > 0 && tg.initData.includes("hash=")) {
     _cachedInitData = tg.initData.trim();
+    if (typeof window !== "undefined") (window as any).__songket_init_data = _cachedInitData;
     try {
       safeStorage.setItem("songket_init_data", _cachedInitData);
     } catch {}
     return _cachedInitData;
   }
 
+  // 3. Check safeStorage / sessionStorage / localStorage for saved init data
   if (typeof window !== "undefined") {
-    // 1. Fallback from cached decoded session
     try {
-      const saved = safeStorage.getItem("songket_init_data");
+      const saved =
+        safeStorage.getItem("songket_init_data") ||
+        sessionStorage.getItem("songket_init_data") ||
+        localStorage.getItem("songket_init_data");
       if (saved && saved.includes("hash=")) {
         _cachedInitData = saved;
+        (window as any).__songket_init_data = saved;
         return saved;
       }
     } catch {}
+  }
 
-    // 2. Fallback from raw URL hash / search / boot storage
+  // 4. Fallback from raw URL hash / search / boot storage
+  if (typeof window !== "undefined") {
     const candidates = [
+      (window as any).__songket_init_raw || "",
       window.location.hash || "",
       window.location.search || "",
       safeStorage.getItem("songket_init_raw") || "",
-      (typeof sessionStorage !== "undefined" ? sessionStorage.getItem("songket_init_raw") : "") || "",
+      sessionStorage.getItem("songket_init_raw") || "",
+      localStorage.getItem("songket_init_raw") || "",
     ];
 
     for (const rawCandidate of candidates) {
@@ -101,6 +149,7 @@ export function getInitData(): string {
           const rawVal = params.get("tgWebAppData");
           if (rawVal && rawVal.includes("hash=")) {
             _cachedInitData = rawVal;
+            (window as any).__songket_init_data = rawVal;
             try {
               safeStorage.setItem("songket_init_data", rawVal);
             } catch {}
@@ -113,6 +162,7 @@ export function getInitData(): string {
             const decoded = decodeURIComponent(m[1]);
             if (decoded.includes("hash=")) {
               _cachedInitData = decoded;
+              (window as any).__songket_init_data = decoded;
               try {
                 safeStorage.setItem("songket_init_data", decoded);
               } catch {}
@@ -123,6 +173,7 @@ export function getInitData(): string {
       }
       if (clean.includes("hash=") && (clean.includes("user=") || clean.includes("query_id=") || clean.includes("auth_date="))) {
         _cachedInitData = clean;
+        (window as any).__songket_init_data = clean;
         try {
           safeStorage.setItem("songket_init_data", clean);
         } catch {}
@@ -134,16 +185,58 @@ export function getInitData(): string {
   return _cachedInitData || "";
 }
 
-export async function waitForTelegramInitData(timeoutMs: number = 800): Promise<string> {
+export async function waitForTelegramInitData(timeoutMs: number = 1500): Promise<string> {
   const initial = getInitData();
-  if (initial) return initial;
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    await new Promise((r) => setTimeout(r, 30));
-    const data = getInitData();
-    if (data) return data;
-  }
-  return getInitData();
+  if (initial && initial.includes("hash=")) return initial;
+
+  return new Promise((resolve) => {
+    let resolved = false;
+    let pollTimer: any = null;
+    let timeoutTimer: any = null;
+
+    const cleanup = () => {
+      resolved = true;
+      if (typeof window !== "undefined") {
+        window.removeEventListener("message", onMessage);
+      }
+      if (pollTimer) clearInterval(pollTimer);
+      if (timeoutTimer) clearTimeout(timeoutTimer);
+    };
+
+    const onMessage = (event: MessageEvent) => {
+      try {
+        const str = extractInitString(event.data);
+        if (str && str.includes("hash=")) {
+          _cachedInitData = str;
+          if (typeof window !== "undefined") (window as any).__songket_init_data = str;
+          try {
+            safeStorage.setItem("songket_init_data", str);
+          } catch {}
+          cleanup();
+          resolve(str);
+        }
+      } catch {}
+    };
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("message", onMessage);
+    }
+
+    pollTimer = setInterval(() => {
+      const data = getInitData();
+      if (data && data.includes("hash=")) {
+        cleanup();
+        resolve(data);
+      }
+    }, 25);
+
+    timeoutTimer = setTimeout(() => {
+      if (!resolved) {
+        cleanup();
+        resolve(getInitData());
+      }
+    }, timeoutMs);
+  });
 }
 
 function parseJsonSafely(str: string) {
@@ -273,7 +366,10 @@ export function requestTelegramWriteAccess(): Promise<boolean> {
 let _inFlightDashboardPromise: Promise<DashboardApiResponse> | null = null;
 
 export async function fetchDashboardData(days: number = 90, force: boolean = false): Promise<DashboardApiResponse> {
-  if (_inFlightDashboardPromise && !force) {
+  if (force) {
+    _inFlightDashboardPromise = null;
+  }
+  if (_inFlightDashboardPromise) {
     return _inFlightDashboardPromise;
   }
 
@@ -288,12 +384,9 @@ export async function fetchDashboardData(days: number = 90, force: boolean = fal
       }
     }
 
-    // Fast check for initData (returns immediately if already present)
-    const initData = getInitData();
-    if (!initData) {
-      await waitForTelegramInitData(100);
-    }
-    const payload = getAuthPayload({ days });
+    // Wait for reactive Telegram handshake (returns immediately if already present)
+    const initData = await waitForTelegramInitData(1500);
+    const payload = getAuthPayload({ days, initData: initData || getInitData() });
 
     try {
       const response = await fetch("/api/dashboard", {
