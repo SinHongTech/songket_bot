@@ -2223,7 +2223,7 @@ def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
                 clean_target_display = f"@{target_uname}" if target_uname else (target_dname or target_identifier)
                 if command in {"/unban", "/unkick"}:
                     if target_uid:
-                        api.unban_chat_member(gid, target_uid)
+                        api.unban_chat_member(gid, target_uid, only_if_banned=True)
                         remove_group_banned_user(gid, target_uid)
                         remove_group_muted_user(gid, target_uid)
                     elif target_uname:
@@ -2241,7 +2241,7 @@ def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
                     add_group_whitelisted_user(gid, target_uid, username=target_uname, name=target_dname)
                     if target_uid:
                         api.unrestrict_chat_member(gid, target_uid)
-                        api.unban_chat_member(gid, target_uid)
+                        api.unban_chat_member(gid, target_uid, only_if_banned=True)
                     results.append(f"• <b>{esc(g_title)}:</b> 🛡️ {clean_target_display} added to whitelist")
                 elif command in {"/unwhitelist", "/rmwhitelist", "/rmwl"}:
                     remove_group_whitelisted_user(gid, target_uid, username=target_uname)
@@ -2257,7 +2257,7 @@ def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
                 elif command == "/kick":
                     if target_uid:
                         api.ban_chat_member(gid, target_uid)
-                        api.unban_chat_member(gid, target_uid)
+                        api.unban_chat_member(gid, target_uid, only_if_banned=False)
                         remove_group_muted_user(gid, target_uid)
                         results.append(f"• <b>{esc(g_title)}:</b> 👢 {clean_target_display} kicked")
                     else:
@@ -2366,7 +2366,7 @@ def _handle_group_commands(api: TelegramAPI, chat_id: int, message: dict, sender
     # /unban or /unkick
     if command_part in {"/unban", "/unkick"}:
         if target_uid:
-            api.unban_chat_member(chat_id, target_uid)
+            api.unban_chat_member(chat_id, target_uid, only_if_banned=True)
             remove_group_banned_user(chat_id, target_uid)
             remove_group_muted_user(chat_id, target_uid)
         elif target_uname:
@@ -2396,7 +2396,7 @@ def _handle_group_commands(api: TelegramAPI, chat_id: int, message: dict, sender
         add_group_whitelisted_user(chat_id, target_uid, username=target_uname, name=target_dname)
         if target_uid:
             api.unrestrict_chat_member(chat_id, target_uid)
-            api.unban_chat_member(chat_id, target_uid)
+            api.unban_chat_member(chat_id, target_uid, only_if_banned=True)
         api.send_message(
             chat_id,
             f"🛡️ <b>Admin Action:</b> {clean_target_display} added to trusted whitelist for this group. All restrictions lifted!",
@@ -2436,7 +2436,7 @@ def _handle_group_commands(api: TelegramAPI, chat_id: int, message: dict, sender
             return True
         if target_uid:
             api.ban_chat_member(chat_id, target_uid)
-            api.unban_chat_member(chat_id, target_uid)
+            api.unban_chat_member(chat_id, target_uid, only_if_banned=False)
             remove_group_muted_user(chat_id, target_uid)
             api.send_message(
                 chat_id,
@@ -2686,7 +2686,7 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
                 return
             remove_group_banned_user(gid, target_uid)
             remove_group_muted_user(gid, target_uid)
-            unbanned = api.unban_chat_member(gid, target_uid)
+            unbanned = api.unban_chat_member(gid, target_uid, only_if_banned=True)
             u_info = get_known_users().get(str(target_uid), {})
             uname = f"@{u_info['username']}" if u_info.get("username") else (u_info.get("name") or str(target_uid))
             if unbanned:
@@ -2717,7 +2717,7 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
                 api.answer_callback_query(query_id, text="⚠️ Cannot kick group owner or administrator.", show_alert=True)
                 return
             api.ban_chat_member(gid, target_uid)
-            kicked = api.unban_chat_member(gid, target_uid)
+            kicked = api.unban_chat_member(gid, target_uid, only_if_banned=False)
             remove_group_muted_user(gid, target_uid)
             u_info = get_known_users().get(str(target_uid), {})
             uname = f"@{u_info['username']}" if u_info.get("username") else (u_info.get("name") or str(target_uid))

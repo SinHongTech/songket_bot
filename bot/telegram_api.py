@@ -354,7 +354,7 @@ class TelegramAPI:
     def ban_chat_member(self, chat_id: int, user_id: int) -> bool:
         return self._post("banChatMember", {"chat_id": chat_id, "user_id": user_id}).get("ok", False)
 
-    def unban_chat_member(self, chat_id: int, user_id: int, only_if_banned: bool = False) -> bool:
+    def unban_chat_member(self, chat_id: int, user_id: int, only_if_banned: bool = True) -> bool:
         return self._post("unbanChatMember", {"chat_id": chat_id, "user_id": user_id, "only_if_banned": only_if_banned}).get("ok", False)
 
     def set_chat_menu_button(self, button_type: str = "commands", text: str = "Menu", web_app_url: str = "") -> dict:
