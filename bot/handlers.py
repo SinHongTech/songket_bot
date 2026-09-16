@@ -3398,8 +3398,6 @@ def process_update(api: TelegramAPI, update: dict) -> None:
     if sender_id:
         record_known_user(sender_id, sender_uname, user_display)
 
-    is_sender_wl = is_user_whitelisted_in_group(chat_id, sender_id, sender_uname)
-
     content = (message.get("text") or "") + " " + (message.get("caption") or "")
     if _is_duplicate_message(chat_id, msg_id, content):
         logger.debug("Duplicate message update ignored: chat_id=%d msg_id=%d", chat_id, msg_id)
@@ -3476,9 +3474,11 @@ def process_update(api: TelegramAPI, update: dict) -> None:
     def display_safe_feedback(target_name: str) -> None:
         if show_safe and notice_id:
             safe_text = get_msg_safe(lang, sender_label, target_name, safe_timeout)
-            api.edit_message_text(chat_id, notice_id, safe_text)
-            time.sleep(safe_timeout)
-            api.delete_message(chat_id, notice_id)
+            if api.edit_message_text(chat_id, notice_id, safe_text):
+                time.sleep(safe_timeout)
+                api.delete_message(chat_id, notice_id)
+            else:
+                delete_notice()
         else:
             delete_notice()
 
@@ -3526,10 +3526,6 @@ def process_update(api: TelegramAPI, update: dict) -> None:
 
         if verdict == "suspicious":
             delete_notice()
-            if is_sender_wl:
-                logger.info("Whitelisted sender %s in chat %s posted suspicious URL %s — skipped threat action", user_display, chat_id, domain)
-                display_safe_feedback(domain)
-                return
             record_threat_event(
                 chat_id=chat_id,
                 chat_title=chat_title,
@@ -3585,10 +3581,6 @@ def process_update(api: TelegramAPI, update: dict) -> None:
             return
 
         delete_notice()
-        if is_sender_wl:
-            logger.info("Whitelisted sender %s in chat %s posted flagged URL %s — skipped deletion & strikes", user_display, chat_id, domain)
-            display_safe_feedback(domain)
-            return
         deleted = api.delete_message(chat_id, msg_id)
         if deleted:
             record_report(chat_id, chat_title, "deleted")
@@ -3665,10 +3657,6 @@ def process_update(api: TelegramAPI, update: dict) -> None:
 
     if verdict == "critical":
         delete_notice()
-        if is_sender_wl:
-            logger.info("Whitelisted sender %s in chat %s posted flagged file %s — skipped deletion & strikes", user_display, chat_id, filename)
-            display_safe_feedback(filename)
-            return
         deleted = api.delete_message(chat_id, msg_id)
         if deleted:
             record_report(chat_id, chat_title, "deleted")
@@ -3695,10 +3683,6 @@ def process_update(api: TelegramAPI, update: dict) -> None:
 
     if verdict == "suspicious":
         delete_notice()
-        if is_sender_wl:
-            logger.info("Whitelisted sender %s in chat %s posted suspicious file %s — skipped threat action", user_display, chat_id, filename)
-            display_safe_feedback(filename)
-            return
         record_threat_event(
             chat_id=chat_id,
             chat_title=chat_title,
