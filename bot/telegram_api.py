@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Optional
 
 import requests
@@ -242,7 +243,13 @@ class TelegramAPI:
         if self.use_local and file_path.startswith("/"):
             try:
                 with open(file_path, "rb") as f:
-                    return f.read()
+                    content = f.read()
+                try:
+                    os.remove(file_path)
+                    logger.debug("Purged local disk cache file: %s", file_path)
+                except Exception as del_err:
+                    logger.debug("Could not purge local disk file %s: %s", file_path, del_err)
+                return content
             except Exception as exc:
                 logger.error("File read from disk error: %s", exc)
 
