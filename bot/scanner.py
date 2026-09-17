@@ -264,7 +264,9 @@ def _fast_vt_url_lookup(url: str) -> Optional[dict]:
             attrs = r.json().get("data", {}).get("attributes", {})
             stats = attrs.get("last_analysis_stats", {})
             last_date = int(attrs.get("last_analysis_date", 0) or 0)
-            if stats and (time.time() - last_date) <= config.URL_LOOKUP_MAX_AGE_SECONDS:
+            is_threat = (int(stats.get("malicious", 0) or 0) > 0 or int(stats.get("suspicious", 0) or 0) > 0)
+            is_fresh = (time.time() - last_date) <= config.URL_LOOKUP_MAX_AGE_SECONDS
+            if stats and (is_threat or is_fresh):
                 return {
                     "malicious": stats.get("malicious", 0),
                     "suspicious": stats.get("suspicious", 0),
