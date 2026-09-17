@@ -3622,10 +3622,19 @@ def process_update(api: TelegramAPI, update: dict) -> None:
         return
 
     if not decision.ok:
+        if decision.reason == "prefiltered_safe":
+            logger.info("Safe file prefiltered | %s", filename)
+            record_report(chat_id, chat_title, "scanned")
+            record_report(chat_id, chat_title, "files")
+            display_safe_feedback(filename)
+            return
         logger.error("File download/validation failed for %s | chat=%s (reason: %s)", filename, chat_id, decision.reason)
         record_report(chat_id, chat_title, "errors")
         delete_notice()
-        api.send_message(chat_id, get_msg_scan_error(lang, sender_label, esc(filename)))
+        err_msg_id = api.send_message(chat_id, get_msg_scan_error(lang, sender_label, esc(filename)))
+        if err_msg_id:
+            time.sleep(10)
+            api.delete_message(chat_id, err_msg_id)
         return
 
     # Group-isolated whitelist (doc section 4): approved hash skips re-scan
@@ -3642,7 +3651,10 @@ def process_update(api: TelegramAPI, update: dict) -> None:
         logger.error("File scan error | %s | %s", filename, result["error"])
         record_report(chat_id, chat_title, "errors")
         delete_notice()
-        api.send_message(chat_id, get_msg_scan_error(lang, sender_label, esc(filename)))
+        err_msg_id = api.send_message(chat_id, get_msg_scan_error(lang, sender_label, esc(filename)))
+        if err_msg_id:
+            time.sleep(10)
+            api.delete_message(chat_id, err_msg_id)
         return
 
     malicious = result.get("malicious", 0)
