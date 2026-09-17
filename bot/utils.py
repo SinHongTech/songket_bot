@@ -243,7 +243,13 @@ KNOWN_SHORTENERS = {
 
 def is_shortener(url: str) -> bool:
     dom = extract_domain(url).lower()
-    return dom in KNOWN_SHORTENERS or dom.startswith("lnkd.in") or dom.startswith("s.id")
+    return (
+        dom in URL_SHORTENERS
+        or dom in KNOWN_SHORTENERS
+        or any(dom.endswith("." + s) for s in URL_SHORTENERS | KNOWN_SHORTENERS)
+        or dom.startswith("lnkd.in")
+        or dom.startswith("s.id")
+    )
 
 
 def resolve_redirect(url: str, max_redirects: int = None, timeout: int = None) -> str:

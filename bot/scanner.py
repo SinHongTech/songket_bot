@@ -309,6 +309,7 @@ def vt_scan_url(url: str, chat_id: Optional[int] = None, user_id: Optional[int] 
     if is_shortener(url):
         final_url = resolve_redirect(url, max_redirects=2, timeout=1.0)
         if final_url and final_url != url:
+            logger.info("Unmasked redirect URL: %s -> %s", url, final_url)
             urls_to_check.append(final_url)
             cached_final = cache_get(_make_cache_key(final_url))
             if cached_final:
