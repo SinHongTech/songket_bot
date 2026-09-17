@@ -76,12 +76,15 @@ WHITELIST_DOMAINS: list[str] = [
 ]
 
 URL_SHORTENERS: set[str] = {
-    "bit.ly", "tinyurl.com", "cutt.ly", "t.co",
-    "goo.gl", "ow.ly", "buff.ly", "is.gd",
-    "rb.gy", "short.io", "tiny.cc", "dub.sh",
-    "dub.co", "rebrand.ly", "qrco.de", "shorturl.at",
-    "t.ly", "clck.ru", "s.id", "v.gd", "bit.do",
-    "linktr.ee", "qr.net", "page.link",
+    "bit.ly", "tinyurl.com", "cutt.ly", "t.co", "goo.gl", "ow.ly", "buff.ly", "is.gd",
+    "rb.gy", "short.io", "tiny.cc", "dub.sh", "dub.co", "rebrand.ly", "qrco.de", "shorturl.at",
+    "t.ly", "clck.ru", "s.id", "v.gd", "bit.do", "linktr.ee", "qr.net", "page.link",
+    "lnkd.in", "snip.ly", "shortcm.li", "soo.gd", "adf.ly", "bc.vc", "trib.al", "ift.tt",
+    "rotf.lol", "hyperurl.co", "smarturl.it", "chilp.it", "qr.ae", "cleanuri.com", "vzturl.com",
+    "u.to", "po.st", "wp.me", "amzn.to", "fb.me", "youtu.be", "urlr.me", "kutt.it",
+    "shorturl.ac", "shorte.st", "git.io", "chol.link", "kh.link", "qr.me", "q-r.to",
+    "me-qr.com", "qr-code-generator.com", "flowcode.com", "beaconstac.com", "bl.ink",
+    "cli.re", "qr-code.me", "shrtco.de", "0rz.tw", "4url.cc", "urlzs.com", "tiny.one",
 }
 
 SUSPICIOUS_TLDS: tuple[str, ...] = (
@@ -243,13 +246,20 @@ KNOWN_SHORTENERS = {
 
 def is_shortener(url: str) -> bool:
     dom = extract_domain(url).lower()
-    return (
+    if not dom:
+        return False
+    if (
         dom in URL_SHORTENERS
         or dom in KNOWN_SHORTENERS
         or any(dom.endswith("." + s) for s in URL_SHORTENERS | KNOWN_SHORTENERS)
         or dom.startswith("lnkd.in")
         or dom.startswith("s.id")
-    )
+    ):
+        return True
+    parts = dom.split(".")
+    if len(parts) >= 2 and len(parts[0]) <= 4 and len(dom) <= 10:
+        return True
+    return False
 
 
 def resolve_redirect(url: str, max_redirects: int = None, timeout: int = None) -> str:

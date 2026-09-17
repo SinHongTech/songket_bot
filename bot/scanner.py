@@ -303,11 +303,11 @@ def vt_scan_url(url: str, chat_id: Optional[int] = None, user_id: Optional[int] 
         cache_set(key, heuristic_hit, ttl=config.URL_CACHE_TTL_SECONDS)
         return heuristic_hit
 
-    # 4. Resolve redirect ONLY if known shortener or candidate
+    # 4. Resolve redirect for all known shorteners and redirect candidates
     from bot.utils import is_shortener, resolve_redirect
     urls_to_check = [url]
-    if is_shortener(url):
-        final_url = resolve_redirect(url, max_redirects=2, timeout=1.0)
+    if is_shortener(url) or ("/" in url.split("://", 1)[-1].strip("/") and not is_domain_whitelisted(url, chat_id=chat_id, user_id=user_id)):
+        final_url = resolve_redirect(url, max_redirects=3, timeout=1.5)
         if final_url and final_url != url:
             logger.info("Unmasked redirect URL: %s -> %s", url, final_url)
             urls_to_check.append(final_url)
