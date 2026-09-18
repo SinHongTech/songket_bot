@@ -1790,7 +1790,7 @@ MENU_ALIASES = {
     "📊 របាយការណ៍ប្រចាំថ្ងៃ": "daily",
     "📊 របាយការណ៍ប្រចាំសប្តាហ៍": "weekly",
     "📊 របាយការណ៍ប្រចាំខែ": "monthly",
-    "📊 របាយការណ៍": "report",
+    "📊 របាយការណ៍": "daily",
     "📊 Daily": "daily",
     "📊 Weekly": "weekly",
     "📊 Monthly": "monthly",
@@ -2063,8 +2063,10 @@ def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
         return
 
     # Menu keyboard button taps (text buttons -> commands)
+    is_menu_alias = False
     if text in MENU_ALIASES:
         command = "/" + MENU_ALIASES[text]
+        is_menu_alias = True
 
     menu_kb = _menu_keyboard(whitelisted, lang)
 
@@ -2072,6 +2074,9 @@ def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
         # Whitelisted users get the admin commands scoped to their private chat.
         if whitelisted:
             api.set_my_commands(ADMIN_COMMANDS, scope={"type": "chat", "chat_id": chat_id})
+
+        # When triggered by tapping a menu button, args should be empty rather than splitting button label
+        args = [] if is_menu_alias else (text.split()[1:] if len(text.split()) > 1 else [])
 
         if command in {"/scan", "/check"}:
             _handle_personal_scan(api, chat_id, message, user_id)
@@ -2115,8 +2120,6 @@ def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
             api.send_message(chat_id, "🌐 <b>ជ្រើសរើសភាសា | Select your chat language:</b>", reply_markup=kb)
             return
         if command in {"/daily", "/report", "/reports", "/dailyreport", "/weekly", "/monthly"}:
-            args = text.split()[1:] if len(text.split()) > 1 else []
-
             # 1. /weekly command
             if command == "/weekly":
                 req_lang = None
@@ -2136,22 +2139,33 @@ def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
             # 3. /daily or /report with arguments
             if args:
                 arg0 = args[0].lower().strip()
-                if arg0 in {"on", "enable", "open"}:
+                if arg0 in {"on", "enable", "open", "បើក"}:
                     set_user_daily_report_settings(user_id, enabled=True)
                     api.send_message(chat_id, "✅ <b>របាយការណ៍ត្រូវបានបើក | Security DM Reports Enabled</b>\n⏰ Time: 07:00 AM (default)")
                     return
-                elif arg0 in {"off", "disable", "stop"}:
+                elif arg0 in {"off", "disable", "stop", "បិទ"}:
                     set_user_daily_report_settings(user_id, enabled=False)
                     api.send_message(chat_id, "🔴 <b>របាយការណ៍ត្រូវបានបិទ | Security DM Reports Disabled</b>")
                     return
-                elif arg0 in {"now", "send", "preview"}:
+                elif arg0 in {"now", "send", "preview", "ផ្ញើ"}:
                     req_period = args[1].lower() if len(args) > 1 and args[1].lower() in {"daily", "weekly", "monthly"} else "daily"
                     req_lang = args[2].lower() if len(args) > 2 and args[2].lower() in {"kh", "en", "both"} else None
                     _send_report_to_user(api, chat_id, user_id, period=req_period, lang=req_lang)
                     return
-                elif arg0 in {"daily", "weekly", "monthly"}:
+                elif arg0 in {"daily", "ប្រចាំថ្ងៃ", "day"}:
                     req_lang = args[1].lower() if len(args) > 1 and args[1].lower() in {"kh", "en", "both"} else None
-                    _send_report_to_user(api, chat_id, user_id, period=arg0, lang=req_lang)
+                    _send_report_to_user(api, chat_id, user_id, period="daily", lang=req_lang)
+                    return
+                elif arg0 in {"weekly", "ប្រចាំសប្តាហ៍", "week"}:
+                    req_lang = args[1].lower() if len(args) > 1 and args[1].lower() in {"kh", "en", "both"} else None
+                    _send_report_to_user(api, chat_id, user_id, period="weekly", lang=req_lang)
+                    return
+                elif arg0 in {"monthly", "ប្រចាំខែ", "month"}:
+                    req_lang = args[1].lower() if len(args) > 1 and args[1].lower() in {"kh", "en", "both"} else None
+                    _send_report_to_user(api, chat_id, user_id, period="monthly", lang=req_lang)
+                    return
+                elif arg0 in {"settings", "setting", "ការកំណត់", "menu"}:
+                    _send_daily_report_settings_message(api, chat_id, user_id)
                     return
                 elif arg0 in {"kh", "en", "both"}:
                     set_user_daily_report_settings(user_id, lang=arg0)
@@ -2175,7 +2189,8 @@ def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
                         )
                         return
 
-            _send_daily_report_settings_message(api, chat_id, user_id)
+            # Default for menu button tap or /daily without args: send daily report immediately
+            _send_report_to_user(api, chat_id, user_id, period="daily")
             return
         if command == "/settings":
             if not whitelisted:
