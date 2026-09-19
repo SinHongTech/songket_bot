@@ -201,13 +201,15 @@ def get_msg_safe(lang: str, user: str, target: str, timeout: int) -> str:
     )
 
 
-def get_msg_threat(lang: str, user: str, flag: str, action_kh: str, action_en: str) -> str:
+def get_msg_threat(lang: str, user: str, flag: str, action_kh: str, action_en: str, consensus: str = "") -> str:
+    consensus_block = f"\n{consensus.strip()}\n" if consensus and consensus.strip() else ""
     if lang == "kh":
         return (
             "🚨 <b>រកឃើញមាតិកាគ្រោះថ្នាក់ (Dangerous Threat)</b>\n\n"
             f"🔹 <b>អ្នកផ្ញើរ :</b> {user}\n"
             f"🔹 <b>គោលដៅ :</b> <code>{flag}</code>\n"
-            f"🔹 <b>សកម្មភាព :</b> {action_kh}\n\n"
+            f"🔹 <b>សកម្មភាព :</b> {action_kh}\n"
+            f"{consensus_block}\n"
             "🤔 <b>តើនេះជាអ្វី?</b>\n"
             "• នេះជាតំណភ្ជាប់បោកប្រាស់ (Phishing) ឬឯកសារផ្ទុកមេរោគ ដែលប៉ុនប៉ងលួចគណនី Telegram ឬទិន្នន័យផ្ទាល់ខ្លួនរបស់អ្នក។\n\n"
             "🛑 <b>អ្វីដែលអ្នកត្រូវធ្វើ៖</b>\n"
@@ -222,7 +224,8 @@ def get_msg_threat(lang: str, user: str, flag: str, action_kh: str, action_en: s
             "🚨 <b>Dangerous Threat Detected!</b>\n\n"
             f"🔹 <b>Sender :</b> {user}\n"
             f"🔹 <b>Target :</b> <code>{flag}</code>\n"
-            f"🔹 <b>Action :</b> {action_en}\n\n"
+            f"🔹 <b>Action :</b> {action_en}\n"
+            f"{consensus_block}\n"
             "🤔 <b>What is this?</b>\n"
             "• This is a phishing scam or malware attempting to steal your Telegram account, passwords, or harm your device.\n\n"
             "🛑 <b>What you should do:</b>\n"
@@ -236,7 +239,8 @@ def get_msg_threat(lang: str, user: str, flag: str, action_kh: str, action_en: s
         "🚨 <b>រកឃើញមាតិកាគ្រោះថ្នាក់ | Threat Detection</b>\n\n"
         f"🔹 <b>អ្នកផ្ញើរ (Sender) :</b> {user}\n"
         f"🔹 <b>គោលដៅ (Target) :</b> <code>{flag}</code>\n"
-        f"🔹 <b>សកម្មភាព (Action) :</b> {action_kh} ({action_en})\n\n"
+        f"🔹 <b>សកម្មភាព (Action) :</b> {action_kh} ({action_en})\n"
+        f"{consensus_block}\n"
         "🤔 <b>តើនេះជាអ្វី? | What is this?</b>\n"
         "• នេះជាតំណភ្ជាប់បោកប្រាស់ ឬមេរោគ ដែលប៉ុនប៉ងលួចគណនី ឬទិន្នន័យ (Phishing scam or malware attempting to steal account/passwords).\n\n"
         "🛑 <b>អ្វីដែលត្រូវធ្វើ | What to do:</b>\n"
@@ -248,12 +252,14 @@ def get_msg_threat(lang: str, user: str, flag: str, action_kh: str, action_en: s
     )
 
 
-def get_msg_suspicious_url(lang: str, user: str, domain: str, timeout: int = 15) -> str:
+def get_msg_suspicious_url(lang: str, user: str, domain: str, timeout: int = 15, consensus: str = "") -> str:
+    consensus_block = f"\n{consensus.strip()}\n" if consensus and consensus.strip() else ""
     if lang == "kh":
         return (
             "⚠️ <b>រកឃើញតំណភ្ជាប់គួរឱ្យសង្ស័យ</b>\n\n"
             f"🔹 <b>អ្នកផ្ញើរ :</b> {user}\n"
-            f"🔹 <b>តំណភ្ជាប់ :</b> <code>{domain}</code>\n\n"
+            f"🔹 <b>តំណភ្ជាប់ :</b> <code>{domain}</code>\n"
+            f"{consensus_block}\n"
             "⚠️ <b>ការណែនាំសុវត្ថិភាព៖</b>\n"
             "• តំណភ្ជាប់នេះមិនទាន់មានទំនុកចិត្តច្បាស់លាស់ ឬអាចជាគេហទំព័រក្លែងបន្លំ។\n"
             "• សូមកុំបំពេញព័ត៌មានផ្ទាល់ខ្លួន ឬទាញយកឯកសារអ្វីពីតំណនេះឡើយ។\n"
@@ -263,7 +269,8 @@ def get_msg_suspicious_url(lang: str, user: str, domain: str, timeout: int = 15)
         return (
             "⚠️ <b>Suspicious Link Detected</b>\n\n"
             f"🔹 <b>Sender :</b> {user}\n"
-            f"🔹 <b>Link :</b> <code>{domain}</code>\n\n"
+            f"🔹 <b>Link :</b> <code>{domain}</code>\n"
+            f"{consensus_block}\n"
             "⚠️ <b>Safety Notice:</b>\n"
             "• This link is unverified or potentially risky.\n"
             "• Do not enter personal details, passwords, or download unknown apps.\n"
@@ -272,19 +279,22 @@ def get_msg_suspicious_url(lang: str, user: str, domain: str, timeout: int = 15)
     return (
         "⚠️ <b>រកឃើញតំណភ្ជាប់គួរឱ្យសង្ស័យ | Suspicious Link Detected</b>\n\n"
         f"🔹 <b>អ្នកផ្ញើរ (Sender) :</b> {user}\n"
-        f"🔹 <b>តំណភ្ជាប់ (Link) :</b> <code>{domain}</code>\n\n"
+        f"🔹 <b>តំណភ្ជាប់ (Link) :</b> <code>{domain}</code>\n"
+        f"{consensus_block}\n"
         "⚠️ <b>ការណែនាំ | Safety Notice:</b>\n"
         "• តំណភ្ជាប់នេះគួរឱ្យសង្ស័យ សូមកុំបំពេញលេខសម្ងាត់ ឬទាញយកអ្វីទាំងអស់ (Unverified link, do not enter credentials).\n"
         f"⏳ <i>សារនេះនឹងលុបដោយស្វ័យប្រវត្តិក្នុង {timeout} វិនាទី (Auto-removes in {timeout}s)</i>"
     )
 
 
-def get_msg_suspicious_file(lang: str, user: str, filename: str) -> str:
+def get_msg_suspicious_file(lang: str, user: str, filename: str, consensus: str = "") -> str:
+    consensus_block = f"\n{consensus.strip()}\n" if consensus and consensus.strip() else ""
     if lang == "kh":
         return (
             "⚠️ <b>ឯកសារគួរឱ្យសង្ស័យ (Suspicious File)</b>\n\n"
             f"🔹 <b>អ្នកផ្ញើរ :</b> {user}\n"
-            f"🔹 <b>ឯកសារ :</b> <code>{filename}</code>\n\n"
+            f"🔹 <b>ឯកសារ :</b> <code>{filename}</code>\n"
+            f"{consensus_block}\n"
             "⚠️ <b>ការណែនាំសុវត្ថិភាព៖</b>\n"
             "• ឯកសារនេះអាចផ្ទុកកម្មវិធីបង្កគ្រោះថ្នាក់ ឬមេរោគ។\n"
             "• ❌ <b>សូមកុំបើក ឬពន្លា (Extract/Run) ឯកសារនេះឡើយ!</b>"
@@ -293,7 +303,8 @@ def get_msg_suspicious_file(lang: str, user: str, filename: str) -> str:
         return (
             "⚠️ <b>Suspicious File Detected</b>\n\n"
             f"🔹 <b>Sender :</b> {user}\n"
-            f"🔹 <b>File :</b> <code>{filename}</code>\n\n"
+            f"🔹 <b>File :</b> <code>{filename}</code>\n"
+            f"{consensus_block}\n"
             "⚠️ <b>Safety Notice:</b>\n"
             "• This file may contain malware, scripts, or unwanted software.\n"
             "• ❌ <b>Do NOT open, extract, or run this file!</b>"
@@ -301,7 +312,8 @@ def get_msg_suspicious_file(lang: str, user: str, filename: str) -> str:
     return (
         "⚠️ <b>ឯកសារគួរឱ្យសង្ស័យ | Suspicious File Detected</b>\n\n"
         f"🔹 <b>អ្នកផ្ញើរ (Sender) :</b> {user}\n"
-        f"🔹 <b>ឯកសារ (File) :</b> <code>{filename}</code>\n\n"
+        f"🔹 <b>ឯកសារ (File) :</b> <code>{filename}</code>\n"
+        f"{consensus_block}\n"
         "⚠️ <b>ការណែនាំ | Safety Notice:</b>\n"
         "• ឯកសារនេះអាចមានមេរោគ សូមកុំបើក ឬ Run ដាច់ខាត (May contain malware, do not open or run)."
     )
@@ -377,16 +389,22 @@ MSG_TOO_LARGE = get_msg_oversize("both", "{user}", "{filename}", "{size_mb}")
 
 
 def engine_consensus(result: dict) -> str:
-    """Engine-agreement breakdown for suspicious verdicts (percentage + raw count)."""
-    total = sum(result.get(k, 0) for k in ("malicious", "suspicious", "harmless", "undetected")) or 1
-    safe = result.get("harmless", 0)
-    susp = result.get("suspicious", 0)
-    undet = result.get("undetected", 0)
+    """Engine-agreement breakdown (Malicious, Suspicious, Safe/Clean combining harmless and undetected)."""
+    mal = int(result.get("malicious", 0) or 0)
+    susp = int(result.get("suspicious", 0) or 0)
+    harmless = int(result.get("harmless", 0) or 0)
+    undet = int(result.get("undetected", 0) or 0)
+    total = mal + susp + harmless + undet
+    if total <= 0:
+        total = 100
+        if result.get("clean") or result.get("whitelisted"):
+            harmless = 100
+    safe_clean = harmless + undet
     pct = lambda n: round(100 * n / total)
     return (
-        f"🟢 Safe = {pct(safe)}% ({safe}/{total})\n"
+        f"🔴 Malicious = {pct(mal)}% ({mal}/{total})\n"
         f"🟡 Suspicious = {pct(susp)}% ({susp}/{total})\n"
-        f"⚪ Undetected = {pct(undet)}% ({undet}/{total})"
+        f"🟢 Safe / Clean = {pct(safe_clean)}% ({safe_clean}/{total})"
     )
 
 
@@ -897,32 +915,32 @@ def _handle_personal_scan(api: TelegramAPI, chat_id: int, message: dict, user_id
     for kind, target, r in results:
         disp = mask_domain(target) if (kind == "link" and "(" not in target) else esc(target)
         clean_targets.append(disp)
-        if not first_consensus and "harmless" in r:
+        if not first_consensus and ("harmless" in r or "malicious" in r or "clean" in r or "undetected" in r):
             first_consensus = engine_consensus(r)
 
     if not first_consensus:
-        first_consensus = "🟢 Safe = 100% (100/100)\n🟡 Suspicious = 0% (0/100)\n⚪ Undetected = 0% (0/100)"
+        first_consensus = "🔴 Malicious = 0% (0/100)\n🟡 Suspicious = 0% (0/100)\n🟢 Safe / Clean = 100% (100/100)"
 
     display_all = ", ".join(clean_targets) if clean_targets else "Content"
     if lang == "kh":
         safe_text = (
             "✅ <b>មាតិកាមានសុវត្ថិភាព</b>\n\n"
             f"🔹 <b>គោលដៅ :</b> <code>{display_all}</code>\n"
-            f"🛡️ <b>លទ្ធផល :</b> {first_consensus}\n"
+            f"🛡️ <b>លទ្ធផល :</b>\n{first_consensus}\n"
             f"⚡ <b>កូតាស្កេន :</b> <code>{rem_summary}</code>"
         )
     elif lang == "en":
         safe_text = (
             "✅ <b>Content Verified Safe</b>\n\n"
             f"🔹 <b>Target :</b> <code>{display_all}</code>\n"
-            f"🛡️ <b>Result :</b> {first_consensus}\n"
+            f"🛡️ <b>Result :</b>\n{first_consensus}\n"
             f"⚡ <b>Scan Quota :</b> <code>{rem_summary}</code>"
         )
     else:
         safe_text = (
             "✅ <b>មាតិកាមានសុវត្ថិភាព | Content Verified Safe</b>\n\n"
             f"🔹 <b>គោលដៅ (Target) :</b> <code>{display_all}</code>\n"
-            f"🛡️ <b>លទ្ធផល (Result) :</b> {first_consensus}\n"
+            f"🛡️ <b>លទ្ធផល (Result) :</b>\n{first_consensus}\n"
             f"⚡ <b>កូតាស្កេន (Quota) :</b> <code>{rem_summary}</code>"
         )
     kb = {
@@ -976,7 +994,7 @@ def _send_threat_alert(
 ) -> None:
     action_kh = "សារត្រូវបានលុបចោលភ្លាមៗ" if deleted else "មិនអាចលុបសារ, ពិនិត្យសិទ្ធិ Admin របស់ Bot"
     action_en = "Message deleted immediately" if deleted else "Could not delete message, check Bot admin rights"
-    text = get_msg_threat(lang, user_display, flag, action_kh, action_en) + extra
+    text = get_msg_threat(lang, user_display, flag, action_kh, action_en, consensus=extra)
 
     # 1. GROUP MESSAGE: Public alert in group with ONLY the educational Security Guide button
     group_kb = {
@@ -3550,10 +3568,9 @@ def process_update(api: TelegramAPI, update: dict) -> None:
                 risk="medium",
                 action_taken="warned",
             )
-            warn_text = (
-                get_msg_suspicious_url(lang, sender_label, mask_domain(domain), timeout=15)
-                + redirect_note
-                + consensus
+            warn_text = get_msg_suspicious_url(
+                lang, sender_label, mask_domain(domain), timeout=15,
+                consensus=redirect_note + consensus
             )
             # In group: ONLY educational Security Guide button
             group_kb = {
@@ -3719,7 +3736,7 @@ def process_update(api: TelegramAPI, update: dict) -> None:
             risk="medium",
             action_taken="pending_admin",
         )
-        warn_text = get_msg_suspicious_file(lang, sender_label, esc(filename)) + "\n\n" + engine_consensus(result)
+        warn_text = get_msg_suspicious_file(lang, sender_label, esc(filename), consensus=engine_consensus(result))
         # In group: ONLY educational Security Guide button
         group_kb = {
             "inline_keyboard": [
