@@ -7,10 +7,12 @@ Zero external dependencies.
 import base64
 import hashlib
 import hmac
+import re
 import secrets
 import struct
 import time
 from typing import List, Optional
+from urllib.parse import quote
 
 
 def generate_totp_secret() -> str:
@@ -21,19 +23,24 @@ def generate_totp_secret() -> str:
 
 def get_totp_uri(secret: str, username: str, issuer: str = "Songket") -> str:
     """Generate the standard otpauth:// URI for QR code scanning in Google Authenticator."""
-    clean_user = username.replace(" ", "_").replace(":", "_")
+    clean_secret = str(secret).strip().replace(" ", "").replace("-", "").upper()
+    clean_user = quote(str(username).strip().replace(":", "_"))
+    clean_issuer = quote(str(issuer).strip().replace(":", "_"))
     return (
-        f"otpauth://totp/{issuer}:{clean_user}"
-        f"?secret={secret}&issuer={issuer}&algorithm=SHA1&digits=6&period=30"
+        f"otpauth://totp/{clean_issuer}:{clean_user}"
+        f"?secret={clean_secret}&issuer={clean_issuer}&algorithm=SHA1&digits=6&period=30"
     )
 
 
 def compute_totp_code(secret: str, for_time: Optional[int] = None) -> Optional[str]:
     """Compute the expected 6-digit TOTP code for a given timestamp."""
+    if not secret:
+        return None
     try:
+        clean_secret = str(secret).strip().replace(" ", "").replace("-", "").upper()
         t = for_time if for_time is not None else int(time.time())
         step = t // 30
-        padded = secret + "=" * ((8 - len(secret) % 8) % 8)
+        padded = clean_secret + "=" * ((8 - len(clean_secret) % 8) % 8)
         key = base64.b32decode(padded, casefold=True)
         msg = struct.pack(">Q", step)
         h = hmac.new(key, msg, hashlib.sha1).digest()
@@ -44,19 +51,20 @@ def compute_totp_code(secret: str, for_time: Optional[int] = None) -> Optional[s
         return None
 
 
-def verify_totp_code(secret: str, code: str, window: int = 1) -> bool:
+def verify_totp_code(secret: str, code: str, window: int = 2) -> bool:
     """
     Verify a 6-digit TOTP code against a secret key with time drift tolerance.
-    window = 1 checks: current 30s step, preceding step (-30s), and succeeding step (+30s).
+    window = 2 checks: [-60s, -30s, 0s, +30s, +60s] (5 intervals).
     """
     if not secret or not code:
         return False
-    clean_code = code.strip().replace(" ", "").replace("-", "")
-    if len(clean_code) != 6 or not clean_code.isdigit():
+    clean_code = re.sub(r"\D", "", str(code))
+    if len(clean_code) != 6:
         return False
 
     try:
-        padded = secret + "=" * ((8 - len(secret) % 8) % 8)
+        clean_secret = str(secret).strip().replace(" ", "").replace("-", "").upper()
+        padded = clean_secret + "=" * ((8 - len(clean_secret) % 8) % 8)
         key = base64.b32decode(padded, casefold=True)
         current_step = int(time.time() // 30)
 
@@ -85,5 +93,6 @@ def generate_backup_codes(count: int = 3) -> List[str]:
 
 def hash_backup_code(code: str) -> str:
     """Hash backup code with SHA256 for secure database storage."""
-    clean = code.strip().replace(" ", "").replace("-", "").upper()
+    clean = re.sub(r"[^a-zA-Z0-9]", "", str(code)).upper()
     return hashlib.sha256(clean.encode()).hexdigest()
+

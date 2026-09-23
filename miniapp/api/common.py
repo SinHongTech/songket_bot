@@ -656,14 +656,14 @@ def disable_user_totp(user_id: int) -> None:
     kv_delete(f"totp:pending:{user_id}")
 
 
-def verify_user_totp_or_backup(user_id: int, code_or_backup: str) -> bool:
+def verify_user_totp_or_backup(user_id: int, code_or_backup: str, window: int = 2) -> bool:
     from api.totp import verify_totp_code, hash_backup_code
-    clean = code_or_backup.strip().replace(" ", "").replace("-", "")
+    clean = re.sub(r"[^a-zA-Z0-9]", "", str(code_or_backup or "")).strip().upper()
     secret = get_user_totp_secret(user_id)
 
     # 1. Try TOTP code if secret exists
     if secret and len(clean) == 6 and clean.isdigit():
-        if verify_totp_code(secret, clean, window=1):
+        if verify_totp_code(secret, clean, window=window):
             return True
 
     # 2. Try single-use backup code

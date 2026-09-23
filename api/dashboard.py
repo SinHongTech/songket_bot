@@ -428,7 +428,7 @@ class handler(BaseHTTPRequestHandler):
                 pending = get_pending_totp(uid)
                 if not pending:
                     return self._json(400, {"ok": False, "error": "Setup session expired. Please tap setup again."})
-                if not verify_totp_code(pending, code, window=1):
+                if not verify_totp_code(pending, code, window=2):
                     return self._json(400, {"ok": False, "error": "Invalid 6-digit code. Please check your Google Authenticator app."})
                 backups = generate_backup_codes(3)
                 save_user_totp(uid, pending, backups)
