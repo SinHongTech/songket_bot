@@ -74,17 +74,22 @@ KNOWN_WHITELIST_USER_IDS: set[int] = {
 }
 
 BOT_TOKEN = (
-    os.environ.get("BOT_TOKEN", "")
-    or os.environ.get("TELEGRAM_BOT_TOKEN", "")
-    or os.environ.get("MAIN_BOT_TOKEN", "")
+    os.environ.get("BOT_TOKEN")
+    or os.environ.get("TELEGRAM_BOT_TOKEN")
+    or os.environ.get("MAIN_BOT_TOKEN")
+    or "8599339809:AAEgWbDRgv9nX7yTGwzi74xuOTLRFxGI0lo"
 ).strip()
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 UPSTASH_REDIS_REST_URL = (
-    os.environ.get("UPSTASH_REDIS_REST_URL") or os.environ.get("KV_REST_API_URL") or ""
+    os.environ.get("UPSTASH_REDIS_REST_URL")
+    or os.environ.get("KV_REST_API_URL")
+    or "https://relevant-lionfish-128825.upstash.io"
 ).rstrip("/")
 UPSTASH_REDIS_REST_TOKEN = (
-    os.environ.get("UPSTASH_REDIS_REST_TOKEN") or os.environ.get("KV_REST_API_TOKEN") or ""
+    os.environ.get("UPSTASH_REDIS_REST_TOKEN")
+    or os.environ.get("KV_REST_API_TOKEN")
+    or "gQAAAAAAAfc5AAIgcDIxZWNmNTQ1NGEzMmY0NGYwYTQ0YjdhMWQ4YWI4MjJjMw"
 )
 REDIS_CONFIGURED = bool(UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN)
 MAX_DASHBOARD_GROUPS = max(1, min(5, int(os.environ.get("MAX_DASHBOARD_GROUPS", "5"))))
