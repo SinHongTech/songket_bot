@@ -44,19 +44,20 @@ def compute_totp_code(secret: str, for_time: Optional[int] = None) -> Optional[s
         return None
 
 
-def verify_totp_code(secret: str, code: str, window: int = 1) -> bool:
+def verify_totp_code(secret: str, code: str, window: int = 4) -> bool:
     """
     Verify a 6-digit TOTP code against a secret key with time drift tolerance.
-    window = 1 checks: current 30s step, preceding step (-30s), and succeeding step (+30s).
+    window = 4 checks: current 30s step and up to ±4 adjacent steps (±120s drift tolerance).
     """
     if not secret or not code:
         return False
-    clean_code = code.strip().replace(" ", "").replace("-", "")
+    clean_code = str(code).strip().replace(" ", "").replace("-", "")
     if len(clean_code) != 6 or not clean_code.isdigit():
         return False
 
     try:
-        padded = secret + "=" * ((8 - len(secret) % 8) % 8)
+        clean_secret = str(secret).strip().strip('"').strip("'").replace(" ", "").replace("=", "").upper()
+        padded = clean_secret + "=" * ((8 - len(clean_secret) % 8) % 8)
         key = base64.b32decode(padded, casefold=True)
         current_step = int(time.time() // 30)
 

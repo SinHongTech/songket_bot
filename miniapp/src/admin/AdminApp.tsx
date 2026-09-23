@@ -385,6 +385,23 @@ function TotpLoginModal({
             {busy ? <Loader2 size={16} className="spin-animation" /> : <KeyRound size={16} />}
             <span className={kh(lang)}>{isKm ? "ផ្ទៀងផ្ទាត់ & ចូលភ្លាមៗ" : "Verify & Unlock Live"}</span>
           </button>
+
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              background: "transparent",
+              border: `1px solid ${G.border}`,
+              color: G.muted,
+              borderRadius: 12,
+              padding: "10px 0",
+              fontSize: 13,
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            <span className={kh(lang)}>{isKm ? "ប្រើ PIN ជំនួសវិញ" : "Use PIN Instead"}</span>
+          </button>
         </form>
       </div>
     </div>
