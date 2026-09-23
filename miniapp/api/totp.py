@@ -51,15 +51,22 @@ def compute_totp_code(secret: str, for_time: Optional[int] = None) -> Optional[s
         return None
 
 
+import logging
+
+logger = logging.getLogger("totp")
+
+
 def verify_totp_code(secret: str, code: str, window: int = 2) -> bool:
     """
     Verify a 6-digit TOTP code against a secret key with time drift tolerance.
     window = 2 checks: [-60s, -30s, 0s, +30s, +60s] (5 intervals).
     """
     if not secret or not code:
+        logger.warning("[TOTP Verify] Missing secret or code (has_secret=%s, has_code=%s)", bool(secret), bool(code))
         return False
     clean_code = re.sub(r"\D", "", str(code))
     if len(clean_code) != 6:
+        logger.warning("[TOTP Verify] Invalid clean_code length: %d (raw='%s')", len(clean_code), code)
         return False
 
     try:
@@ -68,16 +75,21 @@ def verify_totp_code(secret: str, code: str, window: int = 2) -> bool:
         key = base64.b32decode(padded, casefold=True)
         current_step = int(time.time() // 30)
 
+        expected_codes = []
         for step in range(current_step - window, current_step + window + 1):
             msg = struct.pack(">Q", step)
             h = hmac.new(key, msg, hashlib.sha1).digest()
             offset = h[19] & 0x0F
             truncated = struct.unpack(">I", h[offset : offset + 4])[0] & 0x7FFFFFFF
             expected = f"{truncated % 1_000_000:06d}"
+            expected_codes.append(expected)
             if hmac.compare_digest(expected, clean_code):
+                logger.info("[TOTP Verify] MATCH found (offset=%ds)", (step - current_step) * 30)
                 return True
+        logger.warning("[TOTP Verify] MISMATCH for code '%s'. Expected in window [-60s..+60s]: %s", clean_code, expected_codes)
         return False
-    except Exception:
+    except Exception as e:
+        logger.error("[TOTP Verify] Exception during verification: %s", e)
         return False
 
 

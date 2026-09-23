@@ -376,8 +376,9 @@ class handler(BaseHTTPRequestHandler):
             if not user and action == "login_totp":
                 target_uid = uid_candidate
                 code = str(body.get("code", "")).strip()
+                logger.info("[TOTP] login_totp received: target_uid=%d is_db_admin=%s code_len=%d", target_uid, is_db_admin, len(code))
                 if target_uid and is_db_admin:
-                    if totp_active and verify_user_totp_or_backup(target_uid, code):
+                    if verify_user_totp_or_backup(target_uid, code):
                         reset_pin_fail(target_uid)
                         token = create_session(target_uid)
                         logger.info("[TOTP] login_totp (database verification) SUCCESS for uid=%d", target_uid)
@@ -392,11 +393,13 @@ class handler(BaseHTTPRequestHandler):
                         logger.warning("[TOTP] login_totp (database verification) REJECTED for uid=%d (attempt=%s)", target_uid, fails.get("count", 0))
                         return self._json(400, {"ok": False, "error": "Invalid 2FA Authenticator code or backup code."})
                 else:
+                    logger.warning("[TOTP] login_totp UNAUTHORIZED: target_uid=%d is_db_admin=%s", target_uid, is_db_admin)
                     return self._json(403, {"ok": False, "error": "Unauthorized user"})
 
             if not user and action == "reset_pin_with_totp":
                 target_uid = uid_candidate
                 code = body.get("code", "")
+                logger.info("[TOTP] reset_pin_with_totp received: target_uid=%d is_db_admin=%s code_len=%d", target_uid, is_db_admin, len(str(code)))
                 if target_uid and is_db_admin:
                     if not is_totp_enabled(target_uid):
                         return self._json(400, {"ok": False, "error": "Google Authenticator (2FA) is not enabled on this account."})
@@ -408,6 +411,7 @@ class handler(BaseHTTPRequestHandler):
                     logger.info("[TOTP] reset_pin_with_totp (db verification) SUCCESS for uid=%d", target_uid)
                     return self._json(200, {"ok": True, "pin_exists": False, "message": "PIN reset successfully! Please create your new PIN."})
                 else:
+                    logger.warning("[TOTP] reset_pin_with_totp UNAUTHORIZED: target_uid=%d is_db_admin=%s", target_uid, is_db_admin)
                     return self._json(403, {"ok": False, "error": "Unauthorized user"})
 
             if not user:

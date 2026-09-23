@@ -660,27 +660,46 @@ def verify_user_totp_or_backup(user_id: int, code_or_backup: str, window: int = 
     from api.totp import verify_totp_code, hash_backup_code
     clean = re.sub(r"[^a-zA-Z0-9]", "", str(code_or_backup or "")).strip().upper()
     secret = get_user_totp_secret(user_id)
+    raw_backups = kv_get(f"totp:backup:{user_id}")
+
+    logger.info(
+        "[2FA Auth Check] uid=%d raw_input='%s' clean='%s' (len=%d, isdigit=%s) has_secret=%s has_backups=%s",
+        user_id,
+        code_or_backup,
+        clean,
+        len(clean),
+        clean.isdigit(),
+        bool(secret),
+        bool(raw_backups),
+    )
 
     # 1. Try TOTP code if secret exists
     if secret and len(clean) == 6 and clean.isdigit():
         if verify_totp_code(secret, clean, window=window):
+            logger.info("[2FA Auth Check] SUCCESS via 6-digit TOTP rolling code for uid=%d", user_id)
             return True
 
     # 2. Try single-use backup code
-    raw_backups = kv_get(f"totp:backup:{user_id}")
     if raw_backups:
         try:
             hashed_list = json.loads(raw_backups)
             if isinstance(hashed_list, list):
                 incoming_hash = hash_backup_code(clean)
+                logger.info(
+                    "[2FA Auth Check] Checking backup code hash=%s against %d stored hashes for uid=%d",
+                    incoming_hash,
+                    len(hashed_list),
+                    user_id,
+                )
                 if incoming_hash in hashed_list:
                     hashed_list.remove(incoming_hash)
                     kv_set(f"totp:backup:{user_id}", json.dumps(hashed_list))
-                    logger.info("[TOTP] Backup code used and consumed for uid=%d", user_id)
+                    logger.info("[2FA Auth Check] SUCCESS via emergency backup code (consumed) for uid=%d", user_id)
                     return True
         except Exception as e:
-            logger.warning("[TOTP] Backup code check error: %s", e)
+            logger.warning("[2FA Auth Check] Backup code check error for uid=%d: %s", user_id, e)
 
+    logger.warning("[2FA Auth Check] REJECTED - No match found for uid=%d with clean='%s'", user_id, clean)
     return False
 
 
