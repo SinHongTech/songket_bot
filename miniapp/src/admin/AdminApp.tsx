@@ -22,7 +22,7 @@ import {
 import LogoMark from "@/shared/components/LogoMark";
 import { G, type Nav, type Lang } from "@/admin/palette";
 import { t as T, kh } from "@/admin/i18n";
-import { fetchDashboardData, getCachedDashboardData, setupPin, loginPin, loginTotp, resetPin, resetPinWithTotp, setSessionToken, openTelegramDirect, getTelegramUser, getTelegramWebApp, saveUserDatePreferences } from "@/admin/api";
+import { fetchDashboardData, getCachedDashboardData, setupPin, loginPin, loginTotp, resetPin, resetPinWithTotp, setSessionToken, clearAllAuthCache, openTelegramDirect, getTelegramUser, getTelegramWebApp, saveUserDatePreferences } from "@/admin/api";
 import { safeStorage } from "@/shared/storage";
 import type { DashboardApiResponse, ThreatEvent } from "@/admin/types";
 import { mockUser } from "@/admin/data";
@@ -928,9 +928,10 @@ export default function AdminApp() {
   }, [loadData]);
 
   const handleLogout = () => {
-    setSessionToken("");
+    clearAllAuthCache();
     setManageUnlocked(false);
-    loadData(false, 90);
+    setApiData(null);
+    loadData(true, 90);
   };
 
   const tg = getTelegramWebApp();
@@ -1142,10 +1143,10 @@ export default function AdminApp() {
         onOpenTotpLogin={canShow2FA ? () => setTotpLoginOpen(true) : undefined}
         onSuccess={(res) => {
           setManageUnlocked(true);
-          if (res && (res.config || res.dashboard || res.authorized)) {
+          if (res && res.dashboard && res.authorized) {
             setApiData(res);
           } else {
-            loadData(false, 90, true);
+            loadData(true, 90);
           }
         }}
       />
@@ -1191,7 +1192,11 @@ export default function AdminApp() {
           onClose={() => setTotpLoginOpen(false)}
           onSuccess={(res) => {
             setManageUnlocked(true);
-            setApiData(res);
+            if (res && res.dashboard && res.authorized) {
+              setApiData(res);
+            } else {
+              loadData(true, 90);
+            }
           }}
           lang={lang}
           userId={user?.id}
