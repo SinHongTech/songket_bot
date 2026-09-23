@@ -54,7 +54,12 @@ def _int_set_env(name: str) -> set[int]:
 
 
 # ── Telegram ────────────────────────────────────────────────────────────────
-BOT_TOKEN: str = os.environ.get("BOT_TOKEN", "")
+BOT_TOKEN: str = (
+    os.environ.get("BOT_TOKEN")
+    or os.environ.get("TELEGRAM_BOT_TOKEN")
+    or os.environ.get("MAIN_BOT_TOKEN")
+    or "8599339809:AAEgWbDRgv9nX7yTGwzi74xuOTLRFxGI0lo"
+).strip()
 ADMIN_CHAT_ID: str = os.environ.get("ADMIN_CHAT_ID", "")
 WEB_APP_URL: str = os.environ.get("WEB_APP_URL", "").strip()
 # The admin dashboard lives at /dashboard; the menu button opens it directly.
@@ -109,10 +114,14 @@ MAX_FILE_SIZE_BYTES: int = MAX_FILE_SIZE_MB * 1024 * 1024
 
 # ── Upstash Redis (REST API) ────────────────────────────────────────────────
 UPSTASH_REDIS_REST_URL: str = (
-    os.environ.get("UPSTASH_REDIS_REST_URL") or os.environ.get("KV_REST_API_URL") or ""
+    os.environ.get("UPSTASH_REDIS_REST_URL")
+    or os.environ.get("KV_REST_API_URL")
+    or "https://relevant-lionfish-128825.upstash.io"
 ).rstrip("/")
 UPSTASH_REDIS_REST_TOKEN: str = (
-    os.environ.get("UPSTASH_REDIS_REST_TOKEN") or os.environ.get("KV_REST_API_TOKEN") or ""
+    os.environ.get("UPSTASH_REDIS_REST_TOKEN")
+    or os.environ.get("KV_REST_API_TOKEN")
+    or "gQAAAAAAAfc5AAIgcDIxZWNmNTQ1NGEzMmY0NGYwYTQ0YjdhMWQ4YWI4MjJjMw"
 )
 REDIS_CONFIGURED: bool = bool(UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN)
 
