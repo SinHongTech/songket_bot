@@ -658,12 +658,13 @@ def disable_user_totp(user_id: int) -> None:
 
 def verify_user_totp_or_backup(user_id: int, code_or_backup: str) -> bool:
     from api.totp import verify_totp_code, hash_backup_code
-    clean = code_or_backup.strip().replace(" ", "").replace("-", "")
+    clean = str(code_or_backup).strip().replace(" ", "").replace("-", "")
     secret = get_user_totp_secret(user_id)
 
-    # 1. Try TOTP code if secret exists
-    if secret and len(clean) == 6 and clean.isdigit():
-        if verify_totp_code(secret, clean, window=1):
+    # 1. Try TOTP code if secret exists (tolerance window=2 -> ±60s)
+    digits_only = re.sub(r"\D", "", clean)
+    if secret and len(digits_only) == 6:
+        if verify_totp_code(secret, digits_only, window=2):
             return True
 
     # 2. Try single-use backup code
@@ -672,7 +673,7 @@ def verify_user_totp_or_backup(user_id: int, code_or_backup: str) -> bool:
         try:
             hashed_list = json.loads(raw_backups)
             if isinstance(hashed_list, list):
-                incoming_hash = hash_backup_code(clean)
+                incoming_hash = hash_backup_code(clean.upper())
                 if incoming_hash in hashed_list:
                     hashed_list.remove(incoming_hash)
                     kv_set(f"totp:backup:{user_id}", json.dumps(hashed_list))
@@ -705,7 +706,18 @@ def _compact_user_fmt(k: str, v: str) -> str:
     if k == "user":
         try:
             from urllib.parse import unquote
-            return f"user={json.dumps(json.loads(unquote(v)), separators=(',', ':'))}"
+            curr = v
+            for _ in range(3):
+                try:
+                    parsed = json.loads(curr)
+                    if isinstance(parsed, dict):
+                        return f"user={json.dumps(parsed, separators=(',', ':'))}"
+                except Exception:
+                    pass
+                dec = unquote(curr)
+                if dec == curr:
+                    break
+                curr = dec
         except Exception:
             pass
     return f"{k}={v}"
@@ -757,24 +769,19 @@ def verify_telegram_init_data(
             continue
         if "tgWebAppData=" in clean:
             from urllib.parse import parse_qs, unquote, unquote_plus
-            try:
-                qs = parse_qs(clean)
-                if "tgWebAppData" in qs and qs["tgWebAppData"]:
-                    for q_val in qs["tgWebAppData"]:
-                        if q_val and q_val not in candidates:
-                            candidates.append(q_val)
-            except Exception:
-                pass
             idx = clean.find("tgWebAppData=")
             if idx != -1:
                 sub = clean[idx + len("tgWebAppData="):]
                 import re
                 sub = re.sub(r"&tgWebApp[A-Za-z0-9_]+=.*$", "", sub)
-                if sub and sub not in candidates:
-                    candidates.append(sub)
-                for uq in (unquote(sub), unquote_plus(sub)):
-                    if uq and uq not in candidates:
-                        candidates.append(uq)
+                curr_sub = sub
+                for _ in range(3):
+                    if curr_sub and curr_sub not in candidates:
+                        candidates.append(curr_sub)
+                    dec = unquote(curr_sub)
+                    if dec == curr_sub:
+                        break
+                    curr_sub = dec
         if clean not in candidates:
             candidates.append(clean)
 
@@ -785,6 +792,15 @@ def verify_telegram_init_data(
     last_debug = "No valid candidate found"
     for cand in candidates:
         cand_clean = cand.lstrip("#?").strip()
+        if cand_clean.startswith("tgWebAppData="):
+            cand_clean = cand_clean[len("tgWebAppData="):]
+            import re
+            cand_clean = re.sub(r"&tgWebApp[A-Za-z0-9_]+=.*$", "", cand_clean)
+            from urllib.parse import unquote
+            for _ in range(2):
+                if "%" in cand_clean:
+                    cand_clean = unquote(cand_clean)
+
         from urllib.parse import parse_qsl, unquote, unquote_plus
         
         # 1. Direct raw parameter split without parsing
@@ -831,6 +847,7 @@ def verify_telegram_init_data(
         for parse_fn in (
             lambda s: parse_qsl(s, keep_blank_values=True),
             lambda s: parse_qsl(unquote(s), keep_blank_values=True),
+            lambda s: parse_qsl(unquote(unquote(s)), keep_blank_values=True),
             lambda s: parse_qsl(unquote_plus(s), keep_blank_values=True),
         ):
             try:
