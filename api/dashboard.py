@@ -346,6 +346,33 @@ class handler(BaseHTTPRequestHandler):
                     totp_active = is_totp_enabled(uid_candidate)
                     pin_active = pin_exists(uid_candidate)
 
+            if not user and action == "check_pin":
+                target_uid = uid_candidate
+                if target_uid and is_db_admin:
+                    exists = pin_exists(target_uid)
+                    locked = pin_lock_seconds(target_uid)
+                    totp_on = is_totp_enabled(target_uid)
+                    return self._json(200, {"ok": True, "pin_exists": exists, "locked": locked, "totp_enabled": totp_on})
+
+            if not user and action == "login_pin":
+                target_uid = uid_candidate
+                if target_uid and is_db_admin:
+                    lock = pin_lock_seconds(target_uid)
+                    if lock > 0:
+                        return self._json(200, {"ok": False, "locked": lock, "error": f"Locked. Try again in {lock}s"})
+                    if verify_pin(target_uid, body.get("pin", "")):
+                        reset_pin_fail(target_uid)
+                        token = create_session(target_uid)
+                        user_obj = unsafe_user if isinstance(unsafe_user, dict) else {"id": target_uid}
+                        full_data = self._full_payload(target_uid, user_obj, is_super_admin(target_uid), body, session=token)
+                        full_data["ok"] = True
+                        full_data["session"] = token
+                        full_data["user_id"] = target_uid
+                        return self._json(200, full_data)
+                    fails = record_pin_fail(target_uid)
+                    curr_lock = pin_lock_seconds(target_uid)
+                    return self._json(200, {"ok": False, "locked": curr_lock, "attempts": fails.get("count", 0), "error": "Incorrect PIN"})
+
             if not user and action == "login_totp":
                 target_uid = uid_candidate
                 code = str(body.get("code", "")).strip()
@@ -364,6 +391,22 @@ class handler(BaseHTTPRequestHandler):
                         fails = record_pin_fail(target_uid)
                         logger.warning("[TOTP] login_totp (database verification) REJECTED for uid=%d (attempt=%s)", target_uid, fails.get("count", 0))
                         return self._json(400, {"ok": False, "error": "Invalid 2FA Authenticator code or backup code."})
+                else:
+                    return self._json(403, {"ok": False, "error": "Unauthorized user"})
+
+            if not user and action == "reset_pin_with_totp":
+                target_uid = uid_candidate
+                code = body.get("code", "")
+                if target_uid and is_db_admin:
+                    if not is_totp_enabled(target_uid):
+                        return self._json(400, {"ok": False, "error": "Google Authenticator (2FA) is not enabled on this account."})
+                    if not verify_user_totp_or_backup(target_uid, code):
+                        fails = record_pin_fail(target_uid)
+                        return self._json(400, {"ok": False, "error": "Invalid 6-digit code or backup code."})
+                    reset_user_pin(target_uid)
+                    reset_pin_fail(target_uid)
+                    logger.info("[TOTP] reset_pin_with_totp (db verification) SUCCESS for uid=%d", target_uid)
+                    return self._json(200, {"ok": True, "pin_exists": False, "message": "PIN reset successfully! Please create your new PIN."})
                 else:
                     return self._json(403, {"ok": False, "error": "Unauthorized user"})
 

@@ -696,6 +696,7 @@ def alert_super_admin(text: str) -> None:
 
 
 KNOWN_BOT_TOKENS = [
+    "8599339809:AAEgWbDRgv9nX7yTGwzi74xuOTLRFxGI0lo",
     "8769328843:AAF7Xl3KG8SZ-teKHRJMw86MOBskTrgyBnM",
     "8473273141:AAFh_bxxzOImlRbdJLB_pHL0dogIwKwwTgE",
 ]
