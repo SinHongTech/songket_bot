@@ -209,13 +209,26 @@ export function setSessionToken(token: string) {
   }
 }
 
+export function clearAllAuthCache() {
+  setSessionToken("");
+  _cachedInitData = "";
+  if (typeof window !== "undefined") {
+    try {
+      safeStorage.removeItem("songket.admin.cachedDashboard");
+      safeStorage.removeItem("songket_session_token");
+      safeStorage.removeItem("songket_init_data");
+      safeStorage.removeItem("songket_init_raw");
+    } catch {}
+  }
+}
+
 export function getCachedDashboardData(): DashboardApiResponse | null {
   if (typeof window === "undefined") return null;
   try {
     const saved = safeStorage.getItem("songket.admin.cachedDashboard");
     if (saved) {
       const parsed = JSON.parse(saved);
-      if (parsed && typeof parsed === "object" && parsed.dashboard) {
+      if (parsed && typeof parsed === "object" && parsed.dashboard && parsed.authorized === true && !parsed.isMock) {
         return parsed;
       }
     }
@@ -290,7 +303,7 @@ export async function fetchDashboardData(days: number = 90, force: boolean = fal
     if (!initData) {
       await waitForTelegramInitData(300);
     }
-    const payload = getAuthPayload({ days });
+    const payload = getAuthPayload({ days, force_refresh: force ? 1 : undefined });
 
     try {
       const response = await fetch("/api/dashboard", {
@@ -312,6 +325,9 @@ export async function fetchDashboardData(days: number = 90, force: boolean = fal
           } catch {}
           return { ...data, isMock: false };
         }
+        try {
+          safeStorage.removeItem("songket.admin.cachedDashboard");
+        } catch {}
         return {
           authorized: false,
           user: data?.user || getTelegramUser() || mockUser,
@@ -326,6 +342,10 @@ export async function fetchDashboardData(days: number = 90, force: boolean = fal
       }
 
       if (response.status === 401) {
+        try {
+          safeStorage.removeItem("songket.admin.cachedDashboard");
+          setSessionToken("");
+        } catch {}
         let data: any = null;
         try {
           data = await response.json();
@@ -348,7 +368,7 @@ export async function fetchDashboardData(days: number = 90, force: boolean = fal
     } catch (err: any) {
       console.warn("[MiniApp] Dashboard API request error:", err);
       const cached = getCachedDashboardData();
-      if (cached) return cached;
+      if (cached && !force) return cached;
       return {
         authorized: false,
         user: getTelegramUser() || mockUser,
@@ -566,7 +586,7 @@ export async function loginTotp(
 ): Promise<{ ok: boolean; session?: string; authorized?: boolean; error?: string; [key: string]: any }> {
   try {
     const user = getTelegramUser();
-    const targetUid = userId || user?.id || 1221693150;
+    const targetUid = userId || user?.id || 0;
     const response = await fetch("/api/dashboard", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
