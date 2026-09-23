@@ -3385,11 +3385,29 @@ def process_update(api: TelegramAPI, update: dict) -> None:
 
     # 4. Check Group Authorization
     allowed_groups = get_allowed_groups()
-    if allowed_groups:
-        variants = _chat_id_variants(chat_id)
-        if not any(v in allowed_groups for v in variants):
-            logger.info("Unauthorized group %d — ignored", chat_id)
-            return
+    variants = _chat_id_variants(chat_id)
+    is_authorized = not allowed_groups or any(v in allowed_groups for v in variants)
+    
+    if not is_authorized:
+        # Check if group is registered in group_handlers or known_groups
+        h_map = explicit_group_map()
+        is_handled = any(any(v in grps for v in variants) for grps in h_map.values())
+        if is_handled:
+            add_allowed_group(chat_id)
+            is_authorized = True
+            logger.info("Restored authorization for handled group %d (%s)", chat_id, chat.get("title"))
+
+    if not is_authorized:
+        # Auto-link if sender is a whitelisted admin or super admin
+        if sender_id and (sender_id in whitelist_user_ids() or is_super_admin(sender_id)):
+            add_allowed_group(chat_id)
+            add_group_handler(sender_id, chat_id)
+            is_authorized = True
+            logger.info("Auto-authorized group %d (%s) for active admin %d", chat_id, chat.get("title"), sender_id)
+
+    if not is_authorized:
+        logger.info("Unauthorized group %d — ignored", chat_id)
+        return
 
     # 4.5 New members (verification gate + join tracking)
     new_members = message.get("new_chat_members") or []
