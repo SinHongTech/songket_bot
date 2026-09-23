@@ -625,27 +625,34 @@ def validate_session(token: str) -> Optional[int]:
 # ── TOTP 2FA Helpers ────────────────────────────────────────────────────────
 def is_totp_enabled(user_id: int) -> bool:
     secret = kv_get(f"totp:secret:{user_id}")
-    return bool(secret and secret.strip())
+    return bool(secret and str(secret).strip())
 
 
 def get_user_totp_secret(user_id: int) -> Optional[str]:
     val = kv_get(f"totp:secret:{user_id}")
-    return val.strip() if val else None
+    if not val:
+        return None
+    val_str = str(val).strip().strip('"').strip("'").replace(" ", "").replace("\n", "").replace("\r", "")
+    return val_str if val_str else None
 
 
 def set_pending_totp(user_id: int, secret: str) -> None:
-    kv_set(f"totp:pending:{user_id}", secret, ttl=600)
+    kv_set(f"totp:pending:{user_id}", str(secret).strip(), ttl=600)
 
 
 def get_pending_totp(user_id: int) -> Optional[str]:
     val = kv_get(f"totp:pending:{user_id}")
-    return val.strip() if val else None
+    if not val:
+        return None
+    val_str = str(val).strip().strip('"').strip("'").replace(" ", "").replace("\n", "").replace("\r", "")
+    return val_str if val_str else None
 
 
 def save_user_totp(user_id: int, secret: str, backup_codes: list) -> None:
     from api.totp import hash_backup_code
     hashed_backups = [hash_backup_code(c) for c in backup_codes]
-    kv_set(f"totp:secret:{user_id}", secret)
+    clean_secret = str(secret).strip().strip('"').strip("'").replace(" ", "").replace("=", "").upper()
+    kv_set(f"totp:secret:{user_id}", clean_secret)
     kv_set(f"totp:backup:{user_id}", json.dumps(hashed_backups))
     kv_delete(f"totp:pending:{user_id}")
 
@@ -660,18 +667,21 @@ def verify_user_totp_or_backup(user_id: int, code_or_backup: str) -> bool:
     from api.totp import verify_totp_code, hash_backup_code
     clean = str(code_or_backup).strip().replace(" ", "").replace("-", "")
     secret = get_user_totp_secret(user_id)
+    pending = get_pending_totp(user_id)
 
-    # 1. Try TOTP code if secret exists (tolerance window=2 -> ±60s)
+    # 1. Try TOTP code if active or pending secret exists (tolerance window=4 -> ±120s)
     digits_only = re.sub(r"\D", "", clean)
-    if secret and len(digits_only) == 6:
-        if verify_totp_code(secret, digits_only, window=2):
+    if len(digits_only) == 6:
+        if secret and verify_totp_code(secret, digits_only, window=4):
+            return True
+        if pending and verify_totp_code(pending, digits_only, window=4):
             return True
 
     # 2. Try single-use backup code
     raw_backups = kv_get(f"totp:backup:{user_id}")
     if raw_backups:
         try:
-            hashed_list = json.loads(raw_backups)
+            hashed_list = json.loads(raw_backups) if isinstance(raw_backups, str) else raw_backups
             if isinstance(hashed_list, list):
                 incoming_hash = hash_backup_code(clean.upper())
                 if incoming_hash in hashed_list:
@@ -697,8 +707,7 @@ def alert_super_admin(text: str) -> None:
 
 
 KNOWN_BOT_TOKENS = [
-    "8769328843:AAF7Xl3KG8SZ-teKHRJMw86MOBskTrgyBnM",
-    "8473273141:AAFh_bxxzOImlRbdJLB_pHL0dogIwKwwTgE",
+    t.strip() for t in os.environ.get("KNOWN_BOT_TOKENS", "").split(",") if t.strip()
 ]
 
 
@@ -755,6 +764,7 @@ def verify_telegram_init_data(
         os.environ.get("BOT_TOKEN", ""),
         os.environ.get("TELEGRAM_BOT_TOKEN", ""),
         os.environ.get("MAIN_BOT_TOKEN", ""),
+        os.environ.get("SECONDARY_BOT_TOKEN", ""),
         *KNOWN_BOT_TOKENS,
     ] if t and t.strip()]))
     if not tokens:
@@ -768,13 +778,26 @@ def verify_telegram_init_data(
         if not clean:
             continue
         if "tgWebAppData=" in clean:
-            from urllib.parse import parse_qs, unquote, unquote_plus
+            from urllib.parse import parse_qsl, unquote
+            try:
+                parsed_params = parse_qsl(clean, keep_blank_values=True)
+                for pk, pv in parsed_params:
+                    if pk == "tgWebAppData" and pv:
+                        curr_sub = pv
+                        for _ in range(3):
+                            if curr_sub and curr_sub not in candidates:
+                                candidates.append(curr_sub)
+                            dec = unquote(curr_sub)
+                            if dec == curr_sub:
+                                break
+                            curr_sub = dec
+            except Exception:
+                pass
             idx = clean.find("tgWebAppData=")
             if idx != -1:
                 sub = clean[idx + len("tgWebAppData="):]
-                import re
-                sub = re.sub(r"&tgWebApp[A-Za-z0-9_]+=.*$", "", sub)
-                curr_sub = sub
+                sub_pure = sub.split("&tgWebApp")[0]
+                curr_sub = sub_pure
                 for _ in range(3):
                     if curr_sub and curr_sub not in candidates:
                         candidates.append(curr_sub)
@@ -794,12 +817,6 @@ def verify_telegram_init_data(
         cand_clean = cand.lstrip("#?").strip()
         if cand_clean.startswith("tgWebAppData="):
             cand_clean = cand_clean[len("tgWebAppData="):]
-            import re
-            cand_clean = re.sub(r"&tgWebApp[A-Za-z0-9_]+=.*$", "", cand_clean)
-            from urllib.parse import unquote
-            for _ in range(2):
-                if "%" in cand_clean:
-                    cand_clean = unquote(cand_clean)
 
         from urllib.parse import parse_qsl, unquote, unquote_plus
         
