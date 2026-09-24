@@ -73,6 +73,7 @@ def main() -> None:
     offset = int(kv_get(OFFSET_KEY) or 0)
     logger.info("Starting long-polling loop from offset=%d", offset)
 
+    last_offset_saved = 0.0
     with ThreadPoolExecutor(max_workers=config.MAX_WORKERS) as executor:
         while _running:
             try:
@@ -86,9 +87,16 @@ def main() -> None:
                 offset = update["update_id"] + 1
                 executor.submit(_safe_process, api, update)
 
-            if updates:
+            now = time.time()
+            if updates and (now - last_offset_saved >= 5.0):
                 kv_set(OFFSET_KEY, offset)
+                last_offset_saved = now
 
+    if offset:
+        try:
+            kv_set(OFFSET_KEY, offset)
+        except Exception:
+            pass
     logger.info("Bot stopped.")
 
 
