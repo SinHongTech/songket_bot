@@ -22,9 +22,15 @@ logger = logging.getLogger("BeydaBot.redis")
 
 _mem: dict[str, tuple[float, object]] = {}
 _MEM_TTL_FALLBACK = 7 * 86400
+DEFAULT_KV_MAX_AGE = 30.0  # 30 seconds local in-memory read cache
 
 
-def kv_get(key: str):
+def kv_get(key: str, max_age: float = DEFAULT_KV_MAX_AGE):
+    now = time.time()
+    item = _mem.get(key)
+    if item and (now - item[0] < max_age):
+        return item[1]
+
     if config.REDIS_CONFIGURED:
         try:
             r = requests.get(
@@ -33,12 +39,13 @@ def kv_get(key: str):
                 timeout=5,
             )
             if r.status_code == 200:
-                return r.json().get("result")
+                val = r.json().get("result")
+                _mem[key] = (now, val)
+                return val
         except Exception as exc:
             logger.warning("KV GET %s failed: %s", key, exc)
 
-    item = _mem.get(key)
-    if item and time.time() - item[0] < _MEM_TTL_FALLBACK:
+    if item:
         return item[1]
     return None
 
@@ -80,8 +87,61 @@ def kv_delete(key: str) -> bool:
     return True
 
 
-def kv_json_get(key: str):
-    value = kv_get(key)
+def kv_mget(keys: list[str], max_age: float = DEFAULT_KV_MAX_AGE) -> list:
+    if not keys:
+        return []
+    results = [None] * len(keys)
+    missing_indices = []
+    missing_keys = []
+
+    now = time.time()
+    for idx, k in enumerate(keys):
+        item = _mem.get(k)
+        if item and (now - item[0] < max_age):
+            results[idx] = item[1]
+        else:
+            missing_indices.append(idx)
+            missing_keys.append(k)
+
+    if not missing_keys:
+        return results
+
+    if config.REDIS_CONFIGURED:
+        try:
+            for chunk_start in range(0, len(missing_keys), 100):
+                chunk_keys = missing_keys[chunk_start : chunk_start + 100]
+                chunk_indices = missing_indices[chunk_start : chunk_start + 100]
+                r = requests.post(
+                    config.UPSTASH_REDIS_REST_URL,
+                    headers={
+                        "Authorization": f"Bearer {config.UPSTASH_REDIS_REST_TOKEN}",
+                        "Content-Type": "application/json",
+                    },
+                    json=["MGET", *chunk_keys],
+                    timeout=5,
+                )
+                if r.status_code == 200:
+                    vals = r.json().get("result") or []
+                    for c_idx, val in zip(chunk_indices, vals):
+                        results[c_idx] = val
+                        if val is not None:
+                            _mem[keys[c_idx]] = (now, val)
+                else:
+                    for c_idx, k in zip(chunk_indices, chunk_keys):
+                        results[c_idx] = kv_get(k, max_age=max_age)
+        except Exception as exc:
+            logger.warning("KV MGET failed: %s", exc)
+            for c_idx, k in zip(missing_indices, missing_keys):
+                results[c_idx] = kv_get(k, max_age=max_age)
+    else:
+        for c_idx, k in zip(missing_indices, missing_keys):
+            results[c_idx] = kv_get(k, max_age=max_age)
+
+    return results
+
+
+def kv_json_get(key: str, max_age: float = DEFAULT_KV_MAX_AGE):
+    value = kv_get(key, max_age=max_age)
     if value is None:
         return None
     if isinstance(value, (dict, list)):
@@ -525,19 +585,31 @@ def remove_group_whitelisted_file(chat_id: int, sha256: str) -> bool:
 def record_known_user(user_id: int, username: str, name: str = "") -> None:
     if not user_id:
         return
-    data = kv_json_get("known_users") or {}
     uid_str = str(user_id)
     clean_username = username.lstrip("@") if username else ""
+    clean_name = name or ""
+    now = int(time.time())
+
+    data = kv_json_get("known_users", max_age=300.0) or {}
+    existing = data.get(uid_str)
+    if existing and isinstance(existing, dict):
+        if (
+            existing.get("username") == clean_username
+            and existing.get("name") == clean_name
+            and (now - int(existing.get("updated_at", 0)) < 43200)
+        ):
+            return  # Skip redundant Redis write
+
     data[uid_str] = {
         "username": clean_username,
-        "name": name or "",
-        "updated_at": int(time.time()),
+        "name": clean_name,
+        "updated_at": now,
     }
     kv_json_set("known_users", data)
 
 
 def get_known_users() -> dict:
-    known = kv_json_get("known_users") or {}
+    known = kv_json_get("known_users", max_age=120.0) or {}
     defaults = {
         "1221693150": {"username": "Sin_Hong", "name": "Sin Hong"},
         "6903398617": {"username": "Sochealikaa", "name": "Sao Sochealika"},
@@ -920,9 +992,9 @@ def get_owner_user_id_for_group(chat_id: int) -> Optional[int]:
 def get_domain_whitelist(user_id: Optional[int] = None) -> list[str]:
     """Return all whitelisted domains from Redis for a specific user, or default."""
     if user_id:
-        raw = kv_get(f"whitelist:domains:{user_id}")
+        raw = kv_get(f"whitelist:domains:{user_id}", max_age=60.0)
         if not raw:
-            raw = kv_get(f"config:domain_whitelist:{user_id}")
+            raw = kv_get(f"config:domain_whitelist:{user_id}", max_age=60.0)
         if not raw:
             return list(DEFAULT_TRUSTED_DOMAINS)
         try:
@@ -937,9 +1009,9 @@ def get_domain_whitelist(user_id: Optional[int] = None) -> list[str]:
             pass
         return list(DEFAULT_TRUSTED_DOMAINS)
 
-    raw = kv_get("whitelist:domains")
+    raw = kv_get("whitelist:domains", max_age=60.0)
     if not raw:
-        raw = kv_get("config:domain_whitelist")
+        raw = kv_get("config:domain_whitelist", max_age=60.0)
     if not raw:
         return list(DEFAULT_TRUSTED_DOMAINS)
     try:
