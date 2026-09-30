@@ -69,9 +69,7 @@ def primary_admin_ids() -> set[int]:
 
 
 KNOWN_SUPER_ADMIN_IDS: set[int] = primary_admin_ids()
-KNOWN_WHITELIST_USER_IDS: set[int] = {
-    1221693150, 6903398617, 665698758, 1110438159, 918434351, 1130272106, 817197042
-}
+KNOWN_WHITELIST_USER_IDS: set[int] = whitelist_admin_ids()
 
 BOT_TOKEN = (
     os.environ.get("BOT_TOKEN", "")
@@ -3062,31 +3060,13 @@ def record_known_user(user_id: int, username: str, name: str = "") -> None:
 
 
 def get_known_users() -> dict:
-    known = kv_json_get("known_users") or {}
-    defaults = {
-        "1221693150": {"username": "Sin_Hong", "name": "Sin Hong"},
-        "6903398617": {"username": "Sochealikaa", "name": "Sao Sochealika"},
-        "665698758": {"username": "", "name": "Bet SreyPich"},
-        "1110438159": {"username": "cheezeri", "name": "Chanmonyneath PO"},
-        "918434351": {"username": "GekleangMong", "name": "Gekleang CADT"},
-        "1130272106": {"username": "kongleaksmey", "name": "Kong Leak Smey"},
-        "817197042": {"username": "Panhakhonn", "name": "KHON PANHA"},
-        "772640725": {"username": "Sovathana168", "name": "Ne Sovathana"},
-    }
-    res = dict(defaults)
+    known = kv_json_get("known_users", max_age=120.0) or {}
+    if not isinstance(known, dict):
+        return {}
+    res = {}
     for uid_str, udata in known.items():
-        if not isinstance(udata, dict):
-            continue
-        if uid_str in res:
-            existing = dict(res[uid_str])
-            if udata.get("username"):
-                existing["username"] = udata["username"]
-            u_name = str(udata.get("name") or "").strip()
-            if u_name and not u_name.startswith("@"):
-                existing["name"] = u_name
-            res[uid_str] = existing
-        else:
-            res[uid_str] = udata
+        if isinstance(udata, dict):
+            res[str(uid_str)] = udata
     return res
 
 

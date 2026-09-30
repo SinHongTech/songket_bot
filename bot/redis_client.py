@@ -610,18 +610,7 @@ def record_known_user(user_id: int, username: str, name: str = "") -> None:
 
 def get_known_users() -> dict:
     known = kv_json_get("known_users", max_age=120.0) or {}
-    defaults = {
-        "1221693150": {"username": "Sin_Hong", "name": "Sin Hong"},
-        "6903398617": {"username": "Sochealikaa", "name": "Sao Sochealika"},
-        "665698758": {"username": "", "name": "Bet SreyPich"},
-        "1110438159": {"username": "cheezeri", "name": "Chanmonyneath PO"},
-        "918434351": {"username": "GekleangMong", "name": "Gekleang CADT"},
-        "1130272106": {"username": "kongleaksmey", "name": "Kong Leak Smey"},
-        "817197042": {"username": "Panhakhonn", "name": "KHON PANHA"},
-        "772640725": {"username": "Sovathana168", "name": "Ne Sovathana"},
-    }
-    defaults.update(known)
-    return defaults
+    return known if isinstance(known, dict) else {}
 
 
 def set_pending(user_id: int, value: str) -> None:
