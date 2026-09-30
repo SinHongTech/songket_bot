@@ -68,8 +68,21 @@ def primary_admin_ids() -> set[int]:
     return res
 
 
+def whitelist_env_ids() -> set[int]:
+    raw = os.environ.get("WHITELIST_USER_IDS", "")
+    res = set()
+    for item in raw.split(","):
+        item = item.strip()
+        if item:
+            try:
+                res.add(int(item))
+            except ValueError:
+                pass
+    return res
+
+
 KNOWN_SUPER_ADMIN_IDS: set[int] = primary_admin_ids()
-KNOWN_WHITELIST_USER_IDS: set[int] = whitelist_admin_ids()
+KNOWN_WHITELIST_USER_IDS: set[int] = set()
 
 BOT_TOKEN = (
     os.environ.get("BOT_TOKEN", "")
