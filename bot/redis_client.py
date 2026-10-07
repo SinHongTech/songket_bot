@@ -162,11 +162,31 @@ def kv_json_set(key: str, value: dict, ttl: Optional[int] = None) -> bool:
 def cache_get(key: str) -> Optional[dict]:
     data = kv_json_get(f"scan:{key}")
     if data and "malicious" in data:
+        total = (
+            int(data.get("malicious", 0) or 0)
+            + int(data.get("suspicious", 0) or 0)
+            + int(data.get("harmless", 0) or 0)
+            + int(data.get("undetected", 0) or 0)
+        )
+        if total <= 0 and not data.get("clean") and not data.get("whitelisted"):
+            logger.warning("[Cache] Ignoring and deleting invalid zero-engine cached entry for key: %s", key)
+            kv_delete(f"scan:{key}")
+            return None
         return data
     return None
 
 
 def cache_set(key: str, value: dict, ttl: Optional[int] = None) -> None:
+    if isinstance(value, dict):
+        total = (
+            int(value.get("malicious", 0) or 0)
+            + int(value.get("suspicious", 0) or 0)
+            + int(value.get("harmless", 0) or 0)
+            + int(value.get("undetected", 0) or 0)
+        )
+        if total <= 0 and not value.get("clean") and not value.get("whitelisted"):
+            logger.warning("[Cache] Refusing to cache zero-engine scan result for key: %s", key)
+            return
     kv_json_set(f"scan:{key}", value, ttl=ttl or config.SCAN_CACHE_TTL_SECONDS)
 
 

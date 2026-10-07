@@ -377,16 +377,23 @@ def vt_scan_file(file_bytes: bytes, filename: str) -> dict:
         check = _request("GET", f"{config.VT_BASE_URL}/files/{sha256}", timeout=10)
         if check.status_code == 200:
             stats = check.json()["data"]["attributes"]["last_analysis_stats"]
-            result = {
-                "malicious": stats.get("malicious", 0),
-                "suspicious": stats.get("suspicious", 0),
-                "harmless": stats.get("harmless", 0),
-                "undetected": stats.get("undetected", 0),
-                "sha256": sha256,
-                "cached": True,
-            }
-            cache_set(key, result, ttl=config.FILE_CACHE_TTL_SECONDS)
-            return result
+            mal = stats.get("malicious", 0)
+            susp = stats.get("suspicious", 0)
+            harm = stats.get("harmless", 0)
+            undet = stats.get("undetected", 0)
+            total = mal + susp + harm + undet
+            if total > 0:
+                result = {
+                    "malicious": mal,
+                    "suspicious": susp,
+                    "harmless": harm,
+                    "undetected": undet,
+                    "sha256": sha256,
+                    "cached": True,
+                }
+                cache_set(key, result, ttl=config.FILE_CACHE_TTL_SECONDS)
+                return result
+            logger.info("VT file %s exists but has 0 engine stats (analysis pending); submitting for fresh analysis", filename)
 
         if check.status_code == 429:
             return {"error": "VT rate limit"}
@@ -406,9 +413,40 @@ def vt_scan_file(file_bytes: bytes, filename: str) -> dict:
         analysis_id = up.json()["data"]["id"]
         result = _poll_analysis(analysis_id)
         if "error" not in result:
-            result["sha256"] = sha256
-            result["cached"] = False
-            cache_set(key, result, ttl=config.FILE_CACHE_TTL_SECONDS)
+            total = (
+                result.get("malicious", 0)
+                + result.get("suspicious", 0)
+                + result.get("harmless", 0)
+                + result.get("undetected", 0)
+            )
+            if total == 0:
+                try:
+                    time.sleep(1)
+                    fresh = _request("GET", f"{config.VT_BASE_URL}/files/{sha256}", timeout=10)
+                    if fresh.status_code == 200:
+                        f_stats = fresh.json()["data"]["attributes"]["last_analysis_stats"]
+                        f_mal = f_stats.get("malicious", 0)
+                        f_susp = f_stats.get("suspicious", 0)
+                        f_harm = f_stats.get("harmless", 0)
+                        f_undet = f_stats.get("undetected", 0)
+                        if (f_mal + f_susp + f_harm + f_undet) > 0:
+                            result = {
+                                "malicious": f_mal,
+                                "suspicious": f_susp,
+                                "harmless": f_harm,
+                                "undetected": f_undet,
+                            }
+                            total = f_mal + f_susp + f_harm + f_undet
+                except Exception as exc:
+                    logger.warning("Failed to refresh file stats after analysis: %s", exc)
+
+            if total > 0:
+                result["sha256"] = sha256
+                result["cached"] = False
+                cache_set(key, result, ttl=config.FILE_CACHE_TTL_SECONDS)
+            else:
+                logger.warning("VT analysis completed with 0 engines for file %s; scan incomplete", filename)
+                return {"error": "VirusTotal analysis in progress or incomplete. Please try again in a few moments."}
         return result
     except Exception as exc:
         logger.error("vt_scan_file: %s", exc)
