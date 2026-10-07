@@ -397,8 +397,7 @@ def engine_consensus(result: dict) -> str:
     total = mal + susp + harmless + undet
     if total <= 0:
         total = 100
-        if result.get("clean") or result.get("whitelisted"):
-            harmless = 100
+        harmless = 100
     safe_clean = harmless + undet
     pct = lambda n: round(100 * n / total)
     return (
@@ -818,7 +817,20 @@ def _handle_personal_scan(api: TelegramAPI, chat_id: int, message: dict, user_id
     # Separate threat, suspicious, and safe results
     threat_items = [item for item in results if item[2].get("malicious", 0) >= config.VT_MALICIOUS_THRESHOLD]
     susp_items = [item for item in results if item[2].get("suspicious", 0) >= config.VT_SUSPICIOUS_THRESHOLD and item not in threat_items]
-    error_items = [item for item in results if "error" in item[2]]
+    # Check for incomplete / unverified zero-engine results
+    for item in results:
+        r_dict = item[2]
+        if "error" not in r_dict and not r_dict.get("clean") and not r_dict.get("whitelisted"):
+            total_eng = (
+                int(r_dict.get("malicious", 0) or 0)
+                + int(r_dict.get("suspicious", 0) or 0)
+                + int(r_dict.get("harmless", 0) or 0)
+                + int(r_dict.get("undetected", 0) or 0)
+            )
+            if total_eng == 0:
+                r_dict["error"] = "VirusTotal scan pending or incomplete. Please try again in a few moments."
+                if item not in error_items:
+                    error_items.append(item)
 
     if error_items and not threat_items and not susp_items:
         if notice_id:
@@ -3709,6 +3721,20 @@ def process_update(api: TelegramAPI, update: dict) -> None:
 
     malicious = result.get("malicious", 0)
     suspicious = result.get("suspicious", 0)
+    harmless = result.get("harmless", 0)
+    undetected = result.get("undetected", 0)
+    total_eng = malicious + suspicious + harmless + undetected
+
+    if total_eng == 0 and not result.get("clean") and not result.get("whitelisted"):
+        logger.warning("File scan returned 0 engines for %s; aborting clean classification", filename)
+        record_report(chat_id, chat_title, "errors")
+        delete_notice()
+        err_msg_id = api.send_message(chat_id, get_msg_scan_error(lang, sender_label, esc(filename)))
+        if err_msg_id:
+            time.sleep(10)
+            api.delete_message(chat_id, err_msg_id)
+        return
+
     verdict = classify_verdict(malicious, suspicious)
     record_report(chat_id, chat_title, "scanned")
     record_report(chat_id, chat_title, "files")
