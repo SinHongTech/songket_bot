@@ -817,6 +817,8 @@ def _handle_personal_scan(api: TelegramAPI, chat_id: int, message: dict, user_id
     # Separate threat, suspicious, and safe results
     threat_items = [item for item in results if item[2].get("malicious", 0) >= config.VT_MALICIOUS_THRESHOLD]
     susp_items = [item for item in results if item[2].get("suspicious", 0) >= config.VT_SUSPICIOUS_THRESHOLD and item not in threat_items]
+    error_items = [item for item in results if "error" in item[2]]
+
     # Check for incomplete / unverified zero-engine results
     for item in results:
         r_dict = item[2]
@@ -3418,7 +3420,7 @@ def process_update(api: TelegramAPI, update: dict) -> None:
             logger.info("Auto-authorized group %d (%s) for active admin %d", chat_id, chat.get("title"), sender_id)
 
     if not is_authorized:
-        logger.info("Unauthorized group %d — ignored", chat_id)
+        logger.info("Unauthorized group %d (%s) — ignored", chat_id, chat.get("title") or "unknown")
         return
 
     # 4.5 New members (verification gate + join tracking)
