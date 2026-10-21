@@ -2735,7 +2735,15 @@ def add_strike(chat_id: int, user_id: int) -> int:
 
 
 def is_file_whitelisted(chat_id: int, sha256: str) -> bool:
-    return kv_get(f"whitelist:file:{chat_id}:{sha256}") is not None
+    sha = sha256.strip().lower()
+    if not sha:
+        return False
+    files = get_group_whitelisted_files(chat_id)
+    if any(f.get("sha256") == sha for f in files):
+        return True
+    if kv_get(f"whitelist:file:{chat_id}:{sha}") is not None:
+        kv_delete(f"whitelist:file:{chat_id}:{sha}")
+    return False
 
 
 def whitelist_file(chat_id: int, sha256: str, filename: str = "") -> None:
@@ -3053,7 +3061,13 @@ def remove_group_whitelisted_file(chat_id: int, sha256: str) -> bool:
     sha = sha256.strip().lower()
     kv_delete(f"whitelist:file:{chat_id}:{sha}")
     files = get_group_whitelisted_files(chat_id)
-    new_list = [f for f in files if f.get("sha256") != sha]
+    new_list = []
+    for f in files:
+        full_sha = str(f.get("sha256", "")).strip().lower()
+        if full_sha == sha or (len(sha) >= 8 and full_sha.startswith(sha)):
+            kv_delete(f"whitelist:file:{chat_id}:{full_sha}")
+            continue
+        new_list.append(f)
     return kv_json_set(f"whitelist:files:{chat_id}", new_list)
 
 
