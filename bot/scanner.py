@@ -16,6 +16,7 @@ import os
 import re
 import threading
 import time
+import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 from urllib.parse import quote
@@ -112,17 +113,225 @@ def _poll_analysis(analysis_id: str) -> dict:
     return {"error": "VT analysis timed out before completion"}
 
 
+# ── IDN Homograph & Confusable Attack Detection Engine ───────────────────────
+
+_CONFUSABLE_MAP = str.maketrans({
+    # Cyrillic lookalikes
+    "а": "a", "в": "b", "е": "e", "к": "k", "м": "m", "н": "h",
+    "о": "o", "р": "p", "с": "c", "т": "t", "у": "y", "х": "x",
+    "і": "i", "ї": "i", "ј": "j", "ѕ": "s", "ӏ": "l", "ԁ": "d",
+    "ԛ": "q", "ԝ": "w", "г": "r", "п": "n", "б": "b", "з": "3", "д": "d",
+    "А": "A", "В": "B", "Е": "E", "К": "K", "М": "M", "Н": "H",
+    "О": "O", "Р": "P", "С": "C", "Т": "T", "У": "Y", "Х": "X",
+    "І": "I", "Ї": "I", "Ј": "J", "Ѕ": "S", "Ӏ": "l",
+    # Greek lookalikes
+    "α": "a", "β": "b", "ε": "e", "η": "n", "ι": "i", "κ": "k",
+    "ν": "v", "ο": "o", "ρ": "p", "τ": "t", "υ": "u", "χ": "x", "ω": "w",
+    "Α": "A", "Β": "B", "Ε": "E", "Η": "H", "Ι": "I", "Κ": "K",
+    "Μ": "M", "Ν": "N", "Ο": "O", "Ρ": "P", "Τ": "T", "Υ": "Y", "Χ": "X",
+    # Latin IPA & Latin Extended lookalikes
+    "ɑ": "a", "ɡ": "g", "ɩ": "i", "ł": "l", "ø": "o", "ß": "ss",
+    "ạ": "a", "ẹ": "e", "ị": "i", "ọ": "o", "ụ": "u",
+    "ı": "i", "ȷ": "j", "ꞇ": "t", "ƿ": "w", "ᴑ": "o", "ᴏ": "o",
+    "ᴄ": "c", "ᴅ": "d", "ᴇ": "e", "ᴊ": "j", "ᴋ": "k", "ʟ": "l",
+    "ᴍ": "m", "ɴ": "n", "ᴘ": "p", "ᴛ": "t", "ᴜ": "u", "ᴠ": "v",
+    "ᴡ": "w", "ʏ": "y", "ᴢ": "z",
+    # Armenian lookalikes
+    "օ": "o", "ո": "n", "ս": "u", "տ": "in", "հ": "h",
+    # Cherokee lookalikes
+    "Ꭵ": "i", "Ꭲ": "T", "Ꭷ": "ka",
+    # Fullwidth ASCII (U+FF01 - U+FF5E)
+    "ａ": "a", "ｂ": "b", "ｃ": "c", "ｄ": "d", "ｅ": "e", "ｆ": "f",
+    "ｇ": "g", "ｈ": "h", "ｉ": "i", "ｊ": "j", "ｋ": "k", "ｌ": "l",
+    "ｍ": "m", "ｎ": "n", "ｏ": "o", "ｐ": "p", "ｑ": "q", "ｒ": "r",
+    "ｓ": "s", "ｔ": "t", "ｕ": "u", "ｖ": "v", "ｗ": "w", "ｘ": "x",
+    "ｙ": "y", "ｚ": "z",
+    "０": "0", "１": "1", "２": "2", "３": "3", "４": "4",
+    "５": "5", "៦": "6", "៧": "7", "៨": "8", "៩": "9",
+})
+
+_PROTECTED_BRANDS = {
+    # Telegram & Messaging
+    "telegram", "telegraam", "t.me", "telegram-org", "whatsapp", "signal",
+    "discord", "viber", "wechat", "line", "messenger", "skype",
+    # Tech Giants & Social Media
+    "google", "apple", "microsoft", "facebook", "meta", "instagram",
+    "tiktok", "twitter", "x.com", "github", "gitlab", "linkedin",
+    "youtube", "netflix", "amazon", "cloudflare", "spotify", "adobe",
+    # Crypto & Web3
+    "binance", "coinbase", "metamask", "trustwallet", "bybit", "okx",
+    "kucoin", "kraken", "phantom", "ledger", "trezor", "uniswap",
+    "pancakeswap", "blockchain",
+    # Global Banking & Payment
+    "paypal", "stripe", "visa", "mastercard", "westernunion", "moneygram",
+    # Cambodian Financial & Banking
+    "aba", "ababank", "acleda", "acledabank", "wingbank", "wing",
+    "bakong", "khqr", "canadiabank", "canadia", "chipmong", "chipmongbank",
+    "sathapana", "princebank", "vattanacbank", "vattanac", "cpbank",
+    "phillipbank", "amk", "prasac", "ftb", "ftbbank",
+}
+
+_ASCII_TLDS = {
+    "com", "net", "org", "io", "co", "app", "dev", "xyz", "top", "tk",
+    "ml", "ga", "cf", "gq", "me", "info", "biz", "online", "site", "web",
+    "shop", "click", "zip", "review", "work", "date", "download", "stream",
+    "live", "tv", "cc", "pw", "su", "ru", "cn", "vn", "kh", "cloud", "tech",
+    "store", "vip", "club", "pro", "space", "icu", "link", "guru", "agency",
+}
+
+
+def _get_char_script(ch: str) -> str:
+    code = ord(ch)
+    if code < 128:
+        return "LATIN" if ch.isalpha() else "COMMON"
+    name = unicodedata.name(ch, "")
+    for s in ("LATIN", "CYRILLIC", "GREEK", "ARMENIAN", "CHEROKEE", "HEBREW", "ARABIC", "KHMER", "THAI"):
+        if s in name:
+            return s
+    return "OTHER"
+
+
+def _to_confusable_skeleton(label: str) -> str:
+    nfd = unicodedata.normalize("NFD", label)
+    stripped = "".join(c for c in nfd if unicodedata.category(c) != "Mn")
+    return stripped.translate(_CONFUSABLE_MAP).lower()
+
+
+def detect_idn_homograph(domain: str) -> Optional[dict]:
+    """
+    Detect Internationalized Domain Name (IDN) homograph phishing attacks.
+    Follows Unicode UTS #39 and browser spoof-defense standards:
+    1. Decodes and validates Punycode (xn--) labels to Unicode.
+    2. Flags mixed-script labels (e.g. Latin mixed with Cyrillic/Greek/Armenian).
+    3. Checks confusable skeleton against protected brands (Telegram, Apple, Google, PayPal, Banking, etc.).
+    4. Detects whole-script confusable masquerading as Latin words under common ASCII TLDs.
+    5. Flags malformed or deceptive Punycode.
+    """
+    if not domain:
+        return None
+
+    clean_dom = domain.strip().rstrip(".").lower()
+    labels = clean_dom.split(".")
+    if len(labels) < 2:
+        return None
+
+    # Ultra-fast path: If domain has no 'xn--' and all characters are ASCII (<128), it cannot be an IDN homograph
+    if not any(lbl.startswith("xn--") for lbl in labels) and all(ord(c) < 128 for c in clean_dom):
+        return None
+
+    u_labels: list[str] = []
+    p_labels: list[str] = []
+    for lbl in labels:
+        if lbl.startswith("xn--"):
+            try:
+                u_lbl = lbl.encode("ascii").decode("idna")
+            except Exception:
+                logger.warning("[Homograph] Malformed punycode label: %s", lbl)
+                return {
+                    "malicious": 18,
+                    "suspicious": 5,
+                    "harmless": 0,
+                    "undetected": 0,
+                    "heuristic": "homograph",
+                    "threat_type": "homograph_attack",
+                    "spoofed_target": clean_dom,
+                    "real_domain": clean_dom,
+                    "unicode_domain": clean_dom,
+                    "skeleton": clean_dom,
+                    "reason": "Malformed Punycode IDN",
+                }
+            p_lbl = lbl
+        else:
+            u_lbl = lbl
+            try:
+                p_lbl = lbl.encode("idna").decode("ascii")
+            except Exception:
+                p_lbl = lbl
+        u_labels.append(u_lbl)
+        p_labels.append(p_lbl)
+
+    unicode_domain = ".".join(u_labels)
+    punycode_domain = ".".join(p_labels)
+    tld = labels[-1].lower()
+
+    # Analyze non-TLD labels
+    check_labels = u_labels[:-1] if tld in _ASCII_TLDS else u_labels
+
+    for raw_u_lbl in check_labels:
+        u_lbl = raw_u_lbl.lower()
+        if all(ord(c) < 128 for c in u_lbl):
+            continue
+
+        scripts = {_get_char_script(c) for c in u_lbl if _get_char_script(c) != "COMMON"}
+        skel = _to_confusable_skeleton(u_lbl)
+
+        # 1. Mixed-script check: single label mixes Latin with Cyrillic, Greek, etc.
+        if "LATIN" in scripts and len(scripts) > 1:
+            logger.warning("[Homograph] Mixed scripts %s detected in label '%s' (domain: %s)", scripts, u_lbl, clean_dom)
+            return {
+                "malicious": 18,
+                "suspicious": 5,
+                "harmless": 0,
+                "undetected": 0,
+                "heuristic": "homograph",
+                "threat_type": "homograph_attack",
+                "spoofed_target": f"{unicode_domain} (Punycode: {punycode_domain})",
+                "real_domain": punycode_domain,
+                "unicode_domain": unicode_domain,
+                "skeleton": skel,
+                "reason": f"Mixed scripts ({', '.join(sorted(scripts))}) in domain label",
+            }
+
+        # 2. Confusable skeleton brand match (e.g. аррӏе -> apple, tеlеgrаm -> telegram)
+        for brand in _PROTECTED_BRANDS:
+            if skel == brand or f".{brand}" in skel or skel.startswith(f"{brand}-") or skel.endswith(f"-{brand}"):
+                logger.warning("[Homograph] Spoofed brand '%s' detected (skeleton: '%s', domain: %s)", brand, skel, clean_dom)
+                return {
+                    "malicious": 18,
+                    "suspicious": 5,
+                    "harmless": 0,
+                    "undetected": 0,
+                    "heuristic": "homograph",
+                    "threat_type": "homograph_attack",
+                    "spoofed_target": f"{unicode_domain} (Spoofing: {brand} | Punycode: {punycode_domain})",
+                    "real_domain": punycode_domain,
+                    "unicode_domain": unicode_domain,
+                    "skeleton": skel,
+                    "reason": f"Spoofing protected brand '{brand}' using lookalike characters",
+                }
+
+        # 3. Whole-script confusable masquerading as Latin under ASCII TLD (.com, .org, etc.)
+        if tld in _ASCII_TLDS and skel.isalpha() and all(ord(c) < 128 for c in skel):
+            if any(ord(c) > 127 for c in u_lbl):
+                logger.warning("[Homograph] Whole-script confusable '%s' -> '%s' under .%s", u_lbl, skel, tld)
+                return {
+                    "malicious": 18,
+                    "suspicious": 5,
+                    "harmless": 0,
+                    "undetected": 0,
+                    "heuristic": "homograph",
+                    "threat_type": "homograph_attack",
+                    "spoofed_target": f"{unicode_domain} (Punycode: {punycode_domain})",
+                    "real_domain": punycode_domain,
+                    "unicode_domain": unicode_domain,
+                    "skeleton": skel,
+                    "reason": f"Whole-script confusable domain imitating Latin under .{tld}",
+                }
+
+    return None
+
+
 def check_telegram_phishing_heuristics(url: str) -> Optional[dict]:
-    """Fast local heuristic check for Telegram phishing and homograph domains."""
+    """Fast local heuristic check for IDN homographs and Telegram phishing domains."""
     from bot.utils import extract_domain
     domain = extract_domain(url).lower()
     if not domain:
         return None
 
-    # 1. Detect Cyrillic / Greek homoglyph attacks in ASCII domains
-    if re.search(r"[\u0400-\u04FF\u0370-\u03FF]", url):
-        logger.warning("[Heuristics] Homograph phishing detected: %s", url)
-        return {"malicious": 15, "suspicious": 5, "harmless": 0, "undetected": 0, "heuristic": "homograph"}
+    # 1. Comprehensive IDN Homograph & Confusable Attack Detection
+    homograph_hit = detect_idn_homograph(domain)
+    if homograph_hit:
+        return homograph_hit
 
     # 2. Known Telegram phishing patterns
     phish_patterns = [

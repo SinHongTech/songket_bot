@@ -23,6 +23,10 @@ from bot.redis_client import (
     add_allowed_group,
     remove_allowed_group,
     add_domain_whitelist,
+    remove_domain_whitelist,
+    get_custom_domain_whitelist_for_group,
+    get_owner_user_id_for_group,
+    is_custom_domain_whitelisted,
     add_group_banned_user,
     add_group_handler,
     add_group_muted_user,
@@ -93,6 +97,7 @@ from bot.utils import (
     explicit_group_map,
     extract_domain,
     extract_urls,
+    extract_urls_from_message,
     get_allowed_groups,
     get_managed_groups_for_user,
     get_user_display,
@@ -676,8 +681,7 @@ def _send_scan_prompt(api: TelegramAPI, chat_id: int, user_id: int) -> None:
 
 
 def _handle_personal_scan(api: TelegramAPI, chat_id: int, message: dict, user_id: int) -> None:
-    content = (message.get("text") or "") + " " + (message.get("caption") or "")
-    urls = extract_urls(content)
+    urls = extract_urls_from_message(message)
     doc = message.get("document") or {}
     file_id = doc.get("file_id", "")
     filename = doc.get("file_name", "")
@@ -767,12 +771,16 @@ def _handle_personal_scan(api: TelegramAPI, chat_id: int, message: dict, user_id
     notice_id = api.send_message(chat_id, get_msg_scanning(lang))
 
     results = []
+    whitelisted_targets = []
     scanned = 0
 
     for url in urls:
-        if is_whitelisted(url, user_id=user_id):
-            continue
         domain = extract_domain(url)
+        if is_whitelisted(url, user_id=user_id):
+            wl_label = f"{domain} (QR code inside {filename})" if (has_file and filename) else domain
+            if wl_label not in whitelisted_targets:
+                whitelisted_targets.append(wl_label)
+            continue
         final_url = resolve_redirect(url)
         final_domain = extract_domain(final_url) if final_url else domain
         if final_domain and final_domain != domain:
@@ -781,7 +789,12 @@ def _handle_personal_scan(api: TelegramAPI, chat_id: int, message: dict, user_id
                 target_label += f" (QR code inside {filename})"
         else:
             target_label = f"{domain} (QR code inside {filename})" if (has_file and filename) else domain
-        results.append(("link", target_label, vt_scan_url(url, user_id=user_id)))
+        scan_res = vt_scan_url(url, user_id=user_id)
+        if scan_res.get("whitelisted"):
+            if target_label not in whitelisted_targets:
+                whitelisted_targets.append(target_label)
+            continue
+        results.append(("link", target_label, scan_res))
         scanned += 1
 
     if has_file and doc_decision:
@@ -795,7 +808,7 @@ def _handle_personal_scan(api: TelegramAPI, chat_id: int, message: dict, user_id
             results.append(("file", filename, {"malicious": 0, "suspicious": 0, "harmless": 100, "undetected": 0}))
         scanned += 1
 
-    if not results and (photos or sticker):
+    if not results and not whitelisted_targets and (photos or sticker):
         results.append(("file", "Photo/Image", {"malicious": 0, "suspicious": 0, "harmless": 100, "undetected": 0}))
         scanned += 1
 
@@ -848,6 +861,17 @@ def _handle_personal_scan(api: TelegramAPI, chat_id: int, message: dict, user_id
         for kind, target, r in threat_items:
             display = mask_domain(target) if (kind == "link" and "(" not in target) else esc(target)
             consensus = engine_consensus(r)
+            if r.get("heuristic") == "homograph":
+                u_dom = r.get("unicode_domain") or target
+                p_dom = r.get("real_domain") or target
+                target_brand = r.get("skeleton") or "Brand"
+                consensus = (
+                    f"🚨 <b>IDN Homograph Attack (តំណភ្ជាប់បន្លំអក្សរ)</b>\n"
+                    f"• <b>Display Domain :</b> <code>{esc(u_dom)}</code>\n"
+                    f"• <b>Real Punycode :</b> <code>{esc(p_dom)}</code>\n"
+                    f"• <b>Target Spoofed :</b> <code>{esc(target_brand)}</code>\n\n"
+                    + consensus
+                )
             if lang == "kh":
                 threat_text = (
                     "🚨 <b>រកឃើញមាតិកាគ្រោះថ្នាក់ (Dangerous Threat)</b>\n\n"
@@ -921,6 +945,14 @@ def _handle_personal_scan(api: TelegramAPI, chat_id: int, message: dict, user_id
                 ]
             }
             api.send_message(chat_id, susp_text, reply_markup=kb)
+        return
+
+    # 2.5 Whitelisted URL / QR Code: show approved notice instead of 100% Safe / Clean
+    if whitelisted_targets and not results:
+        if notice_id:
+            api.delete_message(chat_id, notice_id)
+        wl_display = ", ".join(esc(t) for t in whitelisted_targets)
+        api.send_message(chat_id, f"✅ <b>{wl_display}</b> — approved earlier by admin, skipped.")
         return
 
     # 3. Clean safe result: send 1 unified safe verification
@@ -1443,7 +1475,7 @@ def _handle_group_selected_for_linking(api: TelegramAPI, chat_id: int, user_id: 
     api.send_message(chat_id, confirm_prompt, reply_markup=confirm_kb)
 
 
-def _build_group_settings_view(api: TelegramAPI, group_id: int) -> tuple[str, dict]:
+def _build_group_settings_view(api: TelegramAPI, group_id: int, user_id: Optional[int] = None) -> tuple[str, dict]:
     real_gid, chat = _resolve_chat_id_and_info(api, group_id)
     title = (chat or {}).get("title") or "ក្រុម (Group)"
 
@@ -1456,6 +1488,8 @@ def _build_group_settings_view(api: TelegramAPI, group_id: int) -> tuple[str, di
     muted_users = get_group_muted_users(group_id)
     banned_users = get_group_banned_users(group_id)
     wl_files = get_group_whitelisted_files(group_id)
+    custom_domains = get_custom_domain_whitelist_for_group(group_id, user_id=user_id)
+    total_wl_items = len(wl_files) + len(custom_domains)
 
     lang_labels = {
         "both": "🌐 ទាំងពីរ (Bilingual KH + EN)",
@@ -1473,7 +1507,7 @@ def _build_group_settings_view(api: TelegramAPI, group_id: int) -> tuple[str, di
         f"🔹 <b>Whitelist Users:</b> {len(wl_users)} នាក់ (members)\n"
         f"🔹 <b>Muted Users:</b> {len(muted_users)} នាក់ (members)\n"
         f"🔹 <b>Banned Users:</b> {len(banned_users)} នាក់ (members)\n"
-        f"🔹 <b>Approved Files:</b> {len(wl_files)} ឯកសារ (files)\n\n"
+        f"🔹 <b>Approved Files & URLs:</b> {len(wl_files)} files / {len(custom_domains)} domains\n\n"
         f"<i>ចុចប៊ូតុងខាងក្រោមដើម្បីកែប្រែ ឬគ្រប់គ្រងការកំណត់ភ្លាមៗ៖</i>"
     )
 
@@ -1491,7 +1525,7 @@ def _build_group_settings_view(api: TelegramAPI, group_id: int) -> tuple[str, di
         ],
         [
             {"text": f"👥 Users ({len(wl_users)} WL / {len(muted_users)} Mute / {len(banned_users)} Ban)", "callback_data": f"adm_users:{group_id}"},
-            {"text": f"📁 Whitelist Files ({len(wl_files)})", "callback_data": f"adm_files:{group_id}"},
+            {"text": f"📁 Whitelist Files ({total_wl_items})", "callback_data": f"adm_files:{group_id}"},
         ],
         [
             {"text": "🗑️ ដកក្រុមនេះចេញ (Remove Group)", "callback_data": f"rmgrp:{group_id}:0"},
@@ -1588,30 +1622,44 @@ def _build_group_users_view(api: TelegramAPI, group_id: int) -> tuple[str, dict]
     return "\n".join(lines), {"inline_keyboard": keyboard}
 
 
-def _build_group_files_view(api: TelegramAPI, group_id: int) -> tuple[str, dict]:
+def _build_group_files_view(api: TelegramAPI, group_id: int, user_id: Optional[int] = None) -> tuple[str, dict]:
     real_gid, chat = _resolve_chat_id_and_info(api, group_id)
     title = (chat or {}).get("title") or "ក្រុម (Group)"
 
     wl_files = get_group_whitelisted_files(group_id)
+    custom_domains = get_custom_domain_whitelist_for_group(group_id, user_id=user_id)
 
     lines = [
-        f"📁 <b>ការគ្រប់គ្រងឯកសារអនុញ្ញាត / Whitelisted Files:</b>",
+        f"📁 <b>ការគ្រប់គ្រងឯកសារ និងតំណអនុញ្ញាត / Whitelisted Files & URLs:</b>",
         f"📌 <b>{esc(title)}</b> (<code>{group_id}</code>)\n",
+        f"📄 <b>Approved Files (ឯកសារអនុញ្ញាត):</b>",
     ]
     if not wl_files:
-        lines.append("<i>គ្មានឯកសារក្នុងបញ្ជីអនុញ្ញាតឡើយ (No approved files yet)</i>\n")
+        lines.append("<i>គ្មានឯកសារក្នុងបញ្ជីអនុញ្ញាតឡើយ (No approved files yet)</i>")
     else:
         for idx, f in enumerate(wl_files, 1):
             fname = f.get("filename") or "Document"
             sha = f.get("sha256", "")
             lines.append(f"{idx}. 📄 <b>{esc(fname)}</b>\n   <code>{sha[:24]}...</code>")
 
+    lines.append(f"\n🌐 <b>Whitelisted Domains / URLs (តំណភ្ជាប់អនុញ្ញាត):</b>")
+    if not custom_domains:
+        lines.append("<i>គ្មានតំណភ្ជាប់បន្ថែមក្នុងបញ្ជីសឡើយ (No custom whitelisted domains)</i>\n")
+    else:
+        for idx, dom in enumerate(custom_domains, 1):
+            lines.append(f"{idx}. 🔗 <code>{esc(dom)}</code>")
+
     keyboard = []
     for f in wl_files[:6]:
         sha = f.get("sha256", "")
         fname = f.get("filename") or sha[:12]
         keyboard.append([
-            {"text": f"🗑️ Remove {fname[:18]}", "callback_data": f"adm_rm_wl_file:{group_id}:{sha}"}
+            {"text": f"🗑️ Remove File: {fname[:18]}", "callback_data": f"adm_rm_wl_file:{group_id}:{sha[:16]}"}
+        ])
+
+    for dom in custom_domains[:6]:
+        keyboard.append([
+            {"text": f"🗑️ Remove URL: {dom[:22]}", "callback_data": f"adm_rm_wl_dom:{group_id}:{dom[:32]}"}
         ])
 
     keyboard.append([
@@ -2325,8 +2373,7 @@ def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
             return
 
     # Personal scanning — any link, photo, sticker, or file sent privately
-    content = (message.get("text") or "") + " " + (message.get("caption") or "")
-    if extract_urls(content) or message.get("photo") or message.get("sticker") or (message.get("document") or {}).get("file_id"):
+    if extract_urls_from_message(message) or message.get("photo") or message.get("sticker") or (message.get("document") or {}).get("file_id"):
         _handle_personal_scan(api, chat_id, message, user_id)
         return
 
@@ -3073,7 +3120,7 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
         if not any(g["id"] == target_gid for g in managed_groups):
             api.answer_callback_query(query_id, text="❌ Unauthorized", show_alert=True)
             return
-        text, markup = _build_group_settings_view(api, target_gid)
+        text, markup = _build_group_settings_view(api, target_gid, user_id=user_id)
         api.edit_message_text(chat_id, msg_id, text, reply_markup=markup)
         api.answer_callback_query(query_id)
         return
@@ -3089,7 +3136,7 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
             return
         set_group_lang(target_gid, new_lang)
         api.answer_callback_query(query_id, text=f"✅ ភាសាត្រូវបានប្តូរទៅ {new_lang.upper()}")
-        text, markup = _build_group_settings_view(api, target_gid)
+        text, markup = _build_group_settings_view(api, target_gid, user_id=user_id)
         api.edit_message_text(chat_id, msg_id, text, reply_markup=markup)
         return
 
@@ -3105,7 +3152,7 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
         set_group_settings(target_gid, {"safe_timeout": new_timer, "show_safe": new_timer > 0})
         toast = f"✅ សារសុវត្ថិភាព: {new_timer}s" if new_timer > 0 else "✅ បានបិទសារសុវត្ថិភាព (Off)"
         api.answer_callback_query(query_id, text=toast)
-        text, markup = _build_group_settings_view(api, target_gid)
+        text, markup = _build_group_settings_view(api, target_gid, user_id=user_id)
         api.edit_message_text(chat_id, msg_id, text, reply_markup=markup)
         return
 
@@ -3128,7 +3175,7 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
         if not any(g["id"] == target_gid for g in managed_groups):
             api.answer_callback_query(query_id, text="❌ Unauthorized", show_alert=True)
             return
-        text, markup = _build_group_files_view(api, target_gid)
+        text, markup = _build_group_files_view(api, target_gid, user_id=user_id)
         api.edit_message_text(chat_id, msg_id, text, reply_markup=markup)
         api.answer_callback_query(query_id)
         return
@@ -3159,7 +3206,28 @@ def process_callback_query(api: TelegramAPI, query: dict) -> None:
             return
         remove_group_whitelisted_file(target_gid, sha)
         api.answer_callback_query(query_id, text="🗑️ File removed from whitelist!", show_alert=True)
-        text, markup = _build_group_files_view(api, target_gid)
+        text, markup = _build_group_files_view(api, target_gid, user_id=user_id)
+        api.edit_message_text(chat_id, msg_id, text, reply_markup=markup)
+        return
+
+    # 9.5 Remove custom domain from group/admin whitelist
+    if data.startswith("adm_rm_wl_dom:"):
+        parts = data.split(":", 2)
+        target_gid = int(parts[1])
+        dom_prefix = parts[2].strip().lower()
+        managed_groups = get_managed_groups_for_user(api, user_id)
+        if not any(g["id"] == target_gid for g in managed_groups):
+            api.answer_callback_query(query_id, text="❌ Unauthorized", show_alert=True)
+            return
+        owner_uid = get_owner_user_id_for_group(target_gid)
+        custom_doms = get_custom_domain_whitelist_for_group(target_gid, user_id=user_id)
+        matched_doms = [d for d in custom_doms if d == dom_prefix or d.startswith(dom_prefix)] or [dom_prefix]
+        for d in matched_doms:
+            if owner_uid:
+                remove_domain_whitelist(d, user_id=owner_uid)
+            remove_domain_whitelist(d, user_id=user_id)
+        api.answer_callback_query(query_id, text="🗑️ Domain removed from whitelist!", show_alert=True)
+        text, markup = _build_group_files_view(api, target_gid, user_id=user_id)
         api.edit_message_text(chat_id, msg_id, text, reply_markup=markup)
         return
 
@@ -3468,7 +3536,7 @@ def process_update(api: TelegramAPI, update: dict) -> None:
         logger.debug("Duplicate message update ignored: chat_id=%d msg_id=%d", chat_id, msg_id)
         return
 
-    urls = extract_urls(content)
+    urls = extract_urls_from_message(message)
 
     # 6.1 Extract QR Code from Photos, Stickers, or Document Images
     photos = message.get("photo") or []
@@ -3520,7 +3588,11 @@ def process_update(api: TelegramAPI, update: dict) -> None:
             urls.append(qu)
 
     has_scannable_url = any(not is_whitelisted(u, chat_id=chat_id) for u in urls)
-    if not has_scannable_url and not has_file:
+    has_custom_wl_url = any(
+        is_whitelisted(u, chat_id=chat_id) and (u in qr_urls or is_custom_domain_whitelisted(u, chat_id=chat_id))
+        for u in urls
+    )
+    if not has_scannable_url and not has_custom_wl_url and not has_file:
         return
 
     # Group Settings
@@ -3549,11 +3621,16 @@ def process_update(api: TelegramAPI, update: dict) -> None:
 
     # ── URL scanning ─────────────────────────────────────────────────────
     scanned_clean_targets = []
+    whitelisted_url_targets = []
     for url in urls:
         domain = extract_domain(url)
 
         if is_whitelisted(url, chat_id=chat_id):
             logger.info("Whitelisted | domain=%s", domain)
+            if url in qr_urls or is_custom_domain_whitelisted(url, chat_id=chat_id):
+                wl_label = f"{domain} (QR in {filename})" if (has_file and filename and url in qr_urls) else domain
+                if wl_label not in whitelisted_url_targets:
+                    whitelisted_url_targets.append(wl_label)
             continue
 
         logger.info("Scanning URL | domain=%s | user=%s", domain, user_display)
@@ -3562,6 +3639,14 @@ def process_update(api: TelegramAPI, update: dict) -> None:
         if "error" in result:
             logger.error("URL scan error | domain=%s | %s", domain, result["error"])
             record_report(chat_id, chat_title, "errors")
+            continue
+
+        if result.get("whitelisted"):
+            logger.info("Whitelisted after redirect | domain=%s", domain)
+            if url in qr_urls or is_custom_domain_whitelisted(url, chat_id=chat_id):
+                wl_label = f"{domain} (QR in {filename})" if (has_file and filename and url in qr_urls) else domain
+                if wl_label not in whitelisted_url_targets:
+                    whitelisted_url_targets.append(wl_label)
             continue
 
         malicious = result.get("malicious", 0)
@@ -3649,18 +3734,33 @@ def process_update(api: TelegramAPI, update: dict) -> None:
         if deleted:
             record_report(chat_id, chat_title, "deleted")
         threat_type_val = "qr_phishing" if (has_file or photos) else ("phishing" if (result.get("heuristic") or "phish" in str(result)) else "malware")
+        if result.get("heuristic") == "homograph":
+            threat_type_val = "homograph_attack"
+        target_display = f"{domain} (QR in {filename})" if (has_file and filename) else (f"{domain} [Spoofed IDN: {result['spoofed_target']}]" if result.get("spoofed_target") else domain)
         record_threat_event(
             chat_id=chat_id,
             chat_title=chat_title,
             sender=sender,
-            target=f"{domain} (QR in {filename})" if (has_file and filename) else domain,
+            target=target_display,
             threat_type=threat_type_val,
             risk="critical",
             action_taken="deleted" if deleted else "alerted",
         )
+        extra_note = redirect_note + consensus
+        if result.get("heuristic") == "homograph":
+            u_dom = result.get("unicode_domain") or domain
+            p_dom = result.get("real_domain") or domain
+            target_brand = result.get("skeleton") or "Brand"
+            extra_note = (
+                f"\n\n🚨 <b>IDN Homograph Phishing Attack (តំណភ្ជាប់បន្លំអក្សរ)</b>\n"
+                f"• <b>Display Domain :</b> <code>{esc(u_dom)}</code>\n"
+                f"• <b>Real Punycode :</b> <code>{esc(p_dom)}</code>\n"
+                f"• <b>Target Spoofed :</b> <code>{esc(target_brand)}</code>\n"
+                + consensus
+            )
         _send_threat_alert(
             api, chat_id, sender_label, mask_domain(domain), deleted, lang=lang,
-            extra=redirect_note + consensus,
+            extra=extra_note,
             target_user_id=sender_id,
             target_domain=domain,
         )
@@ -3672,6 +3772,10 @@ def process_update(api: TelegramAPI, update: dict) -> None:
     if not has_file:
         if scanned_clean_targets:
             display_safe_feedback(", ".join(scanned_clean_targets))
+        elif whitelisted_url_targets:
+            delete_notice()
+            wl_str = ", ".join(esc(t) for t in whitelisted_url_targets)
+            api.send_message(chat_id, f"✅ <b>{wl_str}</b> — approved earlier by admin, skipped.")
         else:
             delete_notice()
         return
@@ -3690,7 +3794,12 @@ def process_update(api: TelegramAPI, update: dict) -> None:
             logger.info("Safe file prefiltered | %s", filename)
             record_report(chat_id, chat_title, "scanned")
             record_report(chat_id, chat_title, "files")
-            display_safe_feedback(filename)
+            if whitelisted_url_targets and not scanned_clean_targets:
+                delete_notice()
+                wl_str = ", ".join(esc(t) for t in whitelisted_url_targets)
+                api.send_message(chat_id, f"✅ <b>{wl_str}</b> — approved earlier by admin, skipped.")
+            else:
+                display_safe_feedback(filename)
             return
         logger.error("File download/validation failed for %s | chat=%s (reason: %s)", filename, chat_id, decision.reason)
         record_report(chat_id, chat_title, "errors")

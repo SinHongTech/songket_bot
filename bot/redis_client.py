@@ -282,7 +282,16 @@ def add_strike(chat_id: int, user_id: int) -> int:
 
 
 def is_file_whitelisted(chat_id: int, sha256: str) -> bool:
-    return kv_get(f"whitelist:file:{chat_id}:{sha256}") is not None
+    sha = sha256.strip().lower()
+    if not sha:
+        return False
+    files = get_group_whitelisted_files(chat_id)
+    if any(f.get("sha256") == sha for f in files):
+        return True
+    if kv_get(f"whitelist:file:{chat_id}:{sha}") is not None:
+        # Clean up orphaned per-file key when whitelist:files:{chat_id} no longer contains it
+        kv_delete(f"whitelist:file:{chat_id}:{sha}")
+    return False
 
 
 def whitelist_file(chat_id: int, sha256: str, filename: str = "") -> None:
@@ -597,7 +606,13 @@ def remove_group_whitelisted_file(chat_id: int, sha256: str) -> bool:
     sha = sha256.strip().lower()
     kv_delete(f"whitelist:file:{chat_id}:{sha}")
     files = get_group_whitelisted_files(chat_id)
-    new_list = [f for f in files if f.get("sha256") != sha]
+    new_list = []
+    for f in files:
+        full_sha = str(f.get("sha256", "")).strip().lower()
+        if full_sha == sha or (len(sha) >= 8 and full_sha.startswith(sha)):
+            kv_delete(f"whitelist:file:{chat_id}:{full_sha}")
+            continue
+        new_list.append(f)
     return kv_json_set(f"whitelist:files:{chat_id}", new_list)
 
 
@@ -1074,6 +1089,52 @@ def remove_domain_whitelist(domain: str, user_id: Optional[int] = None) -> bool:
         current.remove(clean)
         return save_domain_whitelist(current, user_id=user_id)
     return True
+
+
+def get_custom_domain_whitelist(user_id: Optional[int] = None) -> list[str]:
+    """Return only custom whitelisted domains (excluding DEFAULT_TRUSTED_DOMAINS)."""
+    default_set = {d.lower() for d in DEFAULT_TRUSTED_DOMAINS}
+    return [d for d in get_domain_whitelist(user_id=user_id) if d.lower() not in default_set]
+
+
+def get_custom_domain_whitelist_for_group(chat_id: int, user_id: Optional[int] = None) -> list[str]:
+    """Return custom whitelisted domains effective for this group (owner + viewing admin)."""
+    default_set = {d.lower() for d in DEFAULT_TRUSTED_DOMAINS}
+    domains: list[str] = []
+    owner_uid = get_owner_user_id_for_group(chat_id)
+    if owner_uid:
+        for d in get_domain_whitelist(user_id=owner_uid):
+            if d.lower() not in default_set and d.lower() not in domains:
+                domains.append(d.lower())
+    if user_id and user_id != owner_uid:
+        for d in get_domain_whitelist(user_id=user_id):
+            if d.lower() not in default_set and d.lower() not in domains:
+                domains.append(d.lower())
+    if not owner_uid and not user_id:
+        for d in get_domain_whitelist():
+            if d.lower() not in default_set and d.lower() not in domains:
+                domains.append(d.lower())
+    return domains
+
+
+def is_custom_domain_whitelisted(url_or_domain: str, chat_id: Optional[int] = None, user_id: Optional[int] = None) -> bool:
+    """Check if a URL or domain matches a custom admin-whitelisted domain (excluding DEFAULT_TRUSTED_DOMAINS)."""
+    from bot.utils import extract_domain, URL_SHORTENERS
+    domain = extract_domain(url_or_domain).lower()
+    if not domain:
+        return False
+    if domain in URL_SHORTENERS or any(domain.endswith(f".{s}") for s in URL_SHORTENERS):
+        return False
+    custom_list = (
+        get_custom_domain_whitelist_for_group(chat_id, user_id=user_id)
+        if chat_id
+        else get_custom_domain_whitelist(user_id=user_id)
+    )
+    for wl in custom_list:
+        wl_clean = wl.lower()
+        if domain == wl_clean or domain.endswith(f".{wl_clean}"):
+            return True
+    return False
 
 
 def is_domain_whitelisted(url_or_domain: str, chat_id: Optional[int] = None, user_id: Optional[int] = None) -> bool:

@@ -95,9 +95,9 @@ SUSPICIOUS_TLDS: tuple[str, ...] = (
 
 _FULL_URL_RE = re.compile(r"https?://[^\s]+")
 _BARE_DOMAIN_RE = re.compile(
-    r"(?<![/@\w])"
+    r"(?<![/@\w\-])"
     r"("
-    r"(?:[a-zA-Z0-9-]+\.)+"
+    r"(?:[a-zA-Z0-9\u0080-\uffff-]+\.)+"
     r"(?:com|net|org|io|co|app|dev|xyz|top|tk|ml|ga|cf|gq|me|info|biz|"
     r"online|site|web|shop|click|zip|review|work|date|download|stream|"
     r"live|tv|cc|pw|su|ru|cn|vn|kh)"
@@ -124,7 +124,7 @@ def extract_domain(url: str) -> str:
         if not url.startswith("http"):
             url = "https://" + url
         parsed = urlparse(url)
-        domain = (parsed.netloc or parsed.path).split(":")[0].lower()
+        domain = (parsed.netloc or parsed.path).split(":")[0].strip().rstrip(".").lower()
         if domain.startswith("www."):
             domain = domain[4:]
         return domain or url[:60]
@@ -137,9 +137,17 @@ def extract_urls(text: str) -> list[str]:
         return []
 
     full_urls = _FULL_URL_RE.findall(text)
-    bare_domains = _BARE_DOMAIN_RE.findall(text)
+    # Strip full URLs before searching for bare domains to prevent matching suffixes/punycode fragments
+    text_no_full = _FULL_URL_RE.sub(" ", text)
+    bare_domains = _BARE_DOMAIN_RE.findall(text_no_full)
 
-    normalized = [u if u.startswith("http") else "https://" + u for u in full_urls + bare_domains]
+    normalized: list[str] = []
+    for raw in full_urls + bare_domains:
+        clean = raw.strip().rstrip(".,;:!?)>\"'}\\]")
+        if not clean:
+            continue
+        u = clean if clean.startswith("http") else "https://" + clean
+        normalized.append(u)
 
     seen: set[str] = set()
     result: list[str] = []
@@ -148,6 +156,51 @@ def extract_urls(text: str) -> list[str]:
             seen.add(u)
             result.append(u)
     return result
+
+
+def extract_urls_from_message(message: dict) -> list[str]:
+    """
+    Extract all URLs from a Telegram message, including:
+    - Hidden hyperlink entities (type == 'text_link')
+    - Explicit URL entities (type == 'url')
+    - Bare domains and full URLs in message text or caption
+    """
+    urls: list[str] = []
+    seen: set[str] = set()
+
+    def _add(u: str) -> None:
+        if not u:
+            return
+        clean = u.strip().rstrip(".,;:!?)>\"'}\\]")
+        if not clean:
+            return
+        norm = clean if clean.startswith("http") else "https://" + clean
+        if norm not in seen:
+            seen.add(norm)
+            urls.append(norm)
+
+    # 1. Telegram entities (text and caption)
+    for ent_key, text_key in (("entities", "text"), ("caption_entities", "caption")):
+        entities = message.get(ent_key) or []
+        body = message.get(text_key) or ""
+        for ent in entities:
+            if not isinstance(ent, dict):
+                continue
+            etype = ent.get("type")
+            if etype == "text_link" and ent.get("url"):
+                _add(ent["url"])
+            elif etype == "url" and body:
+                offset = ent.get("offset", 0)
+                length = ent.get("length", 0)
+                if length > 0:
+                    _add(body[offset:offset + length])
+
+    # 2. General text extraction (full URLs and bare domains)
+    content = (message.get("text") or "") + " " + (message.get("caption") or "")
+    for u in extract_urls(content):
+        _add(u)
+
+    return urls
 
 
 def is_whitelisted(url: str, chat_id: Optional[int] = None, user_id: Optional[int] = None) -> bool:
