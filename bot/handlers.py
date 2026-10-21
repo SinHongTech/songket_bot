@@ -97,6 +97,7 @@ from bot.utils import (
     explicit_group_map,
     extract_domain,
     extract_urls,
+    extract_urls_from_message,
     get_allowed_groups,
     get_managed_groups_for_user,
     get_user_display,
@@ -680,8 +681,7 @@ def _send_scan_prompt(api: TelegramAPI, chat_id: int, user_id: int) -> None:
 
 
 def _handle_personal_scan(api: TelegramAPI, chat_id: int, message: dict, user_id: int) -> None:
-    content = (message.get("text") or "") + " " + (message.get("caption") or "")
-    urls = extract_urls(content)
+    urls = extract_urls_from_message(message)
     doc = message.get("document") or {}
     file_id = doc.get("file_id", "")
     filename = doc.get("file_name", "")
@@ -861,6 +861,17 @@ def _handle_personal_scan(api: TelegramAPI, chat_id: int, message: dict, user_id
         for kind, target, r in threat_items:
             display = mask_domain(target) if (kind == "link" and "(" not in target) else esc(target)
             consensus = engine_consensus(r)
+            if r.get("heuristic") == "homograph":
+                u_dom = r.get("unicode_domain") or target
+                p_dom = r.get("real_domain") or target
+                target_brand = r.get("skeleton") or "Brand"
+                consensus = (
+                    f"🚨 <b>IDN Homograph Attack (តំណភ្ជាប់បន្លំអក្សរ)</b>\n"
+                    f"• <b>Display Domain :</b> <code>{esc(u_dom)}</code>\n"
+                    f"• <b>Real Punycode :</b> <code>{esc(p_dom)}</code>\n"
+                    f"• <b>Target Spoofed :</b> <code>{esc(target_brand)}</code>\n\n"
+                    + consensus
+                )
             if lang == "kh":
                 threat_text = (
                     "🚨 <b>រកឃើញមាតិកាគ្រោះថ្នាក់ (Dangerous Threat)</b>\n\n"
@@ -2362,8 +2373,7 @@ def _handle_private_chat(api: TelegramAPI, chat_id: int, message: dict) -> None:
             return
 
     # Personal scanning — any link, photo, sticker, or file sent privately
-    content = (message.get("text") or "") + " " + (message.get("caption") or "")
-    if extract_urls(content) or message.get("photo") or message.get("sticker") or (message.get("document") or {}).get("file_id"):
+    if extract_urls_from_message(message) or message.get("photo") or message.get("sticker") or (message.get("document") or {}).get("file_id"):
         _handle_personal_scan(api, chat_id, message, user_id)
         return
 
@@ -3526,7 +3536,7 @@ def process_update(api: TelegramAPI, update: dict) -> None:
         logger.debug("Duplicate message update ignored: chat_id=%d msg_id=%d", chat_id, msg_id)
         return
 
-    urls = extract_urls(content)
+    urls = extract_urls_from_message(message)
 
     # 6.1 Extract QR Code from Photos, Stickers, or Document Images
     photos = message.get("photo") or []
@@ -3724,18 +3734,33 @@ def process_update(api: TelegramAPI, update: dict) -> None:
         if deleted:
             record_report(chat_id, chat_title, "deleted")
         threat_type_val = "qr_phishing" if (has_file or photos) else ("phishing" if (result.get("heuristic") or "phish" in str(result)) else "malware")
+        if result.get("heuristic") == "homograph":
+            threat_type_val = "homograph_attack"
+        target_display = f"{domain} (QR in {filename})" if (has_file and filename) else (f"{domain} [Spoofed IDN: {result['spoofed_target']}]" if result.get("spoofed_target") else domain)
         record_threat_event(
             chat_id=chat_id,
             chat_title=chat_title,
             sender=sender,
-            target=f"{domain} (QR in {filename})" if (has_file and filename) else domain,
+            target=target_display,
             threat_type=threat_type_val,
             risk="critical",
             action_taken="deleted" if deleted else "alerted",
         )
+        extra_note = redirect_note + consensus
+        if result.get("heuristic") == "homograph":
+            u_dom = result.get("unicode_domain") or domain
+            p_dom = result.get("real_domain") or domain
+            target_brand = result.get("skeleton") or "Brand"
+            extra_note = (
+                f"\n\n🚨 <b>IDN Homograph Phishing Attack (តំណភ្ជាប់បន្លំអក្សរ)</b>\n"
+                f"• <b>Display Domain :</b> <code>{esc(u_dom)}</code>\n"
+                f"• <b>Real Punycode :</b> <code>{esc(p_dom)}</code>\n"
+                f"• <b>Target Spoofed :</b> <code>{esc(target_brand)}</code>\n"
+                + consensus
+            )
         _send_threat_alert(
             api, chat_id, sender_label, mask_domain(domain), deleted, lang=lang,
-            extra=redirect_note + consensus,
+            extra=extra_note,
             target_user_id=sender_id,
             target_domain=domain,
         )
